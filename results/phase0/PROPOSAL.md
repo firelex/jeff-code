@@ -54,7 +54,7 @@ runs `pi --print --mode json --session-dir ... --provider ... --model ... "<task
 and keeps pi's session files. That adapter installs the published `@earendil-works/pi-coding-agent`, so we add a
 small subclass that installs our fork instead:
 
-- `results/phase0/harbor_agent/jeff_pi.py`: about 40 lines. It subclasses Harbor's `Pi` agent and overrides only
+- `tools/jeff-first/harbor_agent/jeff_pi.py` (built and tested): It subclasses Harbor's `Pi` agent and overrides only
   the install step to `npm install -g` a tarball of the fork, uploaded into the container.
 - The tarball comes from `npm run build` and then `npm pack` in `packages/coding-agent`. pi's `AGENTS.md` says
   not to build unless asked; approving this proposal is that request.
@@ -66,17 +66,18 @@ Thinking level: pi's default (to confirm, below).
 **Sparkgate.** `~/jeff-finetunes/sparkgate.py` is a Python locking library, not a server. pi runs in Node inside
 Docker and cannot take its slots. So we add a small pass-through server on datigator:
 
-- `sparkgate_proxy.py`: about 60 lines, Python. It listens on one port, takes one sparkgate slot per request
+- `tools/jeff-first/sparkgate_proxy.py` (built and tested): It listens on one port, takes one sparkgate slot per request
   (respecting the machine-wide limit in `~/.spark-slots/limit` and its own cap `~/.spark-slots/cap-jeffpi = 2`),
   forwards the request to spark-fa14:8888, and streams the answer back.
 - Containers reach it through the Docker host address.
 - If the Spark or the slot wait fails, the request fails; there is no fallback.
 
-**Per task.** One `harbor run` per task, so each task gets its own id in the trace:
+**Per task.** `tools/jeff-first/run_phase0.sh` starts one `harbor run` per task, so each task gets its own id in
+the trace (`--dry-run` prints the commands). Each command is equivalent to:
 
 ```bash
 harbor run -t terminal-bench/<task>@69671fbaac6d67a7ef0dfec016cc38a64ef7a77c \
-  -a results.phase0.harbor_agent.jeff_pi:JeffPi \
+  -a harbor_agent.jeff_pi:JeffPi \
   -m <provider>/qwen3.8-flash-next --ak model_api=openai-completions \
   --ae JEFF_FIRST_MODE=shadow \
   --ae JEFF_FIRST_TASK_ID=<task> \
@@ -96,7 +97,8 @@ requests from this run, well under sparkgate's limit of 31.
 ## Order of work after approval
 
 1. Check that datigator has Docker, `uv` and Node, and install Harbor with `uv tool install harbor`.
-2. Build and pack the fork; write `jeff_pi.py` and `sparkgate_proxy.py`, each with a small test.
+2. Build and pack the fork on datigator (`npm run build:offline`, then `npm pack` in `packages/coding-agent`); start
+   `sparkgate_proxy.py` in its own tmux session.
 3. Check the Spark is free: `/metrics` shows no running or waiting requests, and no data-generation job holds
    sparkgate slots. **Nothing else runs on the Sparks until the run ends.**
 4. Smoke test on one phase-0 task (`cobol-modernization`, easy, 15 min). Check the trace has one line per model
@@ -113,7 +115,7 @@ requests from this run, well under sparkgate's limit of 31.
 
 ## Coverage report
 
-`coverage.py` reads every `results/phase0/runs/**/agent/jeff-first-trace.jsonl` and writes
+`tools/jeff-first/coverage_report.py` (built and tested) reads every `results/phase0/runs/**/agent/jeff-first-trace.jsonl` and writes
 `results/phase0/coverage.md`:
 
 - **Counted turns:** every trace line whose stop reason is `toolUse` or `stop`. Model errors and aborts are listed
