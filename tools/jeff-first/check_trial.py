@@ -10,6 +10,10 @@ import json
 import sys
 from pathlib import Path
 
+# Running out of the task's time limit is a normal benchmark outcome (the verifier still scores the task), not a
+# broken run. Every other exception means the trial itself failed.
+TASK_OUTCOME_EXCEPTIONS = {"AgentTimeoutError"}
+
 
 def check_job(job: Path) -> str:
     results = sorted(job.glob("*/result.json"))
@@ -20,13 +24,14 @@ def check_job(job: Path) -> str:
         trial = result_path.parent
         result = json.loads(result_path.read_text())
         info = result["exception_info"]
-        if info is not None:
+        if info is not None and info["exception_type"] not in TASK_OUTCOME_EXCEPTIONS:
             raise RuntimeError(f"{trial.name} raised {info['exception_type']}: {info['exception_message'][:500]}")
+        note = " (agent timed out)" if info is not None else ""
         trace = trial / "agent" / "jeff-first-trace.jsonl"
         if not trace.exists() or trace.stat().st_size == 0:
             raise RuntimeError(f"{trial.name} wrote no jeff-first-trace.jsonl")
         count = sum(1 for line in trace.read_text().splitlines() if line.strip())
-        lines.append(f"{trial.name}: ok, {count} trace lines")
+        lines.append(f"{trial.name}: ok{note}, {count} trace lines")
     return "\n".join(lines)
 
 

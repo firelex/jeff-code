@@ -5,10 +5,10 @@ import pytest
 from check_trial import check_job
 
 
-def make_trial(job, name, exception=None, trace_lines=1):
+def make_trial(job, name, exception=None, trace_lines=1, exception_type="RuntimeError"):
     trial = job / name
     (trial / "agent").mkdir(parents=True)
-    info = None if exception is None else {"exception_type": "RuntimeError", "exception_message": exception}
+    info = None if exception is None else {"exception_type": exception_type, "exception_message": exception}
     (trial / "result.json").write_text(json.dumps({"task_name": "terminal-bench/x", "exception_info": info}))
     if trace_lines:
         (trial / "agent" / "jeff-first-trace.jsonl").write_text("{}\n" * trace_lines)
@@ -34,3 +34,8 @@ def test_rejects_a_trial_without_a_trace(tmp_path):
 def test_rejects_a_job_without_trials(tmp_path):
     with pytest.raises(RuntimeError, match="no trial results"):
         check_job(tmp_path)
+
+
+def test_accepts_an_agent_timeout_as_a_task_result(tmp_path):
+    make_trial(tmp_path, "x__1", exception="Agent execution timed out after 900.0 seconds", exception_type="AgentTimeoutError")
+    assert check_job(tmp_path) == "x__1: ok (agent timed out), 1 trace lines"
