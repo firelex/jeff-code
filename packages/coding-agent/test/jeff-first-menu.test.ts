@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { JsonObject } from "@earendil-works/pi-ai";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildMenu, type MenuInput, type MenuOption, matchToolCall } from "../src/core/jeff-first/menu.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
@@ -44,7 +44,9 @@ describe("buildMenu", () => {
 	});
 
 	it("offers reads for existing files named in the task, and looks for named folders", () => {
-		const menu = buildMenu(base({ task: "Fix src/app.py and see README.md; ignore missing.py and https://x.org/a." }));
+		const menu = buildMenu(
+			base({ task: "Fix src/app.py and see README.md; ignore missing.py and https://x.org/a." }),
+		);
 		const calls = menu.map((o) => o.toolCall);
 		expect(calls).toContainEqual({ name: "read", arguments: { path: join(cwd, "src", "app.py") } });
 		expect(calls).toContainEqual({ name: "read", arguments: { path: join(cwd, "README.md") } });
@@ -52,8 +54,13 @@ describe("buildMenu", () => {
 	});
 
 	it("resolves names in an ls output against the listed folder", () => {
-		const menu = buildMenu(base({ steps: [step("bash", { command: "ls -la src" }, "total 1\n-rw-r--r-- 1 u u 1 Oct 1 app.py")] }));
-		expect(menu.map((o) => o.toolCall)).toContainEqual({ name: "read", arguments: { path: join(cwd, "src", "app.py") } });
+		const menu = buildMenu(
+			base({ steps: [step("bash", { command: "ls -la src" }, "total 1\n-rw-r--r-- 1 u u 1 Oct 1 app.py")] }),
+		);
+		expect(menu.map((o) => o.toolCall)).toContainEqual({
+			name: "read",
+			arguments: { path: join(cwd, "src", "app.py") },
+		});
 	});
 
 	it("offers no reads when the read tool is not active", () => {
@@ -65,7 +72,10 @@ describe("buildMenu", () => {
 		const menu = buildMenu(
 			base({ checkCommands: ["pytest"], steps: [step("bash", { command: "python run.py", timeout: 30 }, "ok")] }),
 		);
-		expect(menu.find((o) => o.kind === "check")?.toolCall).toEqual({ name: "bash", arguments: { command: "pytest" } });
+		expect(menu.find((o) => o.kind === "check")?.toolCall).toEqual({
+			name: "bash",
+			arguments: { command: "pytest" },
+		});
 		expect(menu.find((o) => o.kind === "repeat")?.toolCall).toEqual({
 			name: "bash",
 			arguments: { command: "python run.py", timeout: 30 },
@@ -73,8 +83,12 @@ describe("buildMenu", () => {
 	});
 
 	it("does not list the same call twice", () => {
-		const menu = buildMenu(base({ checkCommands: ["pytest"], steps: [step("bash", { command: "pytest" }, "1 passed")] }));
-		expect(menu.filter((o) => o.toolCall?.name === "bash" && o.toolCall.arguments.command === "pytest")).toHaveLength(1);
+		const menu = buildMenu(
+			base({ checkCommands: ["pytest"], steps: [step("bash", { command: "pytest" }, "1 passed")] }),
+		);
+		expect(menu.filter((o) => o.toolCall?.name === "bash" && o.toolCall.arguments.command === "pytest")).toHaveLength(
+			1,
+		);
 	});
 
 	it("keeps the 15 most recently named files and never exceeds 25 options", () => {
@@ -110,7 +124,10 @@ describe("matchToolCall", () => {
 	];
 
 	it("matches relative and absolute paths", () => {
-		expect(matchToolCall(options, { name: "read", arguments: { path: "./src/a.py" } }, cwd)).toEqual({ kind: "exact", optionId: "o2" });
+		expect(matchToolCall(options, { name: "read", arguments: { path: "./src/a.py" } }, cwd)).toEqual({
+			kind: "exact",
+			optionId: "o2",
+		});
 		expect(matchToolCall(options, { name: "ls", arguments: {} }, cwd)).toEqual({ kind: "exact", optionId: "o1" });
 	});
 

@@ -8,8 +8,8 @@ import {
 	createAssistantMessageEventStream,
 	type Model,
 } from "@earendil-works/pi-ai";
-import { detectCheckCommands, type CheckCommands } from "./check-commands.ts";
-import { buildMenu, matchToolCall, type MenuOption } from "./menu.ts";
+import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
+import { buildMenu, type MenuOption, matchToolCall } from "./menu.ts";
 import { type JeffState, trimState } from "./state.ts";
 import type { TraceWriter } from "./trace.ts";
 import { activeToolNames, collectSteps, taskText } from "./transcript.ts";
@@ -91,7 +91,10 @@ export function createShadowStreamFn(options: ShadowOptions): StreamFn {
 			prepared = { state: trimState(task, steps), menu, checks, menuMs: performance.now() - started };
 		} catch (error) {
 			// Not a fallback: the turn ends here, as an error the agent loop shows and pi does not retry.
-			return errorStream(model, `${JEFF_FIRST_ERROR_PREFIX} could not build the menu for turn ${thisTurn}: ${describeError(error)}`);
+			return errorStream(
+				model,
+				`${JEFF_FIRST_ERROR_PREFIX} could not build the menu for turn ${thisTurn}: ${describeError(error)}`,
+			);
 		}
 
 		const modelStarted = performance.now();

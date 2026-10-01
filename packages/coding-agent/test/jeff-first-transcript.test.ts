@@ -27,7 +27,14 @@ function assistantCalls(
 }
 
 function result(toolCallId: string, text: string, isError = false): ToolResultMessage {
-	return { role: "toolResult", toolCallId, toolName: "bash", content: [{ type: "text", text }], isError, timestamp: 0 };
+	return {
+		role: "toolResult",
+		toolCallId,
+		toolName: "bash",
+		content: [{ type: "text", text }],
+		isError,
+		timestamp: 0,
+	};
 }
 
 const tool = (name: string) => ({ name, description: name, parameters: { type: "object" } as never });

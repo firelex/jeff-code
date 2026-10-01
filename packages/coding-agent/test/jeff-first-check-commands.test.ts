@@ -23,7 +23,10 @@ describe("detectCheckCommands", () => {
 	});
 
 	it("finds package.json test and build scripts", () => {
-		writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "vitest", build: "tsc", lint: "x" } }));
+		writeFileSync(
+			join(dir, "package.json"),
+			JSON.stringify({ scripts: { test: "vitest", build: "tsc", lint: "x" } }),
+		);
 		expect(detectCheckCommands(dir, "task").commands).toEqual(["npm test", "npm run build"]);
 	});
 

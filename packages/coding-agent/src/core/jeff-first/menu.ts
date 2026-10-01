@@ -108,7 +108,8 @@ function normalise(call: MenuToolCall, cwd: string): { main: string; rest: strin
 export function buildMenu(input: MenuInput): MenuOption[] {
 	const { cwd, activeTools } = input;
 	const { files, folders } = namedPaths(input);
-	const drafts: Array<{ kind: "look" | "read" | "check" | "repeat"; description: string; toolCall: MenuToolCall }> = [];
+	const drafts: Array<{ kind: "look" | "read" | "check" | "repeat"; description: string; toolCall: MenuToolCall }> =
+		[];
 
 	const look = (folder: string): MenuToolCall | undefined => {
 		if (activeTools.has("ls")) return { name: "ls", arguments: { path: folder } };
@@ -121,12 +122,20 @@ export function buildMenu(input: MenuInput): MenuOption[] {
 	}
 	if (activeTools.has("read")) {
 		for (const file of files.slice(0, READ_LIMIT)) {
-			drafts.push({ kind: "read", description: `Read the file ${file}`, toolCall: { name: "read", arguments: { path: file } } });
+			drafts.push({
+				kind: "read",
+				description: `Read the file ${file}`,
+				toolCall: { name: "read", arguments: { path: file } },
+			});
 		}
 	}
 	if (activeTools.has("bash")) {
 		for (const command of input.checkCommands.slice(0, CHECK_COMMAND_LIMIT)) {
-			drafts.push({ kind: "check", description: `Run the check command: ${command}`, toolCall: { name: "bash", arguments: { command } } });
+			drafts.push({
+				kind: "check",
+				description: `Run the check command: ${command}`,
+				toolCall: { name: "bash", arguments: { command } },
+			});
 		}
 		const lastBash = input.steps.filter((step) => step.call.name === "bash").at(-1);
 		if (lastBash) {
@@ -146,8 +155,14 @@ export function buildMenu(input: MenuInput): MenuOption[] {
 		seen.add(key);
 		menu.push({ id: `o${menu.length + 1}`, ...draft });
 	}
-	menu.push({ id: "ask_model", kind: "ask_model", description: "Ask the large model to decide the next step", toolCall: null });
-	if (menu.length > MENU_LIMIT) throw new Error(`the menu has ${menu.length} options, more than the limit of ${MENU_LIMIT}`);
+	menu.push({
+		id: "ask_model",
+		kind: "ask_model",
+		description: "Ask the large model to decide the next step",
+		toolCall: null,
+	});
+	if (menu.length > MENU_LIMIT)
+		throw new Error(`the menu has ${menu.length} options, more than the limit of ${MENU_LIMIT}`);
 	return menu;
 }
 

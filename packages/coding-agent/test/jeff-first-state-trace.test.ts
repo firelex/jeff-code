@@ -59,7 +59,10 @@ describe("TraceWriter", () => {
 		const record = { schema: "jeff-first-trace/1", turn: 1 } as unknown as TraceRecord;
 		writer.append(record);
 		writer.append({ ...record, turn: 2 });
-		const lines = readFileSync(path, "utf8").trimEnd().split("\n").map((line) => JSON.parse(line));
+		const lines = readFileSync(path, "utf8")
+			.trimEnd()
+			.split("\n")
+			.map((line) => JSON.parse(line));
 		expect(lines.map((line) => line.turn)).toEqual([1, 2]);
 	});
 });

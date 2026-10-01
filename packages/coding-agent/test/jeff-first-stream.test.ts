@@ -17,14 +17,24 @@ import { TraceWriter } from "../src/core/jeff-first/trace.ts";
 
 const model = { id: "qwen", api: "openai-completions", provider: "local" } as unknown as Model<Api>;
 
-function reply(content: AssistantMessage["content"], stopReason: AssistantMessage["stopReason"] = "toolUse"): AssistantMessage {
+function reply(
+	content: AssistantMessage["content"],
+	stopReason: AssistantMessage["stopReason"] = "toolUse",
+): AssistantMessage {
 	return {
 		role: "assistant",
 		content,
 		api: "openai-completions",
 		provider: "local",
 		model: "qwen",
-		usage: { input: 1200, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 1240, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+		usage: {
+			input: 1200,
+			output: 40,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 1240,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
 		stopReason,
 		timestamp: 0,
 	};
@@ -59,7 +69,12 @@ describe("createShadowStreamFn", () => {
 	let dir: string;
 	let tracePath: string;
 	const messages: Message[] = [
-		{ role: "system", content: "pi", toolsAdded: [{ name: "read", description: "", parameters: {} as never }], timestamp: 0 },
+		{
+			role: "system",
+			content: "pi",
+			toolsAdded: [{ name: "read", description: "", parameters: {} as never }],
+			timestamp: 0,
+		},
 		{ role: "user", content: "Fix README.md", timestamp: 0 },
 	];
 
@@ -80,7 +95,11 @@ describe("createShadowStreamFn", () => {
 			trace: new TraceWriter(tracePath),
 			isSessionTurn: (id) => id === "s1",
 		});
-	const traceLines = () => readFileSync(tracePath, "utf8").trimEnd().split("\n").map((line) => JSON.parse(line));
+	const traceLines = () =>
+		readFileSync(tracePath, "utf8")
+			.trimEnd()
+			.split("\n")
+			.map((line) => JSON.parse(line));
 
 	it("passes requests from outside the session straight through without logging", async () => {
 		const { inner, calls } = fakeModel(reply([{ type: "text", text: "summary" }], "stop"));
@@ -130,13 +149,18 @@ describe("createShadowStreamFn", () => {
 		const textOnly = shadow(fakeModel(reply([{ type: "text", text: "All done." }], "stop")).inner);
 		await drain(await textOnly(model, normalizeContext({ messages }), { sessionId: "s1" }));
 		const [several, none] = traceLines();
-		expect(several.action.tool_calls.map((c: { match: { kind: string } }) => c.match.kind)).toEqual(["exact", "none"]);
+		expect(several.action.tool_calls.map((c: { match: { kind: string } }) => c.match.kind)).toEqual([
+			"exact",
+			"none",
+		]);
 		expect(none.action).toMatchObject({ tool_calls: [], text_chars: 9 });
 	});
 
 	it("passes a model error through unchanged and still logs the turn", async () => {
 		const failed = { ...reply([], "error"), errorMessage: "503 from server" };
-		const events = await drain(await shadow(fakeModel(failed).inner)(model, normalizeContext({ messages }), { sessionId: "s1" }));
+		const events = await drain(
+			await shadow(fakeModel(failed).inner)(model, normalizeContext({ messages }), { sessionId: "s1" }),
+		);
 		expect(events.at(-1)).toEqual({ type: "error", reason: "error", error: failed });
 		expect(traceLines()[0].action).toMatchObject({ stop_reason: "error", error_message: "503 from server" });
 	});

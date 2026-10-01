@@ -113,6 +113,7 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
+import { JEFF_FIRST_ERROR_PREFIX } from "./jeff-first/stream.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import type { ModelRuntime } from "./model-runtime.ts";
@@ -3658,6 +3659,8 @@ export class AgentSession {
 	 * Context overflow errors are NOT retryable (handled by compaction instead).
 	 */
 	private _isRetryableError(message: AssistantMessage): boolean {
+		// JeffFirst fork: its failures are bugs or bad setup, never transient; retrying would hide them.
+		if (message.errorMessage?.startsWith(JEFF_FIRST_ERROR_PREFIX)) return false;
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, (this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0)) return false;
 		return isRetryableAssistantError(message);

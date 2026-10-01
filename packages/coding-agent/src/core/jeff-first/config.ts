@@ -13,11 +13,15 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 	if (mode !== "shadow") throw new Error(`JeffFirst: JEFF_FIRST_MODE must be off or shadow, got "${mode}"`);
 	const traceFile = env.JEFF_FIRST_TRACE_FILE;
 	if (!traceFile) {
-		throw new Error("JeffFirst: JEFF_FIRST_MODE=shadow needs JEFF_FIRST_TRACE_FILE, the JSON Lines file for the trace");
+		throw new Error(
+			"JeffFirst: JEFF_FIRST_MODE=shadow needs JEFF_FIRST_TRACE_FILE, the JSON Lines file for the trace",
+		);
 	}
 	const taskId = env.JEFF_FIRST_TASK_ID;
 	if (!taskId) {
-		throw new Error("JeffFirst: JEFF_FIRST_MODE=shadow needs JEFF_FIRST_TASK_ID, the benchmark task id for the trace");
+		throw new Error(
+			"JeffFirst: JEFF_FIRST_MODE=shadow needs JEFF_FIRST_TASK_ID, the benchmark task id for the trace",
+		);
 	}
 	return { mode: "shadow", traceFile, taskId };
 }

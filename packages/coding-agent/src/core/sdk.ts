@@ -1,5 +1,11 @@
 import { join } from "node:path";
-import { Agent, type AgentMessage, setDefaultStreamFn, type ThinkingLevel } from "@earendil-works/pi-agent-core";
+import {
+	Agent,
+	type AgentMessage,
+	type StreamFn,
+	setDefaultStreamFn,
+	type ThinkingLevel,
+} from "@earendil-works/pi-agent-core";
 import type { ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
@@ -9,6 +15,9 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { CacheWarmer } from "./cache-warmer.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
+import { readJeffFirstConfig } from "./jeff-first/config.ts";
+import { createShadowStreamFn } from "./jeff-first/stream.ts";
+import { TraceWriter } from "./jeff-first/trace.ts";
 import { convertToLlm } from "./messages.ts";
 import { findInitialModel } from "./model-resolver.ts";
 import { ModelRuntime } from "./model-runtime.ts";
@@ -173,6 +182,7 @@ function getDefaultAgentDir(): string {
  * ```
  */
 export async function createAgentSession(options: CreateAgentSessionOptions = {}): Promise<CreateAgentSessionResult> {
+	const jeffFirst = readJeffFirstConfig(process.env);
 	const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getDefaultAgentDir();
 	let resourceLoader = options.resourceLoader;
@@ -384,6 +394,30 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 	};
 
+	const sessionStreamFn: StreamFn = async (model, context, options) => {
+		const requestOptions = buildRequestOptions(model, options);
+		// Compaction and summaries use their own routing ids; only session requests
+		// replace the cache entry, so warming restarts from them. Keep warming while
+		// the current transcript still extends the request's prefix. Agent state may
+		// shallow-copy the messages array or refresh the model object without changing
+		// the provider request, so top-level object identity is not a valid cache key.
+		if (options?.sessionId === sessionManager.getSessionId()) {
+			cacheWarmer.start({ model, context, options: requestOptions }, cacheContextIsCurrent(model));
+		}
+		return modelRuntime.streamSimple(model, context, requestOptions);
+	};
+	// JeffFirst fork: in shadow mode every agent turn also builds and logs the menu Jeff would choose from.
+	const streamFn: StreamFn =
+		jeffFirst.mode === "off"
+			? sessionStreamFn
+			: createShadowStreamFn({
+					inner: sessionStreamFn,
+					cwd,
+					taskId: jeffFirst.taskId,
+					trace: new TraceWriter(jeffFirst.traceFile),
+					isSessionTurn: (sessionId) => sessionId === sessionManager.getSessionId(),
+				});
+
 	const agent = new Agent({
 		initialState: {
 			systemPrompt: "",
@@ -393,18 +427,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			messages: existingSession.messages,
 		},
 		convertToLlm: convertToLlmWithBlockImages,
-		streamFn: async (model, context, options) => {
-			const requestOptions = buildRequestOptions(model, options);
-			// Compaction and summaries use their own routing ids; only session requests
-			// replace the cache entry, so warming restarts from them. Keep warming while
-			// the current transcript still extends the request's prefix. Agent state may
-			// shallow-copy the messages array or refresh the model object without changing
-			// the provider request, so top-level object identity is not a valid cache key.
-			if (options?.sessionId === sessionManager.getSessionId()) {
-				cacheWarmer.start({ model, context, options: requestOptions }, cacheContextIsCurrent(model));
-			}
-			return modelRuntime.streamSimple(model, context, requestOptions);
-		},
+		streamFn,
 		onPayload: transformProviderPayload,
 		onResponse: handleProviderResponse,
 		onProviderStreamEvent: handleProviderStreamEvent,
