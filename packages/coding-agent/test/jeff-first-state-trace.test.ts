@@ -66,3 +66,17 @@ describe("TraceWriter", () => {
 		expect(lines.map((line) => line.turn)).toEqual([1, 2]);
 	});
 });
+
+describe("trimState with large tool-call arguments", () => {
+	it("trims long string arguments so the newest step still fits", () => {
+		const big: Step = {
+			call: { type: "toolCall", id: "w", name: "write", arguments: { path: "a.py", content: "x".repeat(20000) } },
+			output: "ok",
+			isError: false,
+		};
+		const state = trimState("t", [step(1, "one"), big]);
+		expect(state.recentSteps.map((s) => s.tool)).toEqual(["bash", "write"]);
+		expect(String(state.recentSteps[1].arguments.content)).toContain("[... 18800 characters left out ...]");
+		expect(state.recentSteps[1].arguments.path).toBe("a.py");
+	});
+});

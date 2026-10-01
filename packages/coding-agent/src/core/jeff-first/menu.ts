@@ -29,7 +29,8 @@ export interface MenuInput {
 export type MenuMatch = { kind: "exact" | "near"; optionId: string } | { kind: "none" };
 
 const TOKEN_SPLIT = /[\s`'"()[\]{}<>,;:]+/;
-const LS_COMMAND = /^ls(?:\s+-\S+)*\s+(\S+)\s*$/;
+/** A bash command that only lists one folder: `ls`, optional flags, optional folder. */
+const LS_LISTING = /^ls((?:\s+-\S+)*)(?:\s+(\S+))?$/;
 
 function pathKind(path: string): "file" | "folder" | undefined {
 	const stats = statSync(path, { throwIfNoEntry: false });
@@ -51,8 +52,8 @@ function listedFolder(step: Step, cwd: string): string | undefined {
 		return typeof path === "string" ? resolve(cwd, path) : cwd;
 	}
 	if (step.call.name === "bash" && typeof step.call.arguments.command === "string") {
-		const match = LS_COMMAND.exec(step.call.arguments.command.trim());
-		return match ? resolve(cwd, match[1]) : undefined;
+		const match = LS_LISTING.exec(step.call.arguments.command.replace(/\s+/g, " ").trim());
+		return match ? resolve(cwd, match[2] ?? ".") : undefined;
 	}
 	return undefined;
 }
@@ -100,7 +101,17 @@ function normalise(call: MenuToolCall, cwd: string): { main: string; rest: strin
 		return { main: `${call.name} ${resolved}`, rest: sortedJson({ command: command ?? null, ...rest }) };
 	}
 	if (call.name === "bash" && typeof command === "string") {
-		return { main: `bash ${command.replace(/\s+/g, " ").trim()}`, rest: sortedJson({ path: path ?? null, ...rest }) };
+		const collapsed = command.replace(/\s+/g, " ").trim();
+		// A folder listing matches whatever way the folder is written; different flags make it a near match.
+		const listing = LS_LISTING.exec(collapsed);
+		if (listing) {
+			const flags = listing[1].trim();
+			return {
+				main: `bash ls ${resolve(cwd, listing[2] ?? ".")}`,
+				rest: sortedJson({ path: path ?? null, flags, ...rest }),
+			};
+		}
+		return { main: `bash ${collapsed}`, rest: sortedJson({ path: path ?? null, ...rest }) };
 	}
 	return { main: `${call.name} ${sortedJson(call.arguments)}`, rest: "" };
 }

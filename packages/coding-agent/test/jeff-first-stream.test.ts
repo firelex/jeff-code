@@ -167,7 +167,7 @@ describe("createShadowStreamFn", () => {
 
 	it("fails the turn without calling the model when the menu cannot be built", async () => {
 		const { inner, calls } = fakeModel(reply([], "stop"));
-		const stream = await shadow(inner)(model, normalizeContext({ messages: [] }), { sessionId: "s1" });
+		const stream = await shadow(inner)(model, normalizeContext({ messages: [messages[0]] }), { sessionId: "s1" });
 		const final = await stream.result();
 		expect(calls.count).toBe(0);
 		expect(final.stopReason).toBe("error");
@@ -180,5 +180,25 @@ describe("createShadowStreamFn", () => {
 		const final = await (await fn(model, normalizeContext({ messages }), { sessionId: "s1" })).result();
 		expect(final.stopReason).toBe("error");
 		expect(final.errorMessage).toMatch(/^JeffFirst: could not write the trace line for turn 1: /);
+	});
+	it("keeps the task from the first turn after compaction replaces the first user message", async () => {
+		const fn = shadow(fakeModel(reply([{ type: "text", text: "ok" }], "stop")).inner);
+		await drain(await fn(model, normalizeContext({ messages }), { sessionId: "s1" }));
+		const compacted: Message[] = [
+			messages[0],
+			{ role: "user", content: "Summary of the earlier conversation: ...", timestamp: 0 },
+		];
+		await drain(await fn(model, normalizeContext({ messages: compacted }), { sessionId: "s1" }));
+		expect(traceLines().map((line) => line.state.task)).toEqual(["Fix README.md", "Fix README.md"]);
+	});
+
+	it("passes session requests that declare no tools straight through without logging", async () => {
+		const { inner, calls } = fakeModel(reply([{ type: "text", text: "bug summary" }], "stop"));
+		const noTools: Message[] = [
+			{ role: "user", content: "Summarise this conversation for a bug report", timestamp: 0 },
+		];
+		await drain(await shadow(inner)(model, normalizeContext({ messages: noTools }), { sessionId: "s1" }));
+		expect(calls.count).toBe(1);
+		expect(() => readFileSync(tracePath)).toThrow();
 	});
 });

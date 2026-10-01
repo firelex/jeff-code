@@ -67,18 +67,23 @@ interface Prepared {
 
 export function createShadowStreamFn(options: ShadowOptions): StreamFn {
 	let checks: CheckCommands | undefined;
+	// Taken on the first turn: compaction later replaces the first user message with a summary.
+	let task: string | undefined;
 	let turn = 0;
 
 	return async (model, context, streamOptions) => {
 		const sessionId = streamOptions?.sessionId;
-		if (!options.isSessionTurn(sessionId)) return options.inner(model, context, streamOptions);
+		// Only agent turns, which offer tools, get a menu; summaries and bug reports pass straight through.
+		if (!options.isSessionTurn(sessionId) || activeToolNames(context.messages).size === 0) {
+			return options.inner(model, context, streamOptions);
+		}
 		turn++;
 		const thisTurn = turn;
 
 		let prepared: Prepared;
 		try {
 			const started = performance.now();
-			const task = taskText(context.messages);
+			task ??= taskText(context.messages);
 			const steps = collectSteps(context.messages);
 			checks ??= detectCheckCommands(options.cwd, task);
 			const menu = buildMenu({

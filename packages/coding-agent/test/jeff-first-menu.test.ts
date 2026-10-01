@@ -150,3 +150,47 @@ describe("matchToolCall", () => {
 		expect(matchToolCall(options, { name: "bash", arguments: { command: "pytest" } }, cwd)).toEqual({ kind: "none" });
 	});
 });
+
+describe("matchToolCall with folder listings through bash", () => {
+	const cwd = "/app";
+	const options: MenuOption[] = [
+		{ id: "o1", kind: "look", description: "", toolCall: { name: "bash", arguments: { command: "ls -la /app" } } },
+		{
+			id: "o2",
+			kind: "look",
+			description: "",
+			toolCall: { name: "bash", arguments: { command: "ls -la /app/src" } },
+		},
+		{ id: "ask_model", kind: "ask_model", description: "", toolCall: null },
+	];
+
+	it("treats ls of the same folder with the same flags as an exact match, however the folder is written", () => {
+		for (const command of ["ls -la", "ls -la .", "ls -la /app/", "ls  -la  ./"]) {
+			expect(matchToolCall(options, { name: "bash", arguments: { command } }, cwd)).toEqual({
+				kind: "exact",
+				optionId: "o1",
+			});
+		}
+		expect(matchToolCall(options, { name: "bash", arguments: { command: "ls -la src" } }, cwd)).toEqual({
+			kind: "exact",
+			optionId: "o2",
+		});
+	});
+
+	it("treats ls of the same folder with other flags as a near match", () => {
+		expect(matchToolCall(options, { name: "bash", arguments: { command: "ls" } }, cwd)).toEqual({
+			kind: "near",
+			optionId: "o1",
+		});
+		expect(matchToolCall(options, { name: "bash", arguments: { command: "ls -l src" } }, cwd)).toEqual({
+			kind: "near",
+			optionId: "o2",
+		});
+	});
+
+	it("does not treat other ls commands as folder listings", () => {
+		expect(matchToolCall(options, { name: "bash", arguments: { command: "ls -la | head" } }, cwd)).toEqual({
+			kind: "none",
+		});
+	});
+});

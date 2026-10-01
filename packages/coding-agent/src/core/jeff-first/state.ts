@@ -25,15 +25,23 @@ function trimOutput(output: string): string {
 	return `${output.slice(0, OUTPUT_HEAD_TAIL_CHARS)}\n[... ${leftOut} characters left out ...]\n${output.slice(-OUTPUT_HEAD_TAIL_CHARS)}`;
 }
 
+/** Long string arguments (a file written by the model) are cut the same way as outputs. */
+function trimArguments(args: JsonObject): JsonObject {
+	return Object.fromEntries(
+		Object.entries(args).map(([key, value]) => [key, typeof value === "string" ? trimOutput(value) : value]),
+	);
+}
+
 export function trimState(task: string, steps: Step[]): JeffState {
 	const kept: TrimmedStep[] = [];
 	let used = 0;
 	for (const step of [...steps].reverse()) {
 		const output = step.output === null ? null : trimOutput(step.output);
-		const cost = (output?.length ?? 0) + JSON.stringify(step.call.arguments).length;
+		const args = trimArguments(step.call.arguments);
+		const cost = (output?.length ?? 0) + JSON.stringify(args).length;
 		if (used + cost > STEP_BUDGET_CHARS) break;
 		used += cost;
-		kept.push({ tool: step.call.name, arguments: step.call.arguments, output, isError: step.isError });
+		kept.push({ tool: step.call.name, arguments: args, output, isError: step.isError });
 	}
 	return { task, recentSteps: kept.reverse(), stepsLeftOut: steps.length - kept.length };
 }
