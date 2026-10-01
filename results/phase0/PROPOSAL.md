@@ -102,7 +102,9 @@ requests from this run, well under sparkgate's limit of 31.
 2. Build and pack the fork on datigator (`npm run build:offline`, then `npm pack` in `packages/coding-agent`); start
    `sparkgate_proxy.py` in its own tmux session.
 3. Check the Spark is free: `/metrics` shows no running or waiting requests, and no data-generation job holds
-   sparkgate slots. **Nothing else runs on the Sparks until the run ends.**
+   sparkgate slots. Other jobs may share the Sparks through sparkgate (owner, 2026-10-01): this run sends at most 2 requests at
+   once and its coverage number does not depend on timing. Only the phase-2 evaluation, which compares wall-clock
+   time, needs the Sparks to itself.
 4. Smoke test on one phase-0 task (`cobol-modernization`, easy, 15 min). Check the trace has one line per model
    turn and that pi's session agrees with it. Stop and report if anything is off.
 5. Run the other 19 tasks.
@@ -147,7 +149,7 @@ requests from this run, well under sparkgate's limit of 31.
 ## Decisions asked of the owner (answered above)
 
 1. Freeze the 40-task evaluation subset in `tasks.json`.
-2. Approve the run: about 2 to 3.5 hours on datigator and the Sparks, with the Sparks kept free of other jobs.
+2. Approve the run: about 2 to 3.5 hours on datigator and the Sparks (shared with other jobs through sparkgate).
 3. Two tasks at a time, or one (half the Spark load, twice the time)?
 4. pi's default thinking level for Qwen, or a fixed level? The same choice carries into the evaluation arms.
 5. Approve `npm run build` and `npm pack` of the fork.
