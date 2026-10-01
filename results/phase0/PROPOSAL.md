@@ -137,7 +137,14 @@ requests from this run, well under sparkgate's limit of 31.
 - **Pass rate of the 20 tasks** from Harbor's verifier results, reported separately, as a check that the shadow
   wrapper did not change pi's behaviour. A clean comparison with `off` is not part of phase 0.
 
-## Decisions for the owner
+## Decisions (owner, 2026-10-01)
+
+- The 40-task evaluation subset in `tasks.json` is **frozen**.
+- Two tasks at a time.
+- Thinking: **off** (`--ak thinking=off`), for the evaluation arms too.
+- Build and pack: approved.
+
+## Decisions asked of the owner (answered above)
 
 1. Freeze the 40-task evaluation subset in `tasks.json`.
 2. Approve the run: about 2 to 3.5 hours on datigator and the Sparks, with the Sparks kept free of other jobs.
