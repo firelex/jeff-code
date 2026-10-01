@@ -39,6 +39,8 @@ jobs=$(cd "$jobs" && pwd)
 
 run_one() {
   local task=$1
+  local job_name
+  job_name="$task-$(date +%Y%m%d-%H%M%S)"
   local command=(
     uv run --project "$here" harbor run
     --dataset terminal-bench@2.0 -i "$task" -n 1
@@ -48,15 +50,17 @@ run_one() {
     --ae JEFF_FIRST_MODE=shadow
     --ae "JEFF_FIRST_TASK_ID=$task"
     --ae JEFF_FIRST_TRACE_FILE=/logs/agent/jeff-first-trace.jsonl
-    -o "$jobs"
+    -o "$jobs" --job-name "$job_name"
   )
   if [ "$dry_run" = 1 ]; then
     printf '%q ' "${command[@]}"; echo
     return
   fi
   echo "$(date -Is) start $task"
-  if (cd "$here" && PYTHONPATH="$here" OPENAI_BASE_URL="$proxy/v1" OPENAI_API_KEY=unused "${command[@]}") > "$jobs/logs/$task.log" 2>&1; then
-    echo "$(date -Is) done  $task"
+  # Harbor exits 0 even when a trial failed, so check_trial.py inspects the job's results afterwards.
+  if (cd "$here" && PYTHONPATH="$here" OPENAI_BASE_URL="$proxy/v1" OPENAI_API_KEY=unused "${command[@]}") > "$jobs/logs/$task.log" 2>&1 \
+    && (cd "$here" && uv run --project "$here" python check_trial.py "$jobs/$job_name") >> "$jobs/logs/$task.log" 2>&1; then
+    echo "$(date -Is) done  $task ($(tail -1 "$jobs/logs/$task.log"))"
   else
     echo "$(date -Is) FAILED $task (exit $?; see $jobs/logs/$task.log)"
     return 1
