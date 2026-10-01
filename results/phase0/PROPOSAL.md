@@ -76,9 +76,11 @@ Docker and cannot take its slots. So we add a small pass-through server on datig
 the trace (`--dry-run` prints the commands). Each command is equivalent to:
 
 ```bash
-harbor run -t terminal-bench/<task>@69671fbaac6d67a7ef0dfec016cc38a64ef7a77c \
+OPENAI_BASE_URL=<proxy>/v1 OPENAI_API_KEY=unused \
+harbor run --dataset terminal-bench@2.0 -i <task> -n 1 \
   -a harbor_agent.jeff_pi:JeffPi \
-  -m <provider>/qwen3.8-flash-next --ak model_api=openai-completions \
+  --ak tarball=<fork tarball> --ak model_api=openai-completions --ak thinking=<level> \
+  -m openai/qwen3.8-flash-next \
   --ae JEFF_FIRST_MODE=shadow \
   --ae JEFF_FIRST_TASK_ID=<task> \
   --ae JEFF_FIRST_TRACE_FILE=/logs/agent/jeff-first-trace.jsonl \
