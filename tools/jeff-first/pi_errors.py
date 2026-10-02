@@ -9,6 +9,9 @@ Source: agent/pi.txt, which Harbor writes by piping `pi --print --mode json` (st
 "message_update" events removed) through tee. Every JSON line is one pi session event; a "message_end" event carries
 the finished message, and an assistant message that failed has "stopReason": "error" and an "errorMessage". Lines
 that do not start with "{" are pi's stderr text and carry no events.
+
+When the agent hits its time limit, Harbor kills pi, sometimes while pi is writing a line; that last line is then cut
+off mid-way and has no newline after it. Such a line is skipped. Any other line that is not valid JSON raises.
 """
 
 import json
@@ -21,8 +24,13 @@ def jeff_first_errors(trial: Path) -> list[str]:
     pi_output = trial / "agent" / "pi.txt"
     if not pi_output.exists():
         raise FileNotFoundError(f"{trial.name} has no agent/pi.txt, so its JeffFirst errors cannot be checked")
+    text = pi_output.read_text()
+    lines = text.split("\n")
+    # A file that ends with a newline splits into its lines plus one empty string, which is dropped. A file that does
+    # not end with a newline has its final line cut off by a killed pi process (see the module docstring): drop it too.
+    lines = lines[:-1]
     errors = []
-    for number, line in enumerate(pi_output.read_text().splitlines(), start=1):
+    for number, line in enumerate(lines, start=1):
         if not line.startswith("{"):
             continue
         try:

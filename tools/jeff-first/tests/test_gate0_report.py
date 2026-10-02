@@ -128,3 +128,10 @@ def test_render_lists_timeouts_per_task_and_arm():
     assert "Timed out in the base arm: b. Timed out in the teacher arm: a, b." in report
     assert "| Timed out (base / teacher arm) |" in report
     assert "| a | 40 | 20 | 160 | 80 | 0 | 0 | yes / yes | no / yes |" in report
+
+
+def test_reports_a_setup_failure_with_its_reason_even_without_pi_output(tmp_path):
+    write_trial(tmp_path / "base", "t1", [], None, exception_type="RuntimeError")
+    (tmp_path / "base" / "t1-20261002-120000" / "t1__abc" / "agent" / "pi.txt").unlink()
+    with pytest.raises(ValueError, match="t1__abc raised RuntimeError"):
+        summarise(tmp_path / "base", ["t1"])

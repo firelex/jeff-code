@@ -75,3 +75,10 @@ def test_rejects_a_trial_without_pi_output(tmp_path):
     (tmp_path / "x__1" / "agent" / "pi.txt").unlink()
     with pytest.raises(FileNotFoundError, match="x__1 has no agent/pi.txt"):
         check_job(tmp_path)
+
+
+def test_reports_a_setup_failure_with_its_reason_even_without_pi_output(tmp_path):
+    make_trial(tmp_path, "x__1", exception="Docker compose command failed", trace_lines=0)
+    (tmp_path / "x__1" / "agent" / "pi.txt").unlink()
+    with pytest.raises(RuntimeError, match="x__1 raised RuntimeError: Docker compose command failed"):
+        check_job(tmp_path)

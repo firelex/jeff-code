@@ -44,16 +44,17 @@ def summarise(runs: Path, tasks: list[str]) -> dict[str, TaskResult]:
     results = {}
     for task in tasks:
         trial = latest_trial(runs, task)
+        # The trial's own exception comes first: a trial that failed during setup has no pi.txt to check.
+        trial_result = json.loads((trial / "result.json").read_text())
+        info = trial_result["exception_info"]
+        if info is not None and info["exception_type"] != AGENT_TIMEOUT:
+            raise ValueError(f"{trial.name} raised {info['exception_type']}: {info['exception_message'][:500]}")
         errors = jeff_first_errors(trial)
         if errors:
             raise ValueError(f"{trial.name} ended with a JeffFirst error: {errors[-1][:500]}; rerun the task before judging Gate 0")
         lines = [json.loads(line) for line in (trial / "agent" / "jeff-first-trace.jsonl").read_text().splitlines()]
         turns = [l for l in lines if l.get("kind", "model_turn") == "model_turn" and l["action"]["stop_reason"] in COUNTED_STOPS]
         decisions = [l for l in lines if l.get("kind") == "decision"]
-        trial_result = json.loads((trial / "result.json").read_text())
-        info = trial_result["exception_info"]
-        if info is not None and info["exception_type"] != AGENT_TIMEOUT:
-            raise ValueError(f"{trial.name} raised {info['exception_type']}: {info['exception_message'][:500]}")
         reward = (trial_result.get("verifier_result") or {}).get("rewards", {}).get("reward")
         if reward is None:
             raise ValueError(f"{trial} has no reward in result.json; the verifier did not finish")
