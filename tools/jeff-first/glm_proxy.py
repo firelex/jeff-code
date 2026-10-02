@@ -5,6 +5,11 @@ and its key ended up in the traces). The containers therefore send "unused" as t
 datigator, replaces the Authorization header with the real key, read from the environment variable GLM_API_KEY.
 At most --cap requests are sent at once; the rest wait here.
 
+Only the two calls pi and the teacher make are relayed: POST /v1/chat/completions and GET /v1/models. Every other
+path answers 404 and never reaches the endpoint, so a container cannot use the real key for anything else (for example
+to read the key's own details). A request whose answer stalls for more than 300 seconds fails with status 502, so a
+hung GLM request cannot hold one of the --cap slots forever.
+
 If the endpoint cannot be reached, the request fails with status 502 and a message naming the endpoint (never the
 key). There is no fallback to another server.
 
@@ -22,8 +27,10 @@ from aiohttp import web
 
 from proxy_common import DROP_REQUEST_HEADERS, add_client_session, relay
 
+READ_TIMEOUT_SECONDS = 300
 
-def make_app(upstream: str, cap: int, key: str) -> web.Application:
+
+def make_app(upstream: str, cap: int, key: str, read_timeout_seconds: float) -> web.Application:
     if not key:
         raise ValueError("the GLM key is empty: set GLM_API_KEY")
     if cap < 1:
@@ -31,7 +38,7 @@ def make_app(upstream: str, cap: int, key: str) -> web.Application:
     slots = asyncio.Semaphore(cap)
     app = web.Application(client_max_size=64 * 1024 * 1024)
 
-    add_client_session(app)
+    add_client_session(app, sock_read=read_timeout_seconds)
 
     async def forward(request: web.Request) -> web.StreamResponse:
         body = await request.read()
@@ -45,7 +52,8 @@ def make_app(upstream: str, cap: int, key: str) -> web.Application:
 
             return await relay(request, app, f"{upstream}{request.rel_url}", headers, body, error_message)
 
-    app.router.add_route("*", "/v1/{tail:.*}", forward)
+    app.router.add_post("/v1/chat/completions", forward)
+    app.router.add_get("/v1/models", forward)
     return app
 
 
@@ -57,7 +65,7 @@ def main() -> None:
     parser.add_argument("--cap", required=True, type=int, help="most requests sent at once")
     args = parser.parse_args()
     key = os.environ.get("GLM_API_KEY", "")
-    app = make_app(args.upstream.rstrip("/"), args.cap, key)
+    app = make_app(args.upstream.rstrip("/"), args.cap, key, READ_TIMEOUT_SECONDS)
     print(f"GLM proxy: {args.host}:{args.port} -> {args.upstream}, cap {args.cap}", flush=True)
     web.run_app(app, host=args.host, port=args.port, print=None)
 

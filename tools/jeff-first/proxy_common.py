@@ -11,11 +11,14 @@ DROP_RESPONSE_HEADERS = {"content-length", "transfer-encoding", "content-encodin
 SESSION = web.AppKey("session", aiohttp.ClientSession)
 
 
-def add_client_session(app: web.Application) -> None:
-    """Register the client session cleanup context with the app."""
+def add_client_session(app: web.Application, sock_read: float | None) -> None:
+    """Register the client session cleanup context with the app.
+
+    sock_read is the most seconds to wait for the next bytes from upstream (None waits forever).
+    """
 
     async def client_session(app: web.Application):
-        timeout = aiohttp.ClientTimeout(total=None, sock_connect=10)
+        timeout = aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=sock_read)
         async with aiohttp.ClientSession(timeout=timeout, auto_decompress=False) as session:
             app[SESSION] = session
             yield

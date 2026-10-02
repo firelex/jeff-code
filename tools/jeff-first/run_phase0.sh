@@ -8,7 +8,7 @@
 #   TASKS_JSON   results/phase0/tasks.json (its "phase0" list is used unless TASK names are given)
 #   TARBALL      the packed fork (npm pack in packages/coding-agent)
 #   BASE_URL     the OpenAI-compatible endpoint as the task containers reach it, without /v1: for Qwen the sparkgate
-#                proxy, e.g. http://192.168.0.79:8899
+#                proxy, e.g. http://192.168.0.79:8899; for GLM the GLM proxy (glm_proxy.py)
 #   THINKING     pi's thinking level for the model: off, minimal, low, medium or high
 #   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write)
 #   MODEL        the model id at BASE_URL, e.g. qwen3.8-flash-next or scissero-glm-5.3
@@ -18,7 +18,9 @@
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
 #                the teacher's (GLM's) latency never decides a task through the time limit
 #
-# The environment variable JEFF_RUN_API_KEY must hold the endpoint's API key ("unused" for the sparkgate proxy).
+# The environment variable JEFF_RUN_API_KEY must be "unused": task containers never hold a real key. Every model is
+# reached through a proxy, as driver (BASE_URL) or as teacher (JEFF_FIRST_TEACHER_URL): Qwen through the sparkgate
+# proxy, GLM through glm_proxy.py, which adds the real key outside the containers.
 #
 # Run it on datigator in tmux session jeff-pi-phase0; stop it with: tmux kill-session -t jeff-pi-phase0
 set -euo pipefail
@@ -26,12 +28,12 @@ set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
 if [ $# -lt 10 ]; then
-  sed -n '5,22p' "$0" >&2
+  sed -n '5,24p' "$0" >&2
   exit 2
 fi
 tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9 timeout_multiplier=${10}
 shift 10
-[ -n "${JEFF_RUN_API_KEY:-}" ] || { echo "set JEFF_RUN_API_KEY to the endpoint's API key (\"unused\" for the sparkgate proxy)" >&2; exit 2; }
+[ "${JEFF_RUN_API_KEY:-}" = unused ] || { echo "JEFF_RUN_API_KEY must be \"unused\": containers never hold a real key; reach GLM through glm_proxy.py" >&2; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 
 [ -f "$tasks_json" ] || { echo "no tasks file at $tasks_json" >&2; exit 1; }

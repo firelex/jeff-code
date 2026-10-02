@@ -34,7 +34,7 @@ def make_app(upstream: str, cap: int, take_slot: Callable[[], AsyncContextManage
     own_slots = asyncio.Semaphore(cap)
     app = web.Application(client_max_size=64 * 1024 * 1024)
 
-    add_client_session(app)
+    add_client_session(app, sock_read=None)
 
     async def forward(request: web.Request) -> web.StreamResponse:
         body = await request.read()
