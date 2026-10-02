@@ -1,0 +1,49 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+
+export interface FakeTeacher {
+	url: string;
+	requests: Array<Record<string, unknown>>;
+	close(): Promise<void>;
+}
+
+/** An OpenAI-style chat server whose answer is `pick(options, prompt)`; a pick of "!500" answers with status 500. */
+export async function startFakeTeacher(
+	pick: (options: Array<{ code: string; description: string }>, prompt: string) => string,
+): Promise<FakeTeacher> {
+	const requests: Array<Record<string, unknown>> = [];
+	const server = createServer((request, response) => {
+		let body = "";
+		request.on("data", (chunk: Buffer) => {
+			body += chunk.toString();
+		});
+		request.on("end", () => {
+			const parsed = JSON.parse(body) as { messages: Array<{ content: string }> };
+			requests.push({ ...parsed, path: request.url, authorization: request.headers.authorization });
+			const prompt = parsed.messages.at(-1)?.content ?? "";
+			const options = [...prompt.matchAll(/^([A-Z]): (.*)$/gm)].map((m) => ({ code: m[1], description: m[2] }));
+			const content = pick(options, prompt);
+			if (content === "!500") {
+				response.writeHead(500, { "content-type": "application/json" });
+				response.end('{"error":"overloaded"}');
+				return;
+			}
+			response.writeHead(200, { "content-type": "application/json" });
+			response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }));
+		});
+	});
+	await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+	const { port } = server.address() as AddressInfo;
+	return {
+		url: `http://127.0.0.1:${port}`,
+		requests,
+		close: () => new Promise<void>((done) => server.close(() => done())),
+	};
+}
+
+/** The JSON answer the fake teacher returns for the option whose description starts with `start`. */
+export function answerFor(options: Array<{ code: string; description: string }>, start: string): string {
+	const option = options.find((o) => o.description.startsWith(start));
+	if (!option) throw new Error(`no option starts with "${start}"`);
+	return JSON.stringify({ reason: `chose ${start}`, choice: option.code });
+}
