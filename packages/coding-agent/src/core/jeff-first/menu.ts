@@ -32,7 +32,7 @@ const TOKEN_SPLIT = /[\s`'"()[\]{}<>,;:]+/;
 /** A bash command that only lists one folder: `ls`, optional flags, optional folder. */
 const LS_LISTING = /^ls((?:\s+-\S+)*)(?:\s+(\S+))?$/;
 
-function pathKind(path: string): "file" | "folder" | undefined {
+export function pathKind(path: string): "file" | "folder" | undefined {
 	const stats = statSync(path, { throwIfNoEntry: false });
 	if (stats === undefined) return undefined;
 	return stats.isDirectory() ? "folder" : stats.isFile() ? "file" : undefined;
@@ -59,7 +59,7 @@ function listedFolder(step: Step, cwd: string): string | undefined {
 }
 
 /** Existing files and folders named in recent outputs (newest first) and then in the task. */
-function namedPaths(input: MenuInput): { files: string[]; folders: string[] } {
+export function namedPaths(input: MenuInput): { files: string[]; folders: string[] } {
 	const sources: Array<{ text: string; bases: string[] }> = [];
 	for (const step of input.steps.slice(-RECENT_OUTPUTS).reverse()) {
 		if (step.output === null) continue;
@@ -114,6 +114,11 @@ function normalise(call: MenuToolCall, cwd: string): { main: string; rest: strin
 		return { main: `bash ${collapsed}`, rest: sortedJson({ path: path ?? null, ...rest }) };
 	}
 	return { main: `${call.name} ${sortedJson(call.arguments)}`, rest: "" };
+}
+
+/** A key that is equal for two calls exactly when the phase-0 matcher would call them an exact match. */
+export function callKey(call: MenuToolCall, cwd: string): string {
+	return JSON.stringify(normalise(call, cwd));
 }
 
 export function buildMenu(input: MenuInput): MenuOption[] {
