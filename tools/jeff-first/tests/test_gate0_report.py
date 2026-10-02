@@ -5,9 +5,13 @@ import pytest
 from gate0_report import TaskResult, gate, summarise
 
 
-def write_trial(root, task, lines, reward):
+def write_trial(root, task, lines, reward, jeff_first_error=None):
     trial = root / f"{task}-20261002-120000" / f"{task}__abc"
     (trial / "agent").mkdir(parents=True)
+    message = {"role": "assistant", "content": [], "stopReason": "stop"}
+    if jeff_first_error:
+        message.update(stopReason="error", errorMessage=jeff_first_error)
+    (trial / "agent" / "pi.txt").write_text(json.dumps({"type": "message_end", "message": message}) + "\n")
     (trial / "agent" / "jeff-first-trace.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
     (trial / "result.json").write_text(json.dumps({"verifier_result": {"rewards": {"reward": reward}}}))
 
@@ -44,6 +48,12 @@ def test_fails_loudly_when_a_trial_has_no_verifier_result(tmp_path):
     write_trial(tmp_path / "base", "t1", [shadow_turn()], None)
     with pytest.raises(ValueError, match="no reward"):
         summarise(tmp_path / "base", ["t1"])
+
+
+def test_fails_loudly_when_a_trial_ended_with_a_jeff_first_error(tmp_path):
+    write_trial(tmp_path / "teach", "t1", [decision(), model_turn()], 0.0, jeff_first_error="JeffFirst: the trace could not be written")
+    with pytest.raises(ValueError, match="t1__abc ended with a JeffFirst error: JeffFirst: the trace could not be written"):
+        summarise(tmp_path / "teach", ["t1"])
 
 
 def result(turns, seconds, passed):

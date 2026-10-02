@@ -12,6 +12,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from pi_errors import jeff_first_errors
+
 COUNTED_STOPS = {"toolUse", "stop"}
 REQUIRED_DROP = 0.25
 PASSES_ALLOWED_LOST = 1
@@ -37,6 +39,9 @@ def summarise(runs: Path, tasks: list[str]) -> dict[str, TaskResult]:
     results = {}
     for task in tasks:
         trial = latest_trial(runs, task)
+        errors = jeff_first_errors(trial)
+        if errors:
+            raise ValueError(f"{trial.name} ended with a JeffFirst error: {errors[-1][:500]}; rerun the task before judging Gate 0")
         lines = [json.loads(line) for line in (trial / "agent" / "jeff-first-trace.jsonl").read_text().splitlines()]
         turns = [l for l in lines if l.get("kind", "model_turn") == "model_turn" and l["action"]["stop_reason"] in COUNTED_STOPS]
         decisions = [l for l in lines if l.get("kind") == "decision"]

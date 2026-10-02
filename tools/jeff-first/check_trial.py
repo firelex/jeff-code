@@ -1,7 +1,9 @@
-"""Check one Harbor job of the phase-0 run: every trial must have finished without an exception and written a trace.
+"""Check one Harbor job of the phase-0 run: every trial must have finished without an exception, without a JeffFirst
+error and with a trace.
 
-Harbor exits with status 0 even when a trial failed (for example when Docker could not start the task), so the run
-script calls this after each job and stops that task with a clear error instead of reporting it as done.
+Harbor exits with status 0 even when a trial failed (for example when Docker could not start the task, or when the
+scout failed and pi ended the session with a "JeffFirst:" error), so the run script calls this after each job and stops
+that task with a clear error instead of reporting it as done.
 
 Usage: python check_trial.py <Harbor job folder>
 """
@@ -9,6 +11,8 @@ Usage: python check_trial.py <Harbor job folder>
 import json
 import sys
 from pathlib import Path
+
+from pi_errors import jeff_first_errors
 
 # Running out of the task's time limit is a normal benchmark outcome (the verifier still scores the task), not a
 # broken run. Every other exception means the trial itself failed.
@@ -26,6 +30,9 @@ def check_job(job: Path) -> str:
         info = result["exception_info"]
         if info is not None and info["exception_type"] not in TASK_OUTCOME_EXCEPTIONS:
             raise RuntimeError(f"{trial.name} raised {info['exception_type']}: {info['exception_message'][:500]}")
+        errors = jeff_first_errors(trial)
+        if errors:
+            raise RuntimeError(f"{trial.name} ended with a JeffFirst error: {errors[-1][:500]}")
         note = " (agent timed out)" if info is not None else ""
         trace = trial / "agent" / "jeff-first-trace.jsonl"
         if not trace.exists() or trace.stat().st_size == 0:
