@@ -15,7 +15,9 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { CacheWarmer } from "./cache-warmer.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
+import { GlmTeacher } from "./jeff-first/chooser.ts";
 import { readJeffFirstConfig } from "./jeff-first/config.ts";
+import { createScoutStreamFn } from "./jeff-first/scout.ts";
 import { createShadowStreamFn } from "./jeff-first/stream.ts";
 import { TraceWriter } from "./jeff-first/trace.ts";
 import { convertToLlm } from "./messages.ts";
@@ -406,17 +408,27 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 		return modelRuntime.streamSimple(model, context, requestOptions);
 	};
-	// JeffFirst fork: in shadow mode every agent turn also builds and logs the menu Jeff would choose from.
+	// JeffFirst fork: shadow mode logs the menu at every model turn; teacher mode lets the teacher model scout first.
+	const isSessionTurn = (sessionId: string | undefined) => sessionId === sessionManager.getSessionId();
 	const streamFn: StreamFn =
 		jeffFirst.mode === "off"
 			? sessionStreamFn
-			: createShadowStreamFn({
-					inner: sessionStreamFn,
-					cwd,
-					taskId: jeffFirst.taskId,
-					trace: new TraceWriter(jeffFirst.traceFile),
-					isSessionTurn: (sessionId) => sessionId === sessionManager.getSessionId(),
-				});
+			: jeffFirst.mode === "shadow"
+				? createShadowStreamFn({
+						inner: sessionStreamFn,
+						cwd,
+						taskId: jeffFirst.taskId,
+						trace: new TraceWriter(jeffFirst.traceFile),
+						isSessionTurn,
+					})
+				: createScoutStreamFn({
+						inner: sessionStreamFn,
+						cwd,
+						taskId: jeffFirst.taskId,
+						trace: new TraceWriter(jeffFirst.traceFile),
+						chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel),
+						isSessionTurn,
+					});
 
 	const agent = new Agent({
 		initialState: {

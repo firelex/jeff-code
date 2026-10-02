@@ -8,6 +8,7 @@ import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { answerFor, type FakeTeacher, startFakeTeacher } from "./jeff-first-fake-teacher.ts";
 import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 
 const model: Model<Api> = {
@@ -123,7 +124,39 @@ describe("JeffFirst through createAgentSession", () => {
 
 	it("refuses to create a session with an unknown mode", async () => {
 		vi.stubEnv("JEFF_FIRST_MODE", "routing");
-		await expect(startSession()).rejects.toThrow(/must be off or shadow/);
+		await expect(startSession()).rejects.toThrow(/must be off, shadow or teacher/);
+	});
+
+	it("in teacher mode runs the teacher's steps, then hands over, and logs both kinds of line", async () => {
+		// The teacher reads README.md first, then hands over at every later decision.
+		const teacher: FakeTeacher = await startFakeTeacher((options, prompt) => {
+			if (prompt.includes("Which one exactly?")) return answerFor(options, "Read the file");
+			if (prompt.includes("No steps have been taken yet.")) return answerFor(options, "Read part or all");
+			return answerFor(options, "Hand over");
+		});
+		vi.stubEnv("JEFF_FIRST_MODE", "teacher");
+		vi.stubEnv("JEFF_FIRST_TRACE_FILE", join(traceDir, "trace.jsonl"));
+		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
+		vi.stubEnv("JEFF_FIRST_TEACHER_URL", teacher.url);
+		vi.stubEnv("JEFF_FIRST_TEACHER_MODEL", "glm-test");
+		const { session, provider } = await startSession();
+		await session.prompt("Read README.md and fix the bug.");
+		session.dispose();
+		await teacher.close();
+		const lines = readFileSync(join(traceDir, "trace.jsonl"), "utf8")
+			.trimEnd()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(lines.map((l) => `${l.kind}:${l.action.kind ?? l.action.stop_reason}`)).toEqual([
+			"decision:step",
+			"decision:hand_over",
+			"model_turn:toolUse",
+			"decision:hand_over",
+			"model_turn:stop",
+		]);
+		expect(lines[1].state.recentSteps[0].output).toContain("The bug is in main.py.");
+		expect(provider.calls).toBe(2);
+		expect(teacher.requests).toHaveLength(4 * 5);
 	});
 
 	it("does not retry a JeffFirst failure even when its text looks transient", async () => {
