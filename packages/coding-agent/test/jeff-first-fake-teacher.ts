@@ -7,7 +7,10 @@ export interface FakeTeacher {
 	close(): Promise<void>;
 }
 
-/** An OpenAI-style chat server whose answer is `pick(options, prompt)`; a pick of "!500" answers with status 500. */
+/**
+ * An OpenAI-style chat server whose answer is `pick(options, prompt)`. A pick of "!500" answers with status 500; a
+ * pick starting with "!raw:" answers status 200 with the rest of the pick as the whole response body.
+ */
 export async function startFakeTeacher(
 	pick: (options: Array<{ code: string; description: string }>, prompt: string) => string,
 ): Promise<FakeTeacher> {
@@ -26,6 +29,11 @@ export async function startFakeTeacher(
 			if (content === "!500") {
 				response.writeHead(500, { "content-type": "application/json" });
 				response.end('{"error":"overloaded"}');
+				return;
+			}
+			if (content.startsWith("!raw:")) {
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(content.slice("!raw:".length));
 				return;
 			}
 			response.writeHead(200, { "content-type": "application/json" });

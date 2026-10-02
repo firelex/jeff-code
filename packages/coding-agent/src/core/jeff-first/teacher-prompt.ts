@@ -32,7 +32,7 @@ export function renderState(state: JeffState): string {
 	} else {
 		const header =
 			state.stepsLeftOut > 0
-				? `Steps so far, oldest first (${state.stepsLeftOut} earlier steps are not shown.):`
+				? `Steps so far, oldest first (${state.stepsLeftOut} earlier steps are not shown):`
 				: "Steps so far, oldest first:";
 		parts.push(header);
 		state.recentSteps.forEach((step, index) => {

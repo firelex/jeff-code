@@ -39,6 +39,11 @@ def test_counts_model_turns_and_seconds_in_both_schemas(tmp_path):
     assert teach["t1"] == TaskResult(turns=2, model_seconds=8.0, passed=False, scout_steps=1, teacher_seconds=4.0, timed_out=False)
 
 
+def test_counts_a_turn_cut_off_at_the_length_limit(tmp_path):
+    write_trial(tmp_path / "base", "t1", [model_turn("toolUse"), model_turn("length"), model_turn("aborted")], 1.0)
+    assert summarise(tmp_path / "base", ["t1"])["t1"].turns == 2
+
+
 def test_fails_loudly_when_a_task_has_no_trial(tmp_path):
     (tmp_path / "base").mkdir()
     with pytest.raises(FileNotFoundError, match="t9"):

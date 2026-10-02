@@ -41,6 +41,16 @@ function excerpt(text: string): string {
 	return text.length > 500 ? `${text.slice(0, 500)}...` : text;
 }
 
+/** A fetch failure's message plus its cause (Node's fetch says only "fetch failed"; the cause names the reason). */
+function describeFetchError(error: unknown): string {
+	if (!(error instanceof Error)) return String(error);
+	if (error.cause === undefined) return error.message;
+	const cause = error.cause;
+	if (!(cause instanceof Error)) return `${error.message} (${String(cause)})`;
+	const code = "code" in cause && typeof cause.code === "string" ? ` [${cause.code}]` : "";
+	return `${error.message} (${cause.message === "" ? cause.name : cause.message}${code})`;
+}
+
 /** GLM 5.3 behind the GLM proxy, which adds the real key; this client always sends "unused". */
 export class GlmTeacher implements Chooser {
 	readonly name: string;
@@ -81,27 +91,33 @@ export class GlmTeacher implements Chooser {
 				body,
 			});
 		} catch (error) {
-			throw new Error(
-				`could not reach the teacher model at ${this.url}: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			throw new Error(`could not reach the teacher model at ${this.url}: ${describeFetchError(error)}`);
 		}
 		const text = await response.text();
 		if (!response.ok)
 			throw new Error(`the teacher model at ${this.url} answered ${response.status}: ${excerpt(text)}`);
-		const content = (JSON.parse(text) as { choices?: Array<{ message?: { content?: unknown } }> }).choices?.[0]
-			?.message?.content;
+		let reply: unknown;
+		try {
+			reply = JSON.parse(text);
+		} catch {
+			throw new Error(`the teacher model at ${this.url} answered with a body that is not JSON: ${excerpt(text)}`);
+		}
+		const content = (reply as { choices?: Array<{ message?: { content?: unknown } }> } | null)?.choices?.[0]?.message
+			?.content;
 		if (typeof content !== "string")
-			throw new Error(`the teacher model's reply has no message text: ${excerpt(text)}`);
+			throw new Error(`the teacher model at ${this.url} replied without message text: ${excerpt(text)}`);
 		let answer: unknown;
 		try {
 			answer = JSON.parse(content);
 		} catch {
-			throw new Error(`the teacher model's answer is not JSON: ${excerpt(content)}`);
+			throw new Error(`the teacher model at ${this.url} gave an answer that is not JSON: ${excerpt(content)}`);
 		}
 		const { choice, reason } = answer as { choice?: unknown; reason?: unknown };
 		const index = typeof choice === "string" ? codes.indexOf(choice) : -1;
 		if (index < 0 || typeof reason !== "string") {
-			throw new Error(`the teacher model's answer has no valid choice and reason: ${excerpt(content)}`);
+			throw new Error(
+				`the teacher model at ${this.url} gave an answer with no valid choice and reason: ${excerpt(content)}`,
+			);
 		}
 		return { optionId: options[index].id, reason };
 	}

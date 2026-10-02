@@ -71,23 +71,43 @@ describe("GlmTeacher", () => {
 		).rejects.toThrow(/the teacher model at http:\/\/127\.0\.0\.1:\d+ answered 500/);
 	});
 
+	it("names the teacher when its response body is not JSON", async () => {
+		teacher = await startFakeTeacher(() => "!raw:<html>bad gateway</html>");
+		await expect(
+			new GlmTeacher(teacher.url, "glm-test").choose(state, { level: "tool", options: tools }),
+		).rejects.toThrow(
+			/the teacher model at http:\/\/127\.0\.0\.1:\d+ answered with a body that is not JSON: <html>bad gateway<\/html>/,
+		);
+	});
+
+	it("names the teacher when its reply has no message text", async () => {
+		teacher = await startFakeTeacher(() => '!raw:{"choices":[]}');
+		await expect(
+			new GlmTeacher(teacher.url, "glm-test").choose(state, { level: "tool", options: tools }),
+		).rejects.toThrow(
+			/the teacher model at http:\/\/127\.0\.0\.1:\d+ replied without message text: \{"choices":\[\]\}/,
+		);
+	});
+
 	it("refuses an answer that is not JSON", async () => {
 		teacher = await startFakeTeacher(() => "I would read the file.");
 		await expect(
 			new GlmTeacher(teacher.url, "glm-test").choose(state, { level: "tool", options: tools }),
-		).rejects.toThrow(/answer is not JSON: I would read the file\./);
+		).rejects.toThrow(/at http:\/\/127\.0\.0\.1:\d+ gave an answer that is not JSON: I would read the file\./);
 	});
 
 	it("refuses a letter that is not one of the options", async () => {
 		teacher = await startFakeTeacher(() => JSON.stringify({ reason: "x", choice: "Q" }));
 		await expect(
 			new GlmTeacher(teacher.url, "glm-test").choose(state, { level: "tool", options: tools }),
-		).rejects.toThrow(/no valid choice and reason/);
+		).rejects.toThrow(
+			/the teacher model at http:\/\/127\.0\.0\.1:\d+ gave an answer with no valid choice and reason/,
+		);
 	});
 
 	it("fails when the teacher cannot be reached", async () => {
 		await expect(
 			new GlmTeacher("http://127.0.0.1:9", "glm-test").choose(state, { level: "tool", options: tools }),
-		).rejects.toThrow(/could not reach the teacher model at http:\/\/127\.0\.0\.1:9/);
+		).rejects.toThrow(/could not reach the teacher model at http:\/\/127\.0\.0\.1:9: fetch failed \(bad port\)/);
 	});
 });

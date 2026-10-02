@@ -32,7 +32,7 @@ describe("renderState", () => {
 	it("shows the task, a note on left-out steps, and each step with its output", () => {
 		const text = renderState(state);
 		expect(text).toContain("Task:\nFix the failing test in tests/test_app.py.");
-		expect(text).toContain("3 earlier steps are not shown.");
+		expect(text).toContain("Steps so far, oldest first (3 earlier steps are not shown):\n");
 		expect(text).toContain('Step 1: bash {"command":"pytest -q"}\nOutput (it reported an error):\n1 failed');
 		expect(text).toContain("Step 2: read");
 		expect(text).toContain("(no output was recorded)");

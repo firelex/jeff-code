@@ -16,7 +16,8 @@ from pathlib import Path
 
 from pi_errors import jeff_first_errors
 
-COUNTED_STOPS = {"toolUse", "stop"}
+# A turn cut off at the length limit still cost the large model a turn.
+COUNTED_STOPS = {"toolUse", "stop", "length"}
 REQUIRED_DROP = 0.25
 PASSES_ALLOWED_LOST = 1
 AGENT_TIMEOUT = "AgentTimeoutError"
