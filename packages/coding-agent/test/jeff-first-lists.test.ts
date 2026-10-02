@@ -138,6 +138,30 @@ describe("buildLists", () => {
 		expect(new Set(ids).size).toBe(ids.length);
 	});
 
+	it("gives check options a timeout of 300 seconds", () => {
+		const check = buildLists(input).argumentsByTool.check ?? [];
+		expect(check.length).toBeGreaterThan(0);
+		for (const option of check) expect(option.toolCall.arguments.timeout).toBe(300);
+	});
+
+	it("gives the repeat option a timeout of 300 seconds when the repeated call had none", () => {
+		input.steps.push(step("bash", { command: "run-tests.sh" }, "ok"));
+		const repeat = buildLists(input).argumentsByTool.repeat ?? [];
+		expect(repeat[0]?.toolCall.arguments.timeout).toBe(300);
+	});
+
+	it("keeps the repeated call's own timeout when it is smaller than 300 seconds", () => {
+		input.steps.push(step("bash", { command: "run-tests.sh", timeout: 60 }, "ok"));
+		const repeat = buildLists(input).argumentsByTool.repeat ?? [];
+		expect(repeat[0]?.toolCall.arguments.timeout).toBe(60);
+	});
+
+	it("caps the repeated call's own timeout at 300 seconds when it is larger", () => {
+		input.steps.push(step("bash", { command: "run-tests.sh", timeout: 900 }, "ok"));
+		const repeat = buildLists(input).argumentsByTool.repeat ?? [];
+		expect(repeat[0]?.toolCall.arguments.timeout).toBe(300);
+	});
+
 	it("does not throw on binary junk with null bytes and control characters, and still offers a real file named in the same output", () => {
 		input.steps.push(
 			step(

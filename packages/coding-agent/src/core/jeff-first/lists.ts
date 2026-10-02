@@ -11,6 +11,8 @@ import {
 } from "./menu.ts";
 
 export const ARGUMENT_LIMIT = 25;
+/** A scout bash step (Check or Repeat) never runs longer than this: the teacher chose Repeat on a hung test script once and it ran for ~40 minutes with no timeout. */
+export const SCOUT_COMMAND_TIMEOUT_SECONDS = 300;
 export const READ_SLICE_LINES = 60;
 export const READ_SLICE_BEFORE = 30;
 export const SEARCH_LIMIT = 10;
@@ -158,12 +160,22 @@ function checkOptions(input: MenuInput): MenuToolCall[] {
 		}
 		commands.push(...unique(failing).slice(0, FAILING_TEST_LIMIT));
 	}
-	return commands.map((command) => ({ name: "bash", arguments: { command } }));
+	return commands.map((command) => ({
+		name: "bash",
+		arguments: { command, timeout: SCOUT_COMMAND_TIMEOUT_SECONDS },
+	}));
 }
 
 function repeatOptions(input: MenuInput): MenuToolCall[] {
 	const lastBash = input.steps.filter((step) => step.call.name === "bash" && !step.byScout).at(-1);
-	return lastBash ? [{ name: "bash", arguments: structuredClone(lastBash.call.arguments) }] : [];
+	if (!lastBash) return [];
+	const args = structuredClone(lastBash.call.arguments);
+	const existingTimeout = args.timeout;
+	args.timeout =
+		typeof existingTimeout === "number"
+			? Math.min(existingTimeout, SCOUT_COMMAND_TIMEOUT_SECONDS)
+			: SCOUT_COMMAND_TIMEOUT_SECONDS;
+	return [{ name: "bash", arguments: args }];
 }
 
 function describe(kind: ToolKind, call: MenuToolCall): string {
