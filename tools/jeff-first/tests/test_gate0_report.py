@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from gate0_report import TaskResult, gate, summarise
+from gate0_report import TaskResult, gate, render, summarise
 
 
-def write_trial(root, task, lines, reward, jeff_first_error=None):
+def write_trial(root, task, lines, reward, jeff_first_error=None, exception_type=None):
     trial = root / f"{task}-20261002-120000" / f"{task}__abc"
     (trial / "agent").mkdir(parents=True)
     message = {"role": "assistant", "content": [], "stopReason": "stop"}
@@ -13,7 +13,8 @@ def write_trial(root, task, lines, reward, jeff_first_error=None):
         message.update(stopReason="error", errorMessage=jeff_first_error)
     (trial / "agent" / "pi.txt").write_text(json.dumps({"type": "message_end", "message": message}) + "\n")
     (trial / "agent" / "jeff-first-trace.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
-    (trial / "result.json").write_text(json.dumps({"verifier_result": {"rewards": {"reward": reward}}}))
+    info = None if exception_type is None else {"exception_type": exception_type, "exception_message": "it stopped"}
+    (trial / "result.json").write_text(json.dumps({"verifier_result": {"rewards": {"reward": reward}}, "exception_info": info}))
 
 
 def shadow_turn(stop="toolUse", ms=4000):
@@ -34,8 +35,8 @@ def test_counts_model_turns_and_seconds_in_both_schemas(tmp_path):
     write_trial(tmp_path / "teach", "t1", [decision(), decision("hand_over"), model_turn(), model_turn("stop")], 0.0)
     base = summarise(tmp_path / "base", ["t1"])
     teach = summarise(tmp_path / "teach", ["t1"])
-    assert base["t1"] == TaskResult(turns=3, model_seconds=12.0, passed=True, scout_steps=0, teacher_seconds=0.0)
-    assert teach["t1"] == TaskResult(turns=2, model_seconds=8.0, passed=False, scout_steps=1, teacher_seconds=4.0)
+    assert base["t1"] == TaskResult(turns=3, model_seconds=12.0, passed=True, scout_steps=0, teacher_seconds=0.0, timed_out=False)
+    assert teach["t1"] == TaskResult(turns=2, model_seconds=8.0, passed=False, scout_steps=1, teacher_seconds=4.0, timed_out=False)
 
 
 def test_fails_loudly_when_a_task_has_no_trial(tmp_path):
@@ -56,8 +57,19 @@ def test_fails_loudly_when_a_trial_ended_with_a_jeff_first_error(tmp_path):
         summarise(tmp_path / "teach", ["t1"])
 
 
-def result(turns, seconds, passed):
-    return TaskResult(turns=turns, model_seconds=seconds, passed=passed, scout_steps=0, teacher_seconds=0.0)
+def test_records_an_agent_timeout(tmp_path):
+    write_trial(tmp_path / "base", "t1", [shadow_turn()], 0.0, exception_type="AgentTimeoutError")
+    assert summarise(tmp_path / "base", ["t1"])["t1"].timed_out
+
+
+def test_fails_loudly_on_any_other_trial_exception(tmp_path):
+    write_trial(tmp_path / "base", "t1", [shadow_turn()], 0.0, exception_type="RuntimeError")
+    with pytest.raises(ValueError, match="t1__abc raised RuntimeError"):
+        summarise(tmp_path / "base", ["t1"])
+
+
+def result(turns, seconds, passed, timed_out=False):
+    return TaskResult(turns=turns, model_seconds=seconds, passed=passed, scout_steps=0, teacher_seconds=0.0, timed_out=timed_out)
 
 
 def test_gate_passes_with_25_percent_fewer_turns_and_seconds_and_at_most_one_pass_lost():
@@ -80,3 +92,34 @@ def test_gate_fails_when_two_more_tasks_fail():
     base = {"a": result(40, 160.0, True), "b": result(40, 160.0, True)}
     teacher = {"a": result(20, 80.0, False), "b": result(20, 80.0, False)}
     assert not gate(base, teacher)[0]
+
+
+def test_gate_is_not_judged_when_a_task_timed_out_in_only_one_arm():
+    base = {"a": result(40, 160.0, True), "b": result(40, 160.0, True, timed_out=True), "c": result(40, 160.0, True)}
+    teacher = {"a": result(20, 80.0, True, timed_out=True), "b": result(20, 80.0, True, timed_out=True), "c": result(20, 80.0, True)}
+    passed, line = gate(base, teacher)
+    assert not passed
+    assert line.startswith("**Gate 0: not judged.** Timed out in only one arm: a.")
+
+
+def test_gate_is_judged_when_a_task_timed_out_in_both_arms():
+    base = {"a": result(40, 160.0, True, timed_out=True)}
+    teacher = {"a": result(20, 80.0, True, timed_out=True)}
+    assert gate(base, teacher)[1].startswith("**Gate 0: pass.**")
+
+
+def test_gate_line_gives_the_median_per_task_drop_next_to_the_summed_drop():
+    base = {"a": result(10, 100.0, True), "b": result(10, 100.0, True), "c": result(100, 1000.0, True)}
+    teacher = {"a": result(9, 90.0, True), "b": result(5, 50.0, True), "c": result(20, 200.0, True)}
+    line = gate(base, teacher)[1]
+    assert "model turns 72% fewer (median per task 50%)" in line
+    assert "model seconds 72% fewer (median per task 50%)" in line
+
+
+def test_render_lists_timeouts_per_task_and_arm():
+    base = {"a": result(40, 160.0, True), "b": result(40, 160.0, True, timed_out=True)}
+    teacher = {"a": result(20, 80.0, True, timed_out=True), "b": result(20, 80.0, True, timed_out=True)}
+    report = render(base, teacher)
+    assert "Timed out in the base arm: b. Timed out in the teacher arm: a, b." in report
+    assert "| Timed out (base / teacher arm) |" in report
+    assert "| a | 40 | 20 | 160 | 80 | 0 | 0 | yes / yes | no / yes |" in report
