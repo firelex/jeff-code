@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { trimState } from "../src/core/jeff-first/state.ts";
-import { type TraceRecord, TraceWriter } from "../src/core/jeff-first/trace.ts";
+import { type DecisionRecord, type ShadowRecord, TraceWriter } from "../src/core/jeff-first/trace.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 const step = (i: number, output: string | null): Step => ({
@@ -56,7 +56,7 @@ describe("TraceWriter", () => {
 	it("appends one JSON line per record", () => {
 		const path = join(dir, "t.jsonl");
 		const writer = new TraceWriter(path);
-		const record = { schema: "jeff-first-trace/1", turn: 1 } as unknown as TraceRecord;
+		const record = { schema: "jeff-first-trace/1", turn: 1 } as unknown as ShadowRecord;
 		writer.append(record);
 		writer.append({ ...record, turn: 2 });
 		const lines = readFileSync(path, "utf8")
@@ -78,5 +78,37 @@ describe("trimState with large tool-call arguments", () => {
 		expect(state.recentSteps.map((s) => s.tool)).toEqual(["bash", "write"]);
 		expect(String(state.recentSteps[1].arguments.content)).toContain("[... 18800 characters left out ...]");
 		expect(state.recentSteps[1].arguments.path).toBe("a.py");
+	});
+});
+
+describe("TraceWriter with schema 2", () => {
+	it("writes a decision line as one JSON object", () => {
+		const folder = mkdtempSync(join(tmpdir(), "jeff-first-trace2-"));
+		const writer = new TraceWriter(join(folder, "t.jsonl"));
+		const record: DecisionRecord = {
+			schema: "jeff-first-trace/2",
+			kind: "decision",
+			task_id: "t",
+			session_id: "s",
+			decision: 1,
+			step_in_stint: 0,
+			mode: "teacher",
+			driver: "qwen",
+			time: "2026-10-02T00:00:00.000Z",
+			state: { task: "Fix it.", recentSteps: [], stepsLeftOut: 0 },
+			check_command_notes: [],
+			tool_level: {
+				options: [{ id: "hand_over", description: "Hand over" }],
+				chooser: "teacher:glm",
+				shares: { hand_over: 1 },
+				picks: [{ optionId: "hand_over", reason: "nothing to look at" }],
+				chosen: "hand_over",
+			},
+			argument_level: null,
+			action: { kind: "hand_over", why: "chosen" },
+			timings_ms: { lists: 1, chooser: 2 },
+		};
+		writer.append(record);
+		expect(JSON.parse(readFileSync(join(folder, "t.jsonl"), "utf8"))).toEqual(record);
 	});
 });
