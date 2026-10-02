@@ -137,4 +137,18 @@ describe("buildLists", () => {
 		const ids = Object.values(lists.argumentsByTool).flatMap((options) => options.map((o) => o.id));
 		expect(new Set(ids).size).toBe(ids.length);
 	});
+
+	it("does not throw on binary junk with null bytes and control characters, and still offers a real file named in the same output", () => {
+		input.steps.push(
+			step(
+				"bash",
+				{ command: "cat data.pkl" },
+				"/app/\u0000simple_mnist/data.pklFB \u0001\u0002/junk/data.bin src/app.py",
+			),
+		);
+		expect(() => buildLists(input)).not.toThrow();
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		expect(paths.some((p) => typeof p === "string" && p.includes("\u0000"))).toBe(false);
+		expect(paths).toContain(join(cwd, "src", "app.py"));
+	});
 });

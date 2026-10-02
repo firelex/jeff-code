@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildMenu, type MenuInput, type MenuOption, matchToolCall } from "../src/core/jeff-first/menu.ts";
+import { buildMenu, type MenuInput, type MenuOption, matchToolCall, pathKind } from "../src/core/jeff-first/menu.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 function step(name: string, args: JsonObject, output: string): Step {
@@ -116,6 +116,27 @@ describe("buildMenu", () => {
 		expect(reads[0].toolCall?.arguments.path).toBe(join(cwd, "f29.txt"));
 		expect(menu.filter((o) => o.kind === "look")).toHaveLength(5);
 		expect(menu).toHaveLength(25);
+	});
+
+	it("ignores binary junk with null bytes and control characters, but still offers a real file named in the same output", () => {
+		const binary = "/app/\u0000simple_mnist/data.pklFB \u0001\u0002/junk/data.bin src/app.py";
+		const menuInput = base({ steps: [step("bash", { command: "cat data.pkl" }, binary)] });
+		expect(() => buildMenu(menuInput)).not.toThrow();
+		const menu = buildMenu(menuInput);
+		for (const option of menu) {
+			const path = option.toolCall?.arguments.path;
+			if (typeof path === "string") expect(path.includes("\u0000")).toBe(false);
+		}
+		expect(menu.map((o) => o.toolCall)).toContainEqual({
+			name: "read",
+			arguments: { path: join(cwd, "src", "app.py") },
+		});
+	});
+});
+
+describe("pathKind", () => {
+	it("treats a path containing a null byte as not a file, rather than throwing", () => {
+		expect(pathKind("/app/\u0000x")).toBeUndefined();
 	});
 });
 

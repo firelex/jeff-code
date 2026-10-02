@@ -32,7 +32,12 @@ const TOKEN_SPLIT = /[\s`'"()[\]{}<>,;:]+/;
 /** A bash command that only lists one folder: `ls`, optional flags, optional folder. */
 const LS_LISTING = /^ls((?:\s+-\S+)*)(?:\s+(\S+))?$/;
 
+/** A control character (U+0000-U+001F or U+007F): never part of a real file name, only junk from binary output. */
+const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
+
 export function pathKind(path: string): "file" | "folder" | undefined {
+	// No file can be named with a null byte, so that is "not a file", not a fallback.
+	if (path.includes("\u0000")) return undefined;
 	const stats = statSync(path, { throwIfNoEntry: false });
 	if (stats === undefined) return undefined;
 	return stats.isDirectory() ? "folder" : stats.isFile() ? "file" : undefined;
@@ -42,6 +47,7 @@ function candidates(text: string): string[] {
 	return text
 		.split(TOKEN_SPLIT)
 		.map((token) => token.replace(/\.$/, ""))
+		.filter((token) => !CONTROL_CHAR.test(token))
 		.filter((token) => token.includes("/") || /\.[A-Za-z0-9]{1,10}$/.test(token));
 }
 
