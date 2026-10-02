@@ -23,13 +23,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import AsyncContextManager
 
-import aiohttp
 from aiohttp import web
 
-# Hop-by-hop and encoding headers are set again by each side of the proxy.
-DROP_REQUEST_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding"}
-DROP_RESPONSE_HEADERS = {"content-length", "transfer-encoding", "content-encoding", "connection"}
-SESSION = web.AppKey("session", aiohttp.ClientSession)
+from proxy_common import DROP_REQUEST_HEADERS, add_client_session, relay
 
 
 def make_app(upstream: str, cap: int, take_slot: Callable[[], AsyncContextManager[None]]) -> web.Application:
@@ -38,38 +34,18 @@ def make_app(upstream: str, cap: int, take_slot: Callable[[], AsyncContextManage
     own_slots = asyncio.Semaphore(cap)
     app = web.Application(client_max_size=64 * 1024 * 1024)
 
-    async def client_session(app: web.Application):
-        timeout = aiohttp.ClientTimeout(total=None, sock_connect=10)
-        async with aiohttp.ClientSession(timeout=timeout, auto_decompress=False) as session:
-            app[SESSION] = session
-            yield
-
-    app.cleanup_ctx.append(client_session)
+    add_client_session(app)
 
     async def forward(request: web.Request) -> web.StreamResponse:
         body = await request.read()
         headers = {k: v for k, v in request.headers.items() if k.lower() not in DROP_REQUEST_HEADERS}
         # Wait for this job's own slot first, so a queued request never holds a machine-wide slot.
         async with own_slots, take_slot():
-            try:
-                upstream_response = await app[SESSION].request(
-                    request.method, f"{upstream}{request.rel_url}", headers=headers, data=body
-                )
-            except aiohttp.ClientConnectionError as error:
-                message = f"sparkgate proxy: could not reach the Spark at {upstream}: {error}"
-                return web.json_response({"error": {"message": message}}, status=502)
-            async with upstream_response:
-                response = web.StreamResponse(
-                    status=upstream_response.status,
-                    headers={
-                        k: v for k, v in upstream_response.headers.items() if k.lower() not in DROP_RESPONSE_HEADERS
-                    },
-                )
-                await response.prepare(request)
-                async for chunk in upstream_response.content.iter_any():
-                    await response.write(chunk)
-                await response.write_eof()
-                return response
+
+            def error_message(error):
+                return f"sparkgate proxy: could not reach the Spark at {upstream}: {error}"
+
+            return await relay(request, app, f"{upstream}{request.rel_url}", headers, body, error_message)
 
     app.router.add_route("*", "/v1/{tail:.*}", forward)
     return app

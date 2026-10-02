@@ -18,12 +18,9 @@ import asyncio
 import contextlib
 import os
 
-import aiohttp
 from aiohttp import web
 
-DROP_REQUEST_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding", "authorization"}
-DROP_RESPONSE_HEADERS = {"content-length", "transfer-encoding", "content-encoding", "connection"}
-SESSION = web.AppKey("session", aiohttp.ClientSession)
+from proxy_common import DROP_REQUEST_HEADERS, add_client_session, relay
 
 
 def make_app(upstream: str, cap: int, key: str) -> web.Application:
@@ -34,38 +31,19 @@ def make_app(upstream: str, cap: int, key: str) -> web.Application:
     slots = asyncio.Semaphore(cap)
     app = web.Application(client_max_size=64 * 1024 * 1024)
 
-    async def client_session(app: web.Application):
-        timeout = aiohttp.ClientTimeout(total=None, sock_connect=10)
-        async with aiohttp.ClientSession(timeout=timeout, auto_decompress=False) as session:
-            app[SESSION] = session
-            yield
-
-    app.cleanup_ctx.append(client_session)
+    add_client_session(app)
 
     async def forward(request: web.Request) -> web.StreamResponse:
         body = await request.read()
-        headers = {k: v for k, v in request.headers.items() if k.lower() not in DROP_REQUEST_HEADERS}
+        # Drop the shared headers plus authorization (which GLM will replace with the real key).
+        headers = {k: v for k, v in request.headers.items() if k.lower() not in DROP_REQUEST_HEADERS and k.lower() != "authorization"}
         headers["Authorization"] = f"Bearer {key}"
         async with slots:
-            try:
-                upstream_response = await app[SESSION].request(
-                    request.method, f"{upstream}{request.rel_url}", headers=headers, data=body
-                )
-            except aiohttp.ClientConnectionError as error:
-                message = f"GLM proxy: could not reach the GLM endpoint at {upstream}: {type(error).__name__}"
-                return web.json_response({"error": {"message": message}}, status=502)
-            async with upstream_response:
-                response = web.StreamResponse(
-                    status=upstream_response.status,
-                    headers={
-                        k: v for k, v in upstream_response.headers.items() if k.lower() not in DROP_RESPONSE_HEADERS
-                    },
-                )
-                await response.prepare(request)
-                async for chunk in upstream_response.content.iter_any():
-                    await response.write(chunk)
-                await response.write_eof()
-                return response
+
+            def error_message(error):
+                return f"GLM proxy: could not reach the GLM endpoint at {upstream}: {type(error).__name__}"
+
+            return await relay(request, app, f"{upstream}{request.rel_url}", headers, body, error_message)
 
     app.router.add_route("*", "/v1/{tail:.*}", forward)
     return app
