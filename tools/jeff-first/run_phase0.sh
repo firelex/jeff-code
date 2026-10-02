@@ -3,23 +3,24 @@
 # One Harbor run per task, so each trace line carries its own task id; CONCURRENCY tasks run at a time.
 # Each task's trace lands in JOBS_DIR/<job>/<trial>/agent/jeff-first-trace.jsonl.
 #
-# Usage: run_phase0.sh [--dry-run] TASKS_JSON TARBALL PROXY_URL JOBS_DIR CONCURRENCY THINKING [TASK ...]
+# Usage: run_phase0.sh [--dry-run] TASKS_JSON TARBALL PROXY_URL JOBS_DIR CONCURRENCY THINKING TOOLS [TASK ...]
 #   TASKS_JSON   results/phase0/tasks.json (its "phase0" list is used unless TASK names are given)
 #   TARBALL      the packed fork (npm pack in packages/coding-agent)
 #   PROXY_URL    the sparkgate proxy as the task containers reach it, e.g. http://192.168.0.50:8899
 #   THINKING     pi's thinking level for Qwen: off, minimal, low, medium or high
+#   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write)
 #
 # Run it on datigator in tmux session jeff-pi-phase0; stop it with: tmux kill-session -t jeff-pi-phase0
 set -euo pipefail
 
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
-if [ $# -lt 6 ]; then
-  sed -n '5,10p' "$0" >&2
+if [ $# -lt 7 ]; then
+  sed -n '5,11p' "$0" >&2
   exit 2
 fi
-tasks_json=$1 tarball=$2 proxy=$3 jobs=$4 concurrency=$5 thinking=$6
-shift 6
+tasks_json=$1 tarball=$2 proxy=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7
+shift 7
 here=$(cd "$(dirname "$0")" && pwd)
 
 [ -f "$tasks_json" ] || { echo "no tasks file at $tasks_json" >&2; exit 1; }
@@ -47,6 +48,9 @@ run_one() {
     -a harbor_agent.jeff_pi:JeffPi
     --ak "tarball=$tarball" --ak model_api=openai-completions --ak "thinking=$thinking"
     -m openai/qwen3.8-flash-next
+  )
+  if [ "$tools" != default ]; then command+=(--ak "tools=$tools"); fi
+  command+=(
     --ae JEFF_FIRST_MODE=shadow
     --ae "JEFF_FIRST_TASK_ID=$task"
     --ae JEFF_FIRST_TRACE_FILE=/logs/agent/jeff-first-trace.jsonl
@@ -70,7 +74,7 @@ run_one() {
   fi
 }
 export -f run_one
-export here tarball proxy jobs thinking dry_run
+export here tarball proxy jobs thinking tools dry_run
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
 if ! printf '%s\n' "${tasks[@]}" | xargs -P "$concurrency" -I{} bash -c 'run_one "$1"' _ {}; then

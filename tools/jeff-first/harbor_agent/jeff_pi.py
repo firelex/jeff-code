@@ -8,10 +8,11 @@ Usage: harbor run ... -a harbor_agent.jeff_pi:JeffPi --ak tarball=/path/to/earen
 """
 
 from pathlib import Path
-from typing import override
+from typing import Annotated, override
 
 from harbor.agents.installed.node_install import nvm_node_install_snippet
 from harbor.agents.installed.pi import Pi, PiOptions
+from harbor.agents.options import Cli
 from harbor.environments.base import BaseEnvironment
 from pydantic import Field
 
@@ -20,6 +21,10 @@ REMOTE_TARBALL = "/tmp/jeff-pi.tgz"
 
 class JeffPiOptions(PiOptions):
     tarball: str = Field(description="Path on the host to the packed jeff-pi fork (output of npm pack).")
+    tools: Annotated[str | None, Cli("--tools")] = Field(
+        default=None,
+        description="Comma-separated tools pi offers the model; unset keeps pi's default (read, bash, edit, write).",
+    )
 
 
 class JeffPi(Pi):

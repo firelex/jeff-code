@@ -64,3 +64,13 @@ def test_keeps_pi_options_such_as_thinking(tmp_path):
     agent = make_agent(tmp_path, tarball="x.tgz", thinking="low", model_api="openai-completions")
     assert agent.options.thinking == "low"
     assert agent.options.model_api == "openai-completions"
+
+
+def test_passes_the_tool_list_to_pi(tmp_path):
+    agent = make_agent(tmp_path, tarball="x.tgz", tools="read,bash,edit,write,grep,find,ls")
+    assert "--tools read,bash,edit,write,grep,find,ls" in agent.build_cli_flags()
+
+
+def test_leaves_pi_default_tools_when_no_list_is_given(tmp_path):
+    agent = make_agent(tmp_path, tarball="x.tgz")
+    assert "--tools" not in agent.build_cli_flags()
