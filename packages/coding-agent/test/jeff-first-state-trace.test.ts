@@ -26,10 +26,12 @@ describe("trimState", () => {
 		});
 	});
 
-	it("cuts the middle out of long outputs", () => {
+	it("cuts the middle out of long outputs, and says plainly that only this summary is shortened", () => {
 		const output = `${"a".repeat(1000)}${"b".repeat(1000)}`;
 		const trimmed = trimState("t", [step(1, output)]).recentSteps[0].output;
-		expect(trimmed).toBe(`${"a".repeat(600)}\n[... 800 characters left out ...]\n${"b".repeat(600)}`);
+		expect(trimmed).toBe(
+			`${"a".repeat(600)}\n[... 800 characters left out of this summary only; the coding model received the full output ...]\n${"b".repeat(600)}`,
+		);
 	});
 
 	it("keeps the newest steps within the budget, oldest first", () => {
@@ -78,7 +80,9 @@ describe("trimState with large tool-call arguments", () => {
 		};
 		const state = trimState("t", [step(1, "one"), big]);
 		expect(state.recentSteps.map((s) => s.tool)).toEqual(["bash", "write"]);
-		expect(String(state.recentSteps[1].arguments.content)).toContain("[... 18800 characters left out ...]");
+		expect(String(state.recentSteps[1].arguments.content)).toContain(
+			"[... 18800 characters left out of this summary only ...]",
+		);
 		expect(state.recentSteps[1].arguments.path).toBe("a.py");
 	});
 });
