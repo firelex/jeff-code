@@ -3,7 +3,7 @@
 # One Harbor run per task, so each trace line carries its own task id; CONCURRENCY tasks run at a time.
 # Each task's trace lands in JOBS_DIR/<job>/<trial>/agent/jeff-first-trace.jsonl.
 #
-# Usage: run_phase0.sh [--dry-run] TASKS_JSON TARBALL BASE_URL JOBS_DIR CONCURRENCY THINKING TOOLS MODEL [TASK ...]
+# Usage: run_phase0.sh [--dry-run] TASKS_JSON TARBALL BASE_URL JOBS_DIR CONCURRENCY THINKING TOOLS MODEL MODE [TASK ...]
 #   TASKS_JSON   results/phase0/tasks.json (its "phase0" list is used unless TASK names are given)
 #   TARBALL      the packed fork (npm pack in packages/coding-agent)
 #   BASE_URL     the OpenAI-compatible endpoint as the task containers reach it, without /v1: for Qwen the sparkgate
@@ -11,6 +11,8 @@
 #   THINKING     pi's thinking level for the model: off, minimal, low, medium or high
 #   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write)
 #   MODEL        the model id at BASE_URL, e.g. qwen3.8-flash-next or scissero-glm-5.3
+#   MODE         shadow (log what the model does) or teacher (the teacher model scouts before every model turn;
+#                needs JEFF_FIRST_TEACHER_URL, the GLM proxy as containers reach it, and JEFF_FIRST_TEACHER_MODEL)
 #
 # The environment variable JEFF_RUN_API_KEY must hold the endpoint's API key ("unused" for the sparkgate proxy).
 #
@@ -19,12 +21,12 @@ set -euo pipefail
 
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
-if [ $# -lt 8 ]; then
-  sed -n '5,16p' "$0" >&2
+if [ $# -lt 9 ]; then
+  sed -n '5,18p' "$0" >&2
   exit 2
 fi
-tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8
-shift 8
+tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9
+shift 9
 [ -n "${JEFF_RUN_API_KEY:-}" ] || { echo "set JEFF_RUN_API_KEY to the endpoint's API key (\"unused\" for the sparkgate proxy)" >&2; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 
@@ -32,6 +34,15 @@ here=$(cd "$(dirname "$0")" && pwd)
 [ -f "$tarball" ] || { echo "no fork tarball at $tarball; build it with npm pack" >&2; exit 1; }
 case "$thinking" in off|minimal|low|medium|high) ;; *) echo "THINKING must be off, minimal, low, medium or high" >&2; exit 2 ;; esac
 case "$concurrency" in ''|*[!0-9]*) echo "CONCURRENCY must be a whole number" >&2; exit 2 ;; esac
+case "$mode" in
+  shadow) ;;
+  teacher)
+    [ -n "${JEFF_FIRST_TEACHER_URL:-}" ] || { echo "MODE teacher needs JEFF_FIRST_TEACHER_URL (the GLM proxy)" >&2; exit 2; }
+    [ -n "${JEFF_FIRST_TEACHER_MODEL:-}" ] || { echo "MODE teacher needs JEFF_FIRST_TEACHER_MODEL" >&2; exit 2; }
+    ;;
+  *) echo "MODE must be shadow or teacher" >&2; exit 2 ;;
+esac
+export JEFF_FIRST_TEACHER_URL="${JEFF_FIRST_TEACHER_URL:-}" JEFF_FIRST_TEACHER_MODEL="${JEFF_FIRST_TEACHER_MODEL:-}"
 
 if [ $# -gt 0 ]; then
   tasks=("$@")
@@ -56,11 +67,14 @@ run_one() {
   )
   if [ "$tools" != default ]; then command+=(--ak "tools=$tools"); fi
   command+=(
-    --ae JEFF_FIRST_MODE=shadow
+    --ae "JEFF_FIRST_MODE=$mode"
     --ae "JEFF_FIRST_TASK_ID=$task"
     --ae JEFF_FIRST_TRACE_FILE=/logs/agent/jeff-first-trace.jsonl
     -o "$jobs" --job-name "$job_name"
   )
+  if [ "$mode" = teacher ]; then
+    command+=(--ae "JEFF_FIRST_TEACHER_URL=$JEFF_FIRST_TEACHER_URL" --ae "JEFF_FIRST_TEACHER_MODEL=$JEFF_FIRST_TEACHER_MODEL")
+  fi
   if [ "$dry_run" = 1 ]; then
     printf '%q ' "${command[@]}"; echo
     return
@@ -79,7 +93,7 @@ run_one() {
   fi
 }
 export -f run_one
-export here tarball base_url jobs thinking tools model dry_run JEFF_RUN_API_KEY
+export here tarball base_url jobs thinking tools model mode dry_run JEFF_RUN_API_KEY
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
 if ! printf '%s\n' "${tasks[@]}" | xargs -P "$concurrency" -I{} bash -c 'run_one "$1"' _ {}; then
