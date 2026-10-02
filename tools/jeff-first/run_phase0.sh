@@ -58,11 +58,14 @@ run_one() {
   fi
   echo "$(date -Is) start $task"
   # Harbor exits 0 even when a trial failed, so check_trial.py inspects the job's results afterwards.
-  if (cd "$here" && PYTHONPATH="$here" OPENAI_BASE_URL="$proxy/v1" OPENAI_API_KEY=unused "${command[@]}") > "$jobs/logs/$task.log" 2>&1 \
-    && (cd "$here" && uv run --project "$here" python check_trial.py "$jobs/$job_name") >> "$jobs/logs/$task.log" 2>&1; then
+  local status=0
+  (cd "$here" && PYTHONPATH="$here" OPENAI_BASE_URL="$proxy/v1" OPENAI_API_KEY=unused "${command[@]}") > "$jobs/logs/$task.log" 2>&1 \
+    && (cd "$here" && uv run --project "$here" python check_trial.py "$jobs/$job_name") >> "$jobs/logs/$task.log" 2>&1 \
+    || status=$?
+  if [ "$status" = 0 ]; then
     echo "$(date -Is) done  $task ($(tail -1 "$jobs/logs/$task.log"))"
   else
-    echo "$(date -Is) FAILED $task (exit $?; see $jobs/logs/$task.log)"
+    echo "$(date -Is) FAILED $task (exit $status; see $jobs/logs/$task.log)"
     return 1
   fi
 }
