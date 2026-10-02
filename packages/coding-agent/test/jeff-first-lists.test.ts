@@ -10,8 +10,14 @@ import type { Step } from "../src/core/jeff-first/transcript.ts";
 const ALL_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 const DEFAULT_TOOLS = new Set(["read", "bash", "edit", "write"]);
 
-function step(name: string, args: ToolCall["arguments"], output: string | null, isError = false): Step {
-	return { call: { type: "toolCall", id: `c${Math.random()}`, name, arguments: args }, output, isError };
+function step(
+	name: string,
+	args: ToolCall["arguments"],
+	output: string | null,
+	isError = false,
+	byScout = false,
+): Step {
+	return { call: { type: "toolCall", id: `c${Math.random()}`, name, arguments: args }, output, isError, byScout };
 }
 
 describe("buildLists", () => {
@@ -106,6 +112,13 @@ describe("buildLists", () => {
 	it("does not offer Repeat when the last command is already a check option", () => {
 		input.steps.push(step("bash", { command: "pytest" }, "1 passed"));
 		expect(buildLists(input).tools.map((t) => t.id)).not.toContain("repeat");
+	});
+
+	it("offers the large model's last shell command as Repeat, not the scout's", () => {
+		input.steps.push(step("bash", { command: "pytest" }, "1 failed", true, true));
+		expect(buildLists(input).argumentsByTool.repeat?.map((o) => o.toolCall.arguments.command)).toEqual([
+			"cd /app && pytest -q",
+		]);
 	});
 
 	it("leaves out List, Search and Find when pi runs with its default tools", () => {

@@ -1,11 +1,14 @@
 import type { Message, ToolCall, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import { JEFF_PROVIDER } from "./provider.ts";
 
-/** One tool call the large model made, with the output pi recorded for it. */
+/** One tool call in the conversation (by the large model or by the scout), with the output pi recorded for it. */
 export interface Step {
 	call: ToolCall;
 	/** null when pi recorded no result for this call (for example, the turn was aborted). */
 	output: string | null;
 	isError: boolean;
+	/** true when the scout took this step, false when the large model did. */
+	byScout: boolean;
 }
 
 function textOf(content: UserMessage["content"] | ToolResultMessage["content"]): string {
@@ -46,6 +49,7 @@ export function collectSteps(messages: Message[]): Step[] {
 				call: part,
 				output: result === undefined ? null : textOf(result.content),
 				isError: result === undefined ? false : result.isError,
+				byScout: message.provider === JEFF_PROVIDER,
 			});
 		}
 	}

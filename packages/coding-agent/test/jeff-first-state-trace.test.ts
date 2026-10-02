@@ -10,6 +10,7 @@ const step = (i: number, output: string | null): Step => ({
 	call: { type: "toolCall", id: `c${i}`, name: "bash", arguments: { command: `echo ${i}` } },
 	output,
 	isError: false,
+	byScout: false,
 });
 
 describe("trimState", () => {
@@ -73,6 +74,7 @@ describe("trimState with large tool-call arguments", () => {
 			call: { type: "toolCall", id: "w", name: "write", arguments: { path: "a.py", content: "x".repeat(20000) } },
 			output: "ok",
 			isError: false,
+			byScout: false,
 		};
 		const state = trimState("t", [step(1, "one"), big]);
 		expect(state.recentSteps.map((s) => s.tool)).toEqual(["bash", "write"]);

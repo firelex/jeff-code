@@ -1,5 +1,6 @@
 import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import { JEFF_PROVIDER } from "../src/core/jeff-first/provider.ts";
 import { activeToolNames, collectSteps, taskText } from "../src/core/jeff-first/transcript.ts";
 
 const usage = {
@@ -14,11 +15,18 @@ const usage = {
 function assistantCalls(
 	...calls: Array<{ id: string; name: string; arguments: Record<string, string> }>
 ): AssistantMessage {
+	return assistantCallsFrom("test", ...calls);
+}
+
+function assistantCallsFrom(
+	provider: string,
+	...calls: Array<{ id: string; name: string; arguments: Record<string, string> }>
+): AssistantMessage {
 	return {
 		role: "assistant",
 		content: calls.map((c) => ({ type: "toolCall" as const, ...c })),
 		api: "openai-completions",
-		provider: "test",
+		provider,
 		model: "test",
 		usage,
 		stopReason: "toolUse",
@@ -82,18 +90,29 @@ describe("collectSteps", () => {
 				call: { type: "toolCall", id: "a", name: "bash", arguments: { command: "ls" } },
 				output: "main.py",
 				isError: false,
+				byScout: false,
 			},
 			{
 				call: { type: "toolCall", id: "b", name: "read", arguments: { path: "main.py" } },
 				output: "print(1)",
 				isError: false,
+				byScout: false,
 			},
 			{
 				call: { type: "toolCall", id: "c", name: "bash", arguments: { command: "pytest" } },
 				output: "1 failed",
 				isError: true,
+				byScout: false,
 			},
 		]);
+	});
+
+	it("marks the steps the scout took", () => {
+		const messages: Message[] = [
+			assistantCalls({ id: "a", name: "bash", arguments: { command: "make" } }),
+			assistantCallsFrom(JEFF_PROVIDER, { id: "b", name: "bash", arguments: { command: "pytest" } }),
+		];
+		expect(collectSteps(messages).map((step) => step.byScout)).toEqual([false, true]);
 	});
 
 	it("marks a call without a recorded result with output null", () => {

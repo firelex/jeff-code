@@ -7,7 +7,12 @@ import { buildMenu, type MenuInput, type MenuOption, matchToolCall } from "../sr
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 function step(name: string, args: JsonObject, output: string): Step {
-	return { call: { type: "toolCall", id: `${name}-${output.length}`, name, arguments: args }, output, isError: false };
+	return {
+		call: { type: "toolCall", id: `${name}-${output.length}`, name, arguments: args },
+		output,
+		isError: false,
+		byScout: false,
+	};
 }
 
 describe("buildMenu", () => {

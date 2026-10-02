@@ -12,7 +12,8 @@ import {
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Choice, Chooser } from "../src/core/jeff-first/chooser.ts";
-import { createScoutStreamFn, JEFF_PROVIDER, STEP_CAP, stepsSinceModel } from "../src/core/jeff-first/scout.ts";
+import { JEFF_PROVIDER } from "../src/core/jeff-first/provider.ts";
+import { createScoutStreamFn, STEP_CAP, stepsSinceModel } from "../src/core/jeff-first/scout.ts";
 import type { Level } from "../src/core/jeff-first/teacher-prompt.ts";
 import { TraceWriter } from "../src/core/jeff-first/trace.ts";
 

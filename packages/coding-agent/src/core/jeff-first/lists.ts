@@ -162,7 +162,7 @@ function checkOptions(input: MenuInput): MenuToolCall[] {
 }
 
 function repeatOptions(input: MenuInput): MenuToolCall[] {
-	const lastBash = input.steps.filter((step) => step.call.name === "bash").at(-1);
+	const lastBash = input.steps.filter((step) => step.call.name === "bash" && !step.byScout).at(-1);
 	return lastBash ? [{ name: "bash", arguments: structuredClone(lastBash.call.arguments) }] : [];
 }
 

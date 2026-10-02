@@ -13,13 +13,12 @@ import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
 import type { Choice, Chooser } from "./chooser.ts";
 import { buildLists, type ToolKind } from "./lists.ts";
 import type { MenuToolCall } from "./menu.ts";
+import { JEFF_PROVIDER } from "./provider.ts";
 import { trimState } from "./state.ts";
 import { describeError, errorStream, forwardModelTurn, JEFF_FIRST_ERROR_PREFIX, ZERO_USAGE } from "./stream.ts";
 import type { DecisionRecord, LevelRecord, TraceWriter } from "./trace.ts";
 import { activeToolNames, collectSteps, taskText } from "./transcript.ts";
 
-/** Marks the scout's own assistant messages, so later turns can count them. */
-export const JEFF_PROVIDER = "jeff-first";
 export const JEFF_MODEL_ID = "scout";
 /** Scout steps allowed between two large-model turns. */
 export const STEP_CAP = 8;
