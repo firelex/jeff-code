@@ -751,7 +751,7 @@ def command_is_neutral(command: str) -> bool:
 @dataclass(frozen=True)
 class _OptionTarget:
     """An option's target as read from its description: `form` is "path", "name", "find", "named" (an exact file
-    name), "port", "command", "toolchain" (the toolchain probe: the `programs` and Python `modules` it checks, read
+    name), "port", "command", "folder-types" (`file FOLDER/*`), "toolchain" (the toolchain probe: the `programs` and Python `modules` it checks, read
     from its command), "packages" (the installed-packages check: the `names` it filters by) or "markers" (one of
     the fixed command shapes in `needles`). For a peek option ("Look at the data in PATH"), `view` is its probe's kind
     (PEEK_VIEWS), read from its command."""
@@ -817,10 +817,15 @@ def _peek_target(option: ArgumentOption) -> _OptionTarget:
     return _OptionTarget("path", option["description"].removeprefix(PEEK_DESCRIPTION), view=kinds[0])
 
 
+FOLDER_TYPES_DESCRIPTION = "Show the type of every file in "
+
+
 def _option_target(option: ArgumentOption) -> _OptionTarget:
     description = option["description"]
     if description.startswith(PEEK_DESCRIPTION):
         return _peek_target(option)
+    if description.startswith(FOLDER_TYPES_DESCRIPTION):
+        return _OptionTarget("folder-types", description.removeprefix(FOLDER_TYPES_DESCRIPTION))
     if description.startswith(TOOLCHAIN_DESCRIPTION):
         return _toolchain_target(option)
     if description.startswith(PACKAGES_DESCRIPTION):
@@ -895,8 +900,9 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
     if intent.kind == "peek":
         if kind != "peek":
             return False
-        if target.form == "markers":
-            return intent.word == "file"
+        if target.form == "folder-types":
+            # `file FOLDER/*` shows the type of each file directly in FOLDER.
+            return intent.aspect == "type" and posixpath.dirname(_resolve(intent.target, cwd)) == _resolve(target.value, cwd)
         # Only a view of the file its probe also shows; an analysis of the file is another step.
         return bool(intent.aspect) and intent.aspect in PEEK_VIEWS.get(target.view, set()) and _same_path(intent.target, target.value, cwd)
     if intent.kind == "list":

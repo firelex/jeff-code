@@ -632,8 +632,11 @@ PEEK_MENU = make_menu(
         ("od -A x -t x1z /app/trunc.db | head -60", None),
         ("head -c 300 /app/big.txt", None),
         ("head -c 300 /app/config.json", None),
-        # A text file's type is not in its own probe, but "Show the type of every file in /app" shows it.
+        # A text file's type is not in its own probe, but "Show the type of every file in /app" shows it: `file
+        # /app/*` covers the files directly in /app, not those in its subfolders.
         ("file /app/big.txt", ("peek", "peek-7")),
+        ("file /app/sub/x.db", None),
+        ("file /app/sub/*", None),
     ],
 )
 def test_peek_matches_only_commands_that_print_a_slice_of_the_file(command, expected):
