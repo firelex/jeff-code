@@ -49,12 +49,28 @@ def test_short_listing_and_listings_that_give_nothing():
 
 def test_cat_gives_the_whole_text_and_head_only_existence():
     assert events("cat a.py", "print(1)") == [{"type": "read", "path": "/app/a.py", "content": "print(1)\n"}]
-    assert events("head -n 5 a.py", "x") == [{"type": "read", "path": "/app/a.py"}]
-    # A filtered or cut-off output still shows the file exists, but not its whole text.
-    assert events("cat a.py | grep x", "x") == [{"type": "read", "path": "/app/a.py"}]
+    assert events("head -n 5 a.py", "x") == [{"type": "read", "path": "/app/a.py", "shownText": True}]
+    # A filtered or cut-off output still shows the file exists and that it is text, but not its whole text.
+    assert events("cat a.py | grep x", "x") == [{"type": "read", "path": "/app/a.py", "shownText": True}]
     assert events("cat a.py", "line\n[... output limited to 10000 bytes; 70 interior bytes omitted ...]\nend") == [
-        {"type": "read", "path": "/app/a.py"}
+        {"type": "read", "path": "/app/a.py", "shownText": True}
     ]
+
+
+@pytest.mark.parametrize(
+    ("command", "output"),
+    [
+        ("head -c 100 a.cs", "using System;"),
+        ("cat a.cs b.cs", "using System;"),
+        ("cat a.cs | xxd", "00000000: 7573 696e 6720"),
+        ("wc -l a.cs", "12 a.cs"),
+        ("head -n 3 a.cs", "MZ\x00\x03\x01"),
+        ("head -n 3 a.cs", "\ufffd\ufffdPNG"),
+        ("head -n 3 a.cs", ""),
+    ],
+)
+def test_text_is_only_shown_by_a_line_read_of_one_file_whose_output_is_readable(command, output):
+    assert all("shownText" not in event for event in events(command, output))
 
 
 def test_errors_say_missing_and_commands_not_found():
@@ -125,10 +141,11 @@ def test_backfill_stops_at_any_acting_command_even_one_that_gives_no_events():
 
 def test_backfill_keeps_only_the_existence_of_a_text_whose_length_differs_from_a_known_size():
     sized = {"type": "listing", "folder": "/app", "entries": [{"name": "a.py", "kind": "file", "size": 40}], "showsHidden": False}
-    assert backfill([sized], looking([{"type": "read", "path": "/app/a.py", "content": "x\n"}])) == [sized, {"type": "read", "path": "/app/a.py"}]
+    shown = {"type": "read", "path": "/app/a.py", "shownText": True}
+    assert backfill([sized], looking([{"type": "read", "path": "/app/a.py", "content": "x\n"}])) == [sized, shown]
     later_size = {"type": "listing", "folder": "/app", "entries": [{"name": "a.py", "kind": "file", "size": 40}], "showsHidden": True}
     later = looking([{"type": "read", "path": "/app/a.py", "content": "\tx\n"}], [later_size])
-    assert backfill([LISTING], later) == [LISTING, {"type": "read", "path": "/app/a.py"}, later_size]
+    assert backfill([LISTING], later) == [LISTING, shown, later_size]
     fits = {"type": "read", "path": "/app/a.py", "content": "y" * 39 + "\n"}
     assert backfill([sized], looking([fits])) == [sized, fits]
 def test_find_output_lines_of_a_file_search_are_files():

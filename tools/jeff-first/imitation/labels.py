@@ -25,16 +25,17 @@ How a match is decided:
    "sock"; `grep 'if (tmp == null)' F` does not match "tmp" (the scout would search the whole project for that
    word, a different step).
 
-Labelling a session (SessionLabeler), per the design's Labels section: at the point before each coding-model turn,
-the first matching command of the turn is the label; if none matches, the label is "hand over". The turn is scanned
-only up to its first command that acts (`command_acts`: writes, edits, runs, installs, compiles, anything neither
-gathering information nor neutral): commands after it are never labels or stint rows, and an acting command is
-never a label itself, even when a Run, Check, Install or Repeat option matches it (ruling 2026-10-03). With stints
-followed, the matched command's real output then joins the history as a scout step, and the next command of the
-turn (after neutral ones) is labelled at a new point: its option if it matches, otherwise "hand over", which ends
-the turn's stint. A stint that uses up the turn needs no hand-over row (the next turn's point follows), unless
-commands passed over before the first match are still the coding model's to run. Every point
-needs the menu built for its history, which the caller supplies (menus logged live, or built from a transcript).
+Labelling a session (SessionLabeler), per the design's Labels section (rule of fix wave 2): the turn's commands are
+walked in order. A neutral command is passed over. A command that matches an option of any kind (read, list,
+search, find, peek, toolchain, service, docs, check, run, install, repeat) is the label of the current point; with
+stints followed, its real output then joins the history as a scout step and the walk goes on to the next command at
+a new point. The first command that matches no option ends the walk: "hand over" at that point (for approximate
+sources, an unmatched command that only gathers information drops the point instead; see SessionLabeler). So a
+turn that starts with `pytest -q` is labelled Check when a Check option runs the tests, and in `cat > t.py <<EOF
+... EOF` followed by `python t.py` the unmatched write hands over, and the run after it is never looked at. A
+command identical to the coding model's immediately preceding command is never a label. A stint that uses up the
+turn needs no hand-over row (the next turn's point follows). Every point needs the menu built for its history,
+which the caller supplies (menus logged live, or built from a transcript).
 """
 
 import posixpath
@@ -56,7 +57,8 @@ class Intent:
     `aspect` tells apart the targets of a service step (a "port", a service "name", the "processes" list, or a
     "log" file). `targets` holds every name when the part names several (`which gcc make`, `pip install a b`);
     `target` is the first. `lines` is the line range of a partial read (first, last; last may be None for "to the
-    end"). `word` is the program the part runs."""
+    end"). `word` is the program the part runs. `start` is, for a find that only lists what it finds (no -exec, no
+    xargs), its one start folder ("." when none is given; "" for several)."""
 
     kind: str
     target: str
@@ -64,6 +66,7 @@ class Intent:
     lines: tuple[int, int | None] | None = None
     aspect: str = ""
     word: str = ""
+    start: str = ""
 
 
 class _Marker:
@@ -292,10 +295,30 @@ def _find(word: str, args: list[str], part: Part) -> PartResult:
         program = _xargs_program(stage)
         if program is not None and _basename(program[0]) in GREP_LIKE:
             return _search(word, _basename(program[0]), program[1:])
+    start = _find_start(word, args, part)
     for flag in ("-name", "-iname", "-path", "-ipath"):
         if flag in args and args.index(flag) + 1 < len(args):
-            return Intent("find", args[args.index(flag) + 1], word=word)
-    return Intent("find", "", word=word)
+            return Intent("find", args[args.index(flag) + 1], word=word, start=start)
+    return Intent("find", "", word=word, start=start)
+
+
+FIND_RUNS_PROGRAM = {"-exec", "-execdir", "-ok", "-okdir"}
+
+
+def _find_start(word: str, args: list[str], part: Part) -> str:
+    """The one folder a `find` that only lists what it finds starts in: its start paths are the arguments before
+    the first predicate ("." when there are none, "" when there are several). "" for fd, and for a find that runs a
+    program on what it finds (-exec, -ok, a pipe into xargs): that shows more than the files."""
+    if word != "find" or FIND_RUNS_PROGRAM.intersection(args) or any(_xargs_program(stage) for stage in part.filters):
+        return ""
+    starts: list[str] = []
+    for arg in args:
+        if arg.startswith("-") or arg in ("(", "!", ")"):
+            break
+        starts.append(arg)
+    if not starts:
+        return "."
+    return starts[0] if len(starts) == 1 else ""
 
 
 XARGS_VALUE_FLAGS = {"-I", "-n", "-P", "-L", "-d", "-s", "-E", "-a", "--max-args", "--max-procs", "--delimiter", "--arg-file"}
@@ -660,6 +683,9 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
     if intent.kind == "find":
         if kind == "find" and target.form == "find":
             return bool(intent.target) and _glob_core(intent.target) == _glob_core(target.value)
+        if kind == "find" and target.form == "path":
+            # "Find the files under FOLDER": any find of the coding model that starts in that folder, whatever its filters.
+            return _same_path(intent.start, target.value, cwd)
         return kind == "toolchain" and target.form == "name" and intent.target.strip("*") == target.value
     if intent.kind == "toolchain":
         return kind == "toolchain" and target.form == "markers"
@@ -794,8 +820,8 @@ class SessionLabeler:
     """Walks one session's turns and asks for one menu per decision point; see the module docstring.
 
     Use: `while (history := labeler.next_point()) is not None: labeler.give(menu_for(history))`; then read
-    `decisions`. With `follow_stints` False (menus logged only before each coding-model turn), only the first match
-    of a turn is labelled.
+    `decisions`. With `follow_stints` False (menus logged only before each coding-model turn), only the turn's first
+    point is labelled: its first command that is not neutral, with that command's option or "hand over".
 
     With `drop_unmatched_information` (for approximate sources, whose menus are rebuilt from a transcript and may
     miss what was really there): where the label would be "hand over" but the coding model's next command only
@@ -815,7 +841,6 @@ class SessionLabeler:
     _stint: list[ShellStep] = field(default_factory=list)
     _scout: set[int] = field(default_factory=set)
     _next: int | None = None
-    _hand_over_due: bool = False
 
     def __post_init__(self) -> None:
         self._skip_unlabelled()
@@ -834,7 +859,6 @@ class SessionLabeler:
         self._stint = []
         self._scout = set()
         self._next = None
-        self._hand_over_due = False
         self._skip_unlabelled()
 
     def _skip_unlabelled(self) -> None:
@@ -867,19 +891,13 @@ class SessionLabeler:
         self.dropped = [dropped for dropped in self.dropped if dropped < turn]
         self._turn = len(self.turns)
 
-    def _limit(self) -> int:
-        """The index of the current turn's first acting command (the number of commands when none acts): the turn
-        is scanned for labels only up to it (ruling 2026-10-03: what the coding model does after its own action
-        is never a label)."""
-        commands = self.turns[self._turn].commands
-        return next((index for index, command in enumerate(commands) if command_acts(command.text)), len(commands))
-
     def _match(self, menu: Menu, index: int) -> Choice | _Marker | None:
         turn = self.turns[self._turn]
         return match_command(menu, turn.commands[index].text, self._previous(index), turn.folders[index])
 
     def _no_match(self, menu: Menu, next_commands: list[str]) -> None:
-        """Hand over, or no row when the coding model's next commands only gather information (see the class)."""
+        """Hand over, or no row when the coding model's next command only gathers information (see the class).
+        `next_commands` holds that command, or nothing for a turn without any command that is not neutral."""
         relevant = [text for text in next_commands if not command_is_neutral(text)]
         if self.drop_unmatched_information and relevant and all(gathers_information(text) for text in relevant):
             self.dropped.append(self._turn + 1)
@@ -896,35 +914,26 @@ class SessionLabeler:
         commands = self.turns[self._turn].commands
         while following < len(commands) and command_is_neutral(commands[following].text):
             following += 1
-        if not self.follow_stints:
-            self._finish_turn()
-        elif following < len(commands):
+        if self.follow_stints and following < len(commands):
             self._next = following
-        elif any(i not in self._scout and not command_is_neutral(c.text) for i, c in enumerate(commands)):
-            # Commands passed over before the first match are still the coding model's to run: hand over.
-            self._hand_over_due = True
         else:
             self._finish_turn()
 
     def give(self, menu: Menu) -> None:
+        """Label the pending point: walk from the turn's next command, passing over neutral ones; the first other
+        command is the label when it matches an option, otherwise the walk ends there (see the module docstring)."""
         if self._turn >= len(self.turns):
             raise ValueError("the session has no decision point left to give a menu for")
         commands = self.turns[self._turn].commands
-        if self._hand_over_due:
-            self._no_match(menu, [c.text for i, c in enumerate(commands) if i not in self._scout])
+        index = 0 if self._next is None else self._next
+        while index < len(commands) and command_is_neutral(commands[index].text):
+            index += 1
+        if index == len(commands):
+            # Only at a turn's first point: the turn has no command that is not neutral.
+            self._no_match(menu, [])
             return
-        limit = self._limit()
-        if self._next is not None:
-            choice = self._match(menu, self._next) if self._next < limit else None
-            if isinstance(choice, Choice):
-                self._take(self._next, choice, menu)
-                return
-            self._no_match(menu, [commands[self._next].text])
+        choice = self._match(menu, index)
+        if isinstance(choice, Choice):
+            self._take(index, choice, menu)
             return
-        for index in range(limit):
-            choice = self._match(menu, index)
-            if isinstance(choice, Choice):
-                self._take(index, choice, menu)
-                return
-        first = next((c.text for c in commands if not command_is_neutral(c.text)), None)
-        self._no_match(menu, [] if first is None else [first])
+        self._no_match(menu, [commands[index].text])

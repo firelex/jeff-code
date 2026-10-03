@@ -6,8 +6,8 @@ scout's full option lists at that moment (`lists`: `tools` and `arguments_by_too
 (`action.tool_calls`). The pi session file (agent/pi/sessions/*.jsonl: a "session" header line with the session id
 and working folder, then one line per message) holds every command with its full output.
 
-Each logged turn becomes one decision: the label is the option matched by the first matching command of the turn
-before its first acting command, or "hand over" (labels.py). Each bash call runs in a new shell in the session's
+Each logged turn becomes one decision: the label is the option matched by the turn's first command that is not
+neutral (any kind of option, Run, Check and Install included), or "hand over" when it matches none (labels.py). Each bash call runs in a new shell in the session's
 folder, so paths resolve against it (and any `cd` earlier in the same command). Only the turn's first match is labelled: menus are logged only before each coding-model
 turn, so the points inside a stint (after a scout step) have no menu. Rows are tagged quality "exact".
 
@@ -18,6 +18,11 @@ step is the session's last command (both logged step shapes are read, see `_chec
 bash (the imitation harness runs pi with bash only). A turn whose model call ended in "error" or "aborted" gets no
 row (its menu is fine, but the coding model took no action to imitate), and so does a turn with no record line;
 the returned notes list each such turn.
+
+`read_trace` reads one trial's trace (agent/jeff-first-trace.jsonl, next to result.json, Harbor's record of the
+trial). When Harbor stopped the agent at its time limit (result.json's exception type "AgentTimeoutError"), pi may
+have been killed in the middle of writing the trace's last line; only then is an unparsable last line dropped, and
+a note says so. Any other unparsable line raises.
 """
 
 import json
@@ -28,8 +33,31 @@ from imitation.labels import LabelTurn, SessionLabeler, TurnCommand
 from imitation.rows import Menu, Row, RowSource, ShellStep, render_state, rows_for_decision, terminal_command
 
 FAILED_STOPS = ("error", "aborted")
+TRACE_NAME = "jeff-first-trace.jsonl"
+AGENT_TIMEOUT = "AgentTimeoutError"
 # state.ts before the terminal view shortened a long string argument to its first and last 600 characters.
 OLD_TRIM_CHARS = 600
+
+
+def read_trace(trial: Path) -> tuple[list[dict], list[str]]:
+    """The trace lines of one Harbor trial folder, and a note when a last line cut by the agent time limit was
+    dropped (see the module docstring)."""
+    path = trial / "agent" / TRACE_NAME
+    info = json.loads((trial / "result.json").read_text())["exception_info"]
+    timed_out = info is not None and info["exception_type"] == AGENT_TIMEOUT
+    texts = path.read_text().splitlines()
+    numbered = [(number, text) for number, text in enumerate(texts, start=1) if text.strip()]
+    lines: list[dict] = []
+    notes: list[str] = []
+    for position, (number, text) in enumerate(numbered):
+        try:
+            lines.append(json.loads(text))
+        except json.JSONDecodeError as error:
+            if timed_out and position == len(numbered) - 1:
+                notes.append(f"{path} line {number}: cut off when the trial ended with {AGENT_TIMEOUT} ({error}); dropped")
+                continue
+            raise ValueError(f"{path} line {number} is not valid JSON: {error}") from error
+    return lines, notes
 
 
 def _check_last_step(logged: dict, real: ShellStep, where: str) -> None:

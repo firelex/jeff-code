@@ -484,3 +484,65 @@ def test_a_turn_without_commands_gives_its_decision_to_the_next_labelled_turn():
         (4, "tool", "hand_over"),
         (5, "tool", "hand_over"),
     ]
+
+
+def interrupted(reply: list[str], screen: str, before: str = "New Terminal Output:\n\nroot@abc123:/app# python3 slow.py\nworking\n") -> list[dict]:
+    return [
+        user(FIRST_USER),
+        assistant(["python3 slow.py\n"]),
+        user(before),
+        assistant(reply),
+        user(screen),
+    ]
+
+
+def test_c_c_interrupts_a_running_command_and_the_session_continues():
+    screen = (
+        "New Terminal Output:\n\nroot@abc123:/app# python3 slow.py\nworking\n^CTraceback (most recent call last):\n"
+        "KeyboardInterrupt\nroot@abc123:/app# ls\nmain.py\nroot@abc123:/app#\n"
+    )
+    session = parse_terminus(interrupted(["C-c", "ls\n"], screen))
+    assert session.end_reason == "complete"
+    assert session.turns[0].commands == [
+        TurnCommand("python3 slow.py", "working\n^CTraceback (most recent call last):\nKeyboardInterrupt", False)
+    ]
+    assert session.turns[1].commands == [TurnCommand("ls", "main.py", False)]
+    assert session.turns[1].interrupts and not session.turns[0].interrupts
+
+
+def test_c_c_alone_adds_what_the_screen_showed_to_the_interrupted_command():
+    session = parse_terminus(interrupted(["C-c"], "New Terminal Output:\n\n^C\nroot@abc123:/app#\n"))
+    assert session.end_reason == "complete"
+    assert session.turns[0].commands == [TurnCommand("python3 slow.py", "working\n^C", False)]
+    assert session.turns[1].commands == [] and session.turns[1].interrupts
+
+
+def test_c_c_then_the_same_command_again_keeps_each_output_apart():
+    screen = (
+        "New Terminal Output:\n\nroot@abc123:/app# python3 slow.py\nworking\n^C\n"
+        "root@abc123:/app# python3 slow.py\ndone\nroot@abc123:/app#\n"
+    )
+    for shown in (screen, "New Terminal Output:\n\n^C\nroot@abc123:/app# python3 slow.py\ndone\nroot@abc123:/app#\n"):
+        session = parse_terminus(interrupted(["C-c", "python3 slow.py\n"], shown))
+        assert session.turns[0].commands == [TurnCommand("python3 slow.py", "working\n^C", False)]
+        assert session.turns[1].commands == [TurnCommand("python3 slow.py", "done", False)]
+
+
+@pytest.mark.parametrize(
+    ("reply", "before", "screen"),
+    [
+        # Nothing was running: the screen before ended at a bare prompt.
+        (["C-c"], "New Terminal Output:\n\nroot@abc123:/app# python3 slow.py\nok\nroot@abc123:/app#\n", "New Terminal Output:\n\nroot@abc123:/app#\n"),
+        # The shell did not come back: no prompt on the next screen.
+        (["C-c"], None, "New Terminal Output:\n\n^C\nstill going\n"),
+        # C-c after a command of the same reply, or twice.
+        (["ls\n", "C-c"], None, "New Terminal Output:\n\n^C\nroot@abc123:/app#\n"),
+        (["C-c", "C-c"], None, "New Terminal Output:\n\n^C\nroot@abc123:/app#\n"),
+        (["C-c\n"], None, "New Terminal Output:\n\n^C\nroot@abc123:/app#\n"),
+    ],
+)
+def test_other_uses_of_c_c_still_end_the_session(reply, before, screen):
+    conv = interrupted(reply, screen) if before is None else interrupted(reply, screen, before)
+    session = parse_terminus(conv)
+    assert session.end_reason == "interactive" and "turn 2" in session.end_detail
+    assert len(session.turns) == 1

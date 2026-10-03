@@ -138,6 +138,7 @@ def test_value_on_a_hand_computed_example(tmp_path):
         ("Show the last 20 lines of /var/log/app.log", StepTarget(("app.log",))),
         ('Search the project for the text "foo_bar"', StepTarget(("foo_bar",))),
         ("Find files matching **/foo.py", StepTarget(("foo.py",))),
+        ("Find the files under /app/src", StepTarget(("src",))),
         (
             "Check which tools and languages are installed: python3, pip3",
             StepTarget(TOOLCHAIN_MARKERS, command_word_markers=True),

@@ -4,7 +4,10 @@ The menu builder (scripts/jeff-first-menus.ts, virtual-facts.ts) takes a list of
 revealed them, each naming an absolute path:
 
 - listing {folder, entries [{name, kind?, size?}], showsHidden}: a folder's full listing (from a plain `ls`/`ls -l`).
-- read {path, content?}: the file exists; `content` is its whole text when a bare `cat FILE` showed it.
+- read {path, content?, shownText?}: the file exists; `content` is its whole text when a bare `cat FILE` showed it;
+  `shownText` is true when a line read of that one file (cat, head, tail, nl, less, sed -n; no byte count, at most
+  line filters after it) showed readable text: no control characters but tab, newline and carriage return, and no
+  replacement character (U+FFFD). The menu then takes the file as text whatever its extension.
 - written {path, content}: the file was written with exactly this text (`cat > FILE <<EOF` here-document).
 - missing {path}: an error said there is no such file or folder.
 - deleted {path}: `rm`. moved {from, to}: `mv` (`to` is the new path itself: `mv a dir/` moves to `dir/a`).
@@ -25,7 +28,8 @@ the first command that acts (writes, edits, runs, installs, compiles, or anythin
 information and neutral commands), is added to the point's events. Nothing changed between the point and those
 commands, so what they showed was already true at the point. This is inference from what the transcript shows, not a
 guess; it lets the rebuilt menu offer, for example, a Read of a file that `ls` revealed without a size. A back-filled
-whole text whose byte length differs from a size `ls -l` showed for the file keeps only the file's existence.
+whole text whose byte length differs from a size `ls -l` showed for the file keeps only the file's existence and
+that it is text.
 
 Evidence from one part of a command of several: a `find ROOT -type f` whose output only passes through line filters
 gives each listed file; a read (cat, head, sed -n, ...) whose errors would reach the screen and do not proves its
@@ -292,8 +296,22 @@ def _output_events(base: str, args: list[str], output: str, shell: Shell, filter
         names = plain[1:] if base == "sed" else plain
         if base == "sed" and "-n" not in args:
             return []
-        return [{"type": "read", "path": path} for path in (resolve(name, shell) for name in names if not name.isdigit()) if path]
+        paths = [path for path in (resolve(name, shell) for name in names if not name.isdigit()) if path]
+        shown = (
+            base != "wc"
+            and len(paths) == 1
+            and not any(arg == "-c" or arg.startswith("--bytes") or re.fullmatch(r"-c\d+", arg) for arg in args)
+            and all(LINE_SELECTING.match(stage.strip()) for stage in filters)
+            and _readable(output)
+        )
+        return [{"type": "read", "path": path, "shownText": True} if shown else {"type": "read", "path": path} for path in paths]
     return []
+
+
+def _readable(output: str) -> bool:
+    """Whether a terminal output is readable text: not empty, no control character but tab, newline and carriage
+    return, and no replacement character (what a terminal shows for bytes that are not text)."""
+    return bool(output.strip()) and "\ufffd" not in output and all(char.isprintable() or char in "\t\n\r" for char in output)
 
 
 def _after_cd(part: Part, shell: Shell) -> Shell | None:
@@ -500,7 +518,7 @@ def backfill(point_events: list[dict], later: list[tuple[bool, list[dict]]]) -> 
     """The point's events, then the events of the later commands up to the first one that acts; see the module
     docstring. `later` holds the later commands in order, each as (whether it acts, its events). A later whole
     text whose byte length differs from the file's known size (`ls -l`, at the point or later) keeps only the
-    file's existence: the terminal showed the text inexactly (tabs as spaces, a cut line)."""
+    file's existence and that it is text: the terminal showed the text inexactly (tabs as spaces, a cut line)."""
     added: list[dict] = []
     for acts, step in later:
         if acts:
@@ -511,7 +529,8 @@ def backfill(point_events: list[dict], later: list[tuple[bool, list[dict]]]) -> 
     for event in added:
         content = event.get("content") if event["type"] == "read" else None
         if content is not None and event["path"] in sizes and sizes[event["path"]] != len(content.encode("utf-8", "surrogatepass")):
-            completed.append({"type": "read", "path": event["path"]})
+            # The terminal showed the text inexactly, but it showed text.
+            completed.append({"type": "read", "path": event["path"], "shownText": True})
         else:
             completed.append(dict(event))
     return completed

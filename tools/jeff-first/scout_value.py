@@ -55,8 +55,8 @@ Plain-English definitions used below:
   are fixed sentences pi always writes the same way, so each one is matched against a fixed pattern to pull out
   its target, or, for a few kinds, a fixed set of search strings instead of one name:
     - "Read the file PATH", "Read lines A to B of PATH", "Look at the data in PATH", "Show the type of every file
-      in PATH", "List the folder PATH", "Show the last 20 lines of PATH" -> the last path segment of PATH (so
-      "/app/a.py" becomes "a.py": the large model rarely repeats a full path verbatim).
+      in PATH", "List the folder PATH", "Show the last 20 lines of PATH", "Find the files under PATH" -> the last
+      path segment of PATH (so "/app/a.py" becomes "a.py": the large model rarely repeats a full path verbatim).
     - "Search the project for the text "P"" -> P. "Find files matching PATTERN" -> PATTERN with any leading
       "**/" removed.
     - "Check which tools and languages are installed: ..." and "Check which installed packages match: ..." ->
@@ -175,6 +175,7 @@ DESCRIPTION_PATTERNS: list[tuple[re.Pattern[str], Callable[[re.Match[str]], Step
     (re.compile(r"^Show the last 20 lines of (.+)$", re.DOTALL), _path),
     (re.compile(r'^Search the project for the text "(.*)"$', re.DOTALL), _name),
     (re.compile(r"^Find files matching (.+)$", re.DOTALL), _find_name),
+    (re.compile(r"^Find the files under (.+)$", re.DOTALL), _path),
     (re.compile(r"^Check which tools and languages are installed:.*$", re.DOTALL), _markers(*TOOLCHAIN_MARKERS)),
     (re.compile(r"^Check which installed packages match:.*$", re.DOTALL), _markers(*TOOLCHAIN_MARKERS)),
     (re.compile(r"^Search the whole filesystem for a program named (.+)$", re.DOTALL), _name),

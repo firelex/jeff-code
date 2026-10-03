@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from imitation.record_rows import record_rows
+from imitation.record_rows import read_trace, record_rows
 
 
 def option(kind, number, description, command):
@@ -156,3 +156,41 @@ def test_a_step_count_that_differs_from_the_logged_state_is_an_error(tmp_path):
     folder = write_session(tmp_path, [assistant(bash("c1", "ls")), result("c1", "x"), assistant(), ])
     with pytest.raises(ValueError, match="steps"):
         record_rows([record(1, [call("ls")]), record(2, [])], sorted(folder.glob("*.jsonl")))
+
+
+def write_trial(tmp_path, trace_text, exception_type=None):
+    (tmp_path / "agent").mkdir()
+    (tmp_path / "agent" / "jeff-first-trace.jsonl").write_text(trace_text)
+    info = None if exception_type is None else {"exception_type": exception_type, "exception_message": "timed out"}
+    (tmp_path / "result.json").write_text(json.dumps({"task_name": "fix-bug", "exception_info": info}))
+    return tmp_path
+
+
+GOOD = json.dumps(record(1, [])) + "\n"
+CUT = '{"schema": "jeff-first-trace/4", "kind": "record", "state": {"task": "Unterminated'
+
+
+def test_a_trace_cut_by_the_agent_timeout_loses_only_its_unfinished_last_line(tmp_path):
+    trial = write_trial(tmp_path, GOOD + CUT, exception_type="AgentTimeoutError")
+    lines, notes = read_trace(trial)
+    assert lines == [record(1, [])]
+    assert len(notes) == 1 and "AgentTimeoutError" in notes[0] and "line 2" in notes[0]
+
+
+@pytest.mark.parametrize(
+    ("text", "exception_type"),
+    [
+        (GOOD + CUT, None),
+        (GOOD + CUT, "RuntimeError"),
+        (CUT + "\n" + GOOD, "AgentTimeoutError"),
+    ],
+)
+def test_any_other_unparsable_trace_line_is_an_error(tmp_path, text, exception_type):
+    trial = write_trial(tmp_path, text, exception_type=exception_type)
+    with pytest.raises(ValueError, match="jeff-first-trace.jsonl line"):
+        read_trace(trial)
+
+
+def test_a_whole_trace_reads_without_notes(tmp_path):
+    lines, notes = read_trace(write_trial(tmp_path, GOOD + GOOD, exception_type="AgentTimeoutError"))
+    assert lines == [record(1, []), record(1, [])] and notes == []

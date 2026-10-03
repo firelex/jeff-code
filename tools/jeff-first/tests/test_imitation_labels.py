@@ -287,8 +287,8 @@ def stints(*commands: str, follow: bool = True) -> SessionLabeler:
     return SessionLabeler(labelled([turn]), follow_stints=follow, drop_unmatched_information=False)
 
 
-def test_a_turn_is_scanned_only_up_to_its_first_acting_command():
-    # Ruling 2026-10-03: commands after the coding model's own action never become labels or stint rows.
+def test_an_unmatched_acting_command_hands_over():
+    # Fix wave 2: the walk stops at a command that matches no option and acts; later commands are not labels.
     assert run(stints("mkdir -p /app/out", "cat /app/util.py")) == [Choice.hand_over()]
     assert run(stints("printf 'x' > /app/main.py", "cat /app/main.py")) == [Choice.hand_over()]
     assert run(stints("ls -la /app", "printf 'x' > /app/main.py", "cat /app/main.py")) == [
@@ -298,9 +298,38 @@ def test_a_turn_is_scanned_only_up_to_its_first_acting_command():
     assert run(stints("mkdir -p /app/out", "cat /app/util.py", follow=False)) == [Choice.hand_over()]
 
 
-def test_an_acting_command_is_never_a_label_even_when_a_run_or_check_option_matches_it():
-    assert run(stints("pytest -q")) == [Choice.hand_over()]
-    assert run(stints("cat /app/main.py", "python3 /app/solve.py")) == [Choice.step("read", "read-1"), Choice.hand_over()]
+def test_run_check_and_install_options_are_labels_and_the_stint_continues_after_them():
+    # Fix wave 2 (replaces the 2026-10-03 ruling that an acting command is never a label).
+    assert run(stints("pytest -q")) == [Choice.step("check", "check-1")]
+    assert run(stints("pip install numpy")) == [Choice.step("install", "install-2")]
+    assert run(stints("cat /app/main.py", "python3 /app/solve.py", "cat /app/util.py")) == [
+        Choice.step("read", "read-1"),
+        Choice.step("run", "run-1"),
+        Choice.step("read", "read-3"),
+    ]
+    assert run(stints("pytest -q", "printf 'x' > /app/main.py")) == [Choice.step("check", "check-1"), Choice.hand_over()]
+
+
+def test_a_script_written_then_run_hands_over_at_the_write():
+    menu = make_menu(run=[option("run", 1, "Run: cd /app && python3 't.py'", "cd /app && python3 't.py'")])
+    for commands in (["cat > t.py <<EOF\nprint(1)\nEOF", "python t.py"], ["cat > t.py <<EOF\nprint(1)\nEOF\npython t.py"]):
+        labeler = SessionLabeler(labelled([[TurnCommand(text, "1", False) for text in commands]]), follow_stints=True, drop_unmatched_information=True)
+        drive(labeler, [menu] * 3)
+        assert [d.choice for d in labeler.decisions] == [Choice.hand_over()]
+    assert match(menu, "python t.py") == Choice.step("run", "run-1")
+
+
+def test_neutral_commands_are_passed_over_and_an_unmatched_information_command_ends_the_walk():
+    assert run(stints("cd /app", "clear", "clear", "cat /app/main.py")) == [Choice.step("read", "read-1")]
+    # Exact source: hand over at the unmatched read; the matching read after it is not looked at.
+    assert run(stints("cat /app/elsewhere.py", "cat /app/main.py")) == [Choice.hand_over()]
+
+
+def test_a_command_identical_to_the_previous_one_is_never_a_label():
+    turns = [[TurnCommand("pytest -q", "1 failed", False)], [TurnCommand("pytest -q", "1 failed", False)]]
+    labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=True)
+    drive(labeler, [MENU] * 3)
+    assert [(d.turn, d.choice) for d in labeler.decisions] == [(1, Choice.step("check", "check-1")), (2, Choice.hand_over())]
 
 
 def test_without_stints_only_the_first_match_of_a_turn_is_labelled():
@@ -412,3 +441,32 @@ def test_xargs_decides_the_kind_by_the_program_it_runs():
     assert intent("find . -name '*.pyc' | xargs rm -f") is OTHER
     found = intent("find . -name '*.py' | xargs wc -l")
     assert isinstance(found, Intent) and found.kind == "find"
+
+
+FIND_MENU = make_menu(
+    find=[
+        option("find", 1, "Find files matching **/*.csv"),
+        option("find", 2, "Find the files under /app"),
+        option("find", 3, "Find the files under /output"),
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "cwd", "expected"),
+    [
+        ("find /app -type f", "/", "find-2"),
+        ("find . -name '*.py' -not -path '*/venv/*' 2>/dev/null | head -50", "/app", "find-2"),
+        ("find -maxdepth 2 -type d", "/app", "find-2"),
+        ("find /app/ -name '*.csv'", "/", "find-1"),
+        ("cd /output && find . -type f", "/app", "find-3"),
+        ("find / -name '*.py' 2>/dev/null", "/app", None),
+        ("find /tmp -type f", "/app", None),
+        ("find /app /output -type f", "/app", None),
+        ("find /app -name '*.py' -exec cat {} \\;", "/app", None),
+        ("find /app -name '*.py' | xargs cat", "/app", None),
+    ],
+)
+def test_find_matches_find_under_a_folder_when_it_starts_in_that_folder(command, cwd, expected):
+    found = match(FIND_MENU, command, cwd=cwd)
+    assert found == (None if expected is None else Choice.step("find", expected))

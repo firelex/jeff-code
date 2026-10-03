@@ -26,7 +26,12 @@ several lines, such as a heredoc, stays one command). A keystroke string that is
 waits. Any other keystrokes - tmux key names such as C-c or Escape, text without a final newline, or a command that
 opens an editor, pager or interactive interpreter (not when asked for --version or --help, piped into a filter or
 written to a file) - is input to a running program; the conversion of the session ends before that turn
-("interactive"). A command that gathers information in a folder that cannot be known (after `cd "$DIR"`, `cd -`)
+("interactive"). One exception: an interrupt. A reply whose first keystroke string is C-c and that sends no other
+key (its other keystrokes are commands), sent while the previous command is still running (the screen before it does
+not end at a bare shell prompt), interrupts that command; when the next screen shows a shell prompt, the session
+goes on. What that screen shows before the next typed command is the interrupted command's output: the text after
+the command's own echo when the screen shows the echo again, otherwise added to what it had shown before
+(`TerminusTurn.interrupts`). A command that gathers information in a folder that cannot be known (after `cd "$DIR"`, `cd -`)
 also ends the session before its turn ("folder_unknown"). `TerminusSession.end_reason` says which.
 
 A command's output is read from the following screen (best effort): the lines after the command's echoed prompt line
@@ -88,6 +93,8 @@ class TerminusTurn:
     confirms_completion: bool = False
     # For each command, the folder each of its parts (split_command order) runs in; filled by parse_terminus.
     part_folders: list[list[str | None]] = field(default_factory=list)
+    # True when the reply starts with C-c that interrupted the previous command (see the module docstring).
+    interrupts: bool = False
 
 
 END_REASONS = ("complete", "interactive", "unparsed_final_reply", "folder_unknown")
@@ -370,6 +377,48 @@ def _outputs(screen: str, commands: list[str]) -> tuple[str, list[str | None], l
     return leading, outputs, folders
 
 
+def _bare_prompt(line: str) -> bool:
+    return _typed(line) == ""
+
+
+def _still_running(message: str) -> bool:
+    """Whether the screen in this harness message shows a command still running: it does not end at a bare shell
+    prompt. A message without a screen (a parse-error message) shows nothing running."""
+    if not any(marker in message for marker in SCREEN_MARKERS):
+        return False
+    lines = [line for line in _screen(message).split("\n") if line.strip()]
+    return not lines or not _bare_prompt(lines[-1])
+
+
+def _is_interrupt(keystrokes: list[str], previous_message: str, screen_message: str | None) -> bool:
+    """Whether the reply interrupts the running command: see the module docstring."""
+    if not keystrokes or keystrokes[0] != "C-c" or screen_message is None or not _still_running(previous_message):
+        return False
+    if any(TMUX_KEY.match(k.strip()) or (k and not k.endswith("\n")) for k in keystrokes[1:]):
+        return False
+    return any(PROMPT.match(line) for line in _screen(screen_message).split("\n"))
+
+
+def _interrupted_output(lines: list[str], interrupted: TurnCommand) -> tuple[str, int]:
+    """The interrupted command's output after an interrupt, and the index of the screen line where the rest of the
+    screen (the reply's own commands) starts: the first prompt line with a typed command after the interrupted
+    command's own echo, when the screen shows that echo again (as its first typed line, with the "^C" below it),
+    or else from the top of the screen."""
+    first_line = interrupted.text.split("\n", 1)[0]
+    typed = [index for index, line in enumerate(lines) if _typed(line)]
+    echo = typed[0] if typed and _echo_of(lines[typed[0]], first_line) else None
+    # The echo shown again sits above the "^C"; the same command typed again after the interrupt does not.
+    if echo is not None and not any("^C" in line for line in lines[echo + 1 : next((i for i in typed if i > echo), len(lines))]):
+        echo = None
+    start = 0 if echo is None else echo + 1 + _wrapped_lines(lines, echo, first_line)
+    own = {line.rstrip() for line in interrupted.text.split("\n")}
+    end = next((index for index in range(start, len(lines)) if _typed(lines[index])), len(lines))
+    shown = _clean(lines[start:end], own, multi_line="\n" in interrupted.text)
+    if echo is None and interrupted.output:
+        shown = f"{interrupted.output}\n{shown}" if shown else interrupted.output
+    return shown, end
+
+
 def _walk(turns: list[TerminusTurn], cwd: str, home: str) -> list[tuple[tuple[int, int], Shell]]:
     """Each real command of the session, keyed (turn index, command index), with the shell it starts in: the folder
     on its own prompt line when the screen showed it, else the folder after the previous command."""
@@ -427,21 +476,31 @@ def parse_terminus(conversation: list[dict]) -> TerminusSession:
                 end_reason, end_detail = "unparsed_final_reply", f"turn {number}: the transcript's last reply cannot be read"
                 break
             raise ValueError(f"turn {number}: the reply is neither a JSON object with 'commands' nor tool calls, yet the harness ran it")
-        interactive = next((k for k in reply.keystrokes if _interactive(k)), None)
+        previous = next((turn for turn in reversed(turns) if turn.commands), None)
+        interrupts = previous is not None and _is_interrupt(reply.keystrokes, conversation[index - 3]["content"], screen_message)
+        keystrokes = reply.keystrokes[1:] if interrupts else reply.keystrokes
+        interactive = next((k for k in keystrokes if _interactive(k)), None)
         if interactive is not None:
             end_reason, end_detail = "interactive", f"turn {number} sends interactive keystrokes {interactive!r}"
             break
         # A keystroke string that is empty or only presses Enter waits; it is not a command.
-        texts = [k[:-1] for k in reply.keystrokes if k.strip()]
+        texts = [k[:-1] for k in keystrokes if k.strip()]
         outputs: list[str | None] = [None] * len(texts)
         folders: list[str | None] = [None] * len(texts)
         if screen_message is not None:
-            leading, outputs, folders = _outputs(_screen(screen_message), texts)
-            previous = next((turn for turn in reversed(turns) if turn.commands), None)
-            if leading and previous is not None and previous.commands[-1].output is not None:
+            screen = _screen(screen_message)
+            if interrupts:
+                lines = screen.split("\n")
                 last = previous.commands[-1]
-                joined = f"{last.output}\n{leading}" if last.output else leading
-                previous.commands[-1] = TurnCommand(last.text, joined, last.is_error)
+                shown, rest = _interrupted_output(lines, last)
+                previous.commands[-1] = TurnCommand(last.text, shown, last.is_error)
+                _, outputs, folders = _outputs("\n".join(lines[rest:]), texts)
+            else:
+                leading, outputs, folders = _outputs(screen, texts)
+                if leading and previous is not None and previous.commands[-1].output is not None:
+                    last = previous.commands[-1]
+                    joined = f"{last.output}\n{leading}" if last.output else leading
+                    previous.commands[-1] = TurnCommand(last.text, joined, last.is_error)
         turns.append(
             TerminusTurn(
                 thinking=reply.thinking,
@@ -452,6 +511,7 @@ def parse_terminus(conversation: list[dict]) -> TerminusSession:
                 parse_error=False,
                 prompt_folders=folders,
                 confirms_completion=asked_to_confirm and not texts,
+                interrupts=interrupts,
             )
         )
     turns, unknown = _with_folders(turns, cwd, home)
