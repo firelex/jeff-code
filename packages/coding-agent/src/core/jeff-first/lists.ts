@@ -89,7 +89,7 @@ const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 
 const INTERPRETERS: Record<string, string> = { ".py": "python3", ".sh": "bash", ".js": "node" };
 
-function escapeRegExp(text: string): string {
+export function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 

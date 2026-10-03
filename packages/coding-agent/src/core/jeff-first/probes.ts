@@ -55,8 +55,12 @@ function python(script: string, args: string[]): string {
 
 const MODULES_SCRIPT = `import importlib, importlib.util, sys
 for name in sys.argv[1:]:
-    if importlib.util.find_spec(name) is None:
-        print(f"{name}: MISSING")
+    try:
+        if importlib.util.find_spec(name) is None:
+            print(f"{name}: MISSING")
+            continue
+    except Exception as error:
+        print(f"{name}: could not be checked: {type(error).__name__}: {error}")
         continue
     try:
         module = importlib.import_module(name)

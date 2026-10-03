@@ -138,4 +138,73 @@ describe("Toolchain check", () => {
 	it("offers only the core check when nothing task-specific is known", () => {
 		expect(toolchainOptions(input).map((o) => o.description)).toHaveLength(1);
 	});
+
+	it("strips sentence punctuation from a task word before taking its extension", () => {
+		input.task = "Load model.pth.";
+		const command = String(toolchainOptions(input)[0].call.arguments.command);
+		for (const module of ["torch", "numpy"]) expect(command).toContain(`'${module}'`);
+	});
+
+	it("skips the value after a value-taking flag, and strips version pins, when parsing install commands", () => {
+		input.steps = [
+			{
+				call: {
+					type: "toolCall",
+					id: "r",
+					name: "bash",
+					arguments: { command: "pip install -r requirements.txt" },
+				},
+				output: "",
+				isError: false,
+				byScout: false,
+			},
+		];
+		expect(toolchainOptions(input)).toHaveLength(1);
+
+		input.steps = [
+			{
+				call: {
+					type: "toolCall",
+					id: "p",
+					name: "bash",
+					arguments: { command: 'pip install torch==2.1 "numpy>=1"' },
+				},
+				output: "",
+				isError: false,
+				byScout: false,
+			},
+		];
+		let command = String(toolchainOptions(input)[0].call.arguments.command);
+		for (const module of ["torch", "numpy"]) expect(command).toContain(`'${module}'`);
+
+		input.steps = [
+			{
+				call: { type: "toolCall", id: "a", name: "bash", arguments: { command: "apt-get install -y nginx=1.2" } },
+				output: "",
+				isError: false,
+				byScout: false,
+			},
+		];
+		command = String(toolchainOptions(input)[0].call.arguments.command);
+		expect(command).toContain("'nginx'");
+	});
+
+	it("caps names beyond CORE_PROGRAMS at 20 extra programs in the composite probe", () => {
+		const names = Array.from({ length: 50 }, (_, i) => `pkg${i}`);
+		input.steps = [
+			{
+				call: {
+					type: "toolCall",
+					id: "z",
+					name: "bash",
+					arguments: { command: `apt-get install -y ${names.join(" ")}` },
+				},
+				output: "",
+				isError: false,
+				byScout: false,
+			},
+		];
+		const [, packages] = toolchainOptions(input);
+		expect(packages.description.replace("Check which installed packages match: ", "").split(", ")).toHaveLength(20);
+	});
 });

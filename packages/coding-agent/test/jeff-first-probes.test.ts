@@ -40,6 +40,13 @@ describe("probes", () => {
 		expect(out).toContain("surely_not_a_module_xyz: MISSING");
 	});
 
+	it("keeps checking later modules after a bad module name raises instead of returning None", () => {
+		const out = bash(toolchainProbe([], ["a.b.c", "json"]));
+		const lines = out.trim().split("\n");
+		expect(lines.some((line) => line.startsWith("a.b.c: "))).toBe(true);
+		expect(lines.at(-1)).toMatch(/^json: /);
+	});
+
 	it("shows the line count, first and last lines of a long text file", () => {
 		const path = join(dir, "big log.txt");
 		writeFileSync(path, Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n"));

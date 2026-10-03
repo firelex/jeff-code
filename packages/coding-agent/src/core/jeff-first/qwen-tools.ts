@@ -1,6 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
-import { type Built, fitsReadLimit, isTextFile, type ListsInput, recentOutputs, writtenFiles } from "./lists.ts";
+import {
+	type Built,
+	escapeRegExp,
+	fitsReadLimit,
+	isTextFile,
+	type ListsInput,
+	recentOutputs,
+	writtenFiles,
+} from "./lists.ts";
 import { namedPaths, pathKind, RECENT_OUTPUTS } from "./menu.ts";
 import {
 	CORE_PROGRAMS,
@@ -169,34 +177,66 @@ function wordsIn(text: string): string[] {
 	return text.match(/[\w.+-]+/g) ?? [];
 }
 
-function escapeRegExp(text: string): string {
-	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Whether `word` appears in `text` as a whole word, not as part of a longer one (so a sentence's closing period
  * does not hide a match). */
 function wholeWordIn(text: string, word: string): boolean {
 	return new RegExp(`\\b${escapeRegExp(word)}\\b`).test(text);
 }
 
-/** The package names an install command names, in order, flags skipped. */
-function installNames(command: string, pattern: RegExp): string[] {
+/** A name of a program or an installable package: no spaces, slashes or quoting characters. */
+const PACKAGE_NAME = /^[A-Za-z0-9][\w.+-]*$/;
+/** A Python module name: one or more dotted identifiers. */
+const MODULE_NAME = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
+
+/** Flags that take a separate value, so the token right after them is not a package name. */
+const APT_VALUE_FLAGS = new Set(["-o", "-t", "--target-release"]);
+const PIP_VALUE_FLAGS = new Set([
+	"-r",
+	"-c",
+	"-e",
+	"-t",
+	"-i",
+	"--requirement",
+	"--constraint",
+	"--editable",
+	"--target",
+	"--index-url",
+	"--extra-index-url",
+	"-f",
+	"--find-links",
+]);
+
+/** The package names an install command names, in order: flags and the values that follow a value-taking flag are
+ * skipped, a version pin is cut off at the first character in `pinAt`, and whatever remains must still look like a
+ * program or package name. */
+function installNames(command: string, pattern: RegExp, valueFlags: Set<string>, pinAt: RegExp): string[] {
 	const names: string[] = [];
 	for (const match of command.matchAll(pattern)) {
 		const tail = match[1].split(/[&;|]/)[0];
-		for (const token of tail.match(/\S+/g) ?? []) if (!token.startsWith("-")) names.push(token);
+		const tokens = tail.match(/\S+/g) ?? [];
+		for (let i = 0; i < tokens.length; i++) {
+			const token = tokens[i].replace(/^['"]|['"]$/g, "");
+			if (token.startsWith("-")) {
+				if (valueFlags.has(token)) i++;
+				continue;
+			}
+			const pinIndex = token.search(pinAt);
+			const name = pinIndex < 0 ? token : token.slice(0, pinIndex);
+			if (PACKAGE_NAME.test(name)) names.push(name);
+		}
 	}
 	return names;
 }
 
-/** File extensions present among the files directly in the working folder, or named as a word in the task. */
+/** File extensions present among the files directly in the working folder, or named as a word in the task (its
+ * trailing sentence punctuation stripped first, so "model.pth." is seen as model.pth). */
 function fileTypeExtensions(input: ListsInput): string[] {
 	const extensions: string[] = [];
 	const push = (ext: string) => {
 		if (ext && !extensions.includes(ext)) extensions.push(ext);
 	};
 	for (const name of readdirSync(input.cwd).sort()) push(extname(name).toLowerCase());
-	for (const word of wordsIn(input.task)) push(extname(word).toLowerCase());
+	for (const word of wordsIn(input.task)) push(extname(word.replace(/[.,;:!?)]+$/, "")).toLowerCase());
 	return extensions;
 }
 
@@ -219,6 +259,10 @@ function firstNames(names: string[]): string {
 	return names.length > 12 ? `${shown}, ...` : shown;
 }
 
+/** At most this many extra programs, and this many extra modules, go into the composite probe beyond
+ * CORE_PROGRAMS: a name list the teacher has to read stays readable, and the probe script stays short. */
+const MAX_EXTRA_NAMES = 20;
+
 /** One option that always checks the core programs plus anything the task, the files present, recent errors and
  * recent installs suggest; a second option, only when any such name was found, checks it against installed
  * packages. */
@@ -227,16 +271,14 @@ export function toolchainOptions(input: ListsInput): Built[] {
 	const modules: string[] = [];
 	const added: string[] = [];
 	const addProgram = (name: string) => {
-		if (!programs.includes(name)) {
-			programs.push(name);
-			added.push(name);
-		}
+		if (programs.includes(name) || programs.length - CORE_PROGRAMS.length >= MAX_EXTRA_NAMES) return;
+		programs.push(name);
+		added.push(name);
 	};
 	const addModule = (name: string) => {
-		if (!modules.includes(name)) {
-			modules.push(name);
-			added.push(name);
-		}
+		if (modules.includes(name) || modules.length >= MAX_EXTRA_NAMES) return;
+		modules.push(name);
+		added.push(name);
 	};
 
 	for (const tool of KNOWN_TOOLS) if (wholeWordIn(input.task, tool)) addProgram(tool);
@@ -254,9 +296,11 @@ export function toolchainOptions(input: ListsInput): Built[] {
 	}
 
 	for (const command of recentCommands(input)) {
-		for (const name of installNames(command, APT_INSTALL)) addProgram(name);
-		for (const name of installNames(command, PIP_INSTALL))
-			addModule(PIP_TO_MODULE[name] ?? name.replaceAll("-", "_"));
+		for (const name of installNames(command, APT_INSTALL, APT_VALUE_FLAGS, /=/)) addProgram(name);
+		for (const name of installNames(command, PIP_INSTALL, PIP_VALUE_FLAGS, /[=<>!~[]/)) {
+			const moduleName = PIP_TO_MODULE[name] ?? name.replaceAll("-", "_");
+			if (MODULE_NAME.test(moduleName)) addModule(moduleName);
+		}
 	}
 
 	const options: Built[] = [
