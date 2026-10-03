@@ -47,21 +47,40 @@ Plain-English definitions used below:
   (not a hand-over).
 
 - The target of a step: the one thing the step's tool call is about, used to check afterwards whether anyone else
-  did something to the same thing. For "read" and "peek" it is the file path (the call's "path" argument, or, for
-  a "peek" bash command, the first absolute path written in the command text). For "list" it is the folder path.
-  For "toolchain" it is always the fixed word "toolchain" (the probe always checks a whole list of programs and
-  modules at once, so no single name stands for it). For "service" it is "localhost:<port>" found in the command.
-  For "docs" and "install" it is the package or program name named in the command (after "apt install", "apt-get
-  install" or "pip install"). For "check", "run" and "repeat" it is the command itself, with any leading "cd
-  <folder> &&" removed.
+  did something to the same thing. It is read not from the tool call itself (bash commands are built from fixed
+  shell scripts and parsing them back apart is unreliable: for example an "install" step's command has several
+  package-manager flags and no reliable way to tell a flag like "-y" from the package name) but from the English
+  description of the option the scout picked - the option whose id matches "chosen" on the *last* entry of the
+  decision's "levels" list (the last question asked before the step: which specific argument to use). Descriptions
+  are fixed sentences pi always writes the same way, so each one is matched against a fixed pattern to pull out
+  its target, or, for a few kinds, a fixed set of search strings instead of one name:
+    - "Read the file PATH", "Read lines A to B of PATH", "Look at the data in PATH", "Show the type of every file
+      in PATH", "List the folder PATH", "Show the last 20 lines of PATH" -> the last path segment of PATH (so
+      "/app/a.py" becomes "a.py": the large model rarely repeats a full path verbatim).
+    - "Search the project for the text "P"" -> P. "Find files matching PATTERN" -> PATTERN with any leading
+      "**/" removed.
+    - "Check which tools and languages are installed: ..." and "Check which installed packages match: ..." ->
+      no one name stands for a toolchain probe (it always checks a whole list of programs and modules at once);
+      instead, the search strings are the patterns Qwen itself uses to probe the toolchain: "which ",
+      "command -v", "--version", "import ", "/etc/os-release".
+    - "Search the whole filesystem for a program named X" -> X.
+    - "Request http://localhost:PORT/ once" -> the two search strings "localhost:PORT" and ":PORT" (a command
+      that names just the port, such as `curl :8080/health`, still counts).
+    - "Check the SERVICE configuration" -> SERVICE.
+    - "Show running processes and listening ports" -> no one name stands for this either; the search strings are
+      "ps ", "ss -", "netstat" (the shapes Qwen itself uses to list processes or ports).
+    - "Show the README of the npm package P", "List what the npm package P exports" -> P. "List what the Python
+      module M provides" -> M. "Show the help of PROG" -> PROG.
+    - "Install PROGRAM with apt (package PKG)" -> PROGRAM (not PKG: apt's package name is often not what Qwen
+      later types on a command line, e.g. "pip install opencv-python-headless" installs the program "cv2").
+      "Install the Python package PKG with pip" -> PKG.
+    - "Run: COMMAND" and "Run the last shell command again: COMMAND" -> COMMAND with any leading "cd FOLDER &&"
+      removed.
+  A description matching none of these is an error naming the description, not a guess.
 
-- A later tool call "mentions" a step's target: for every kind except "toolchain", the target string appears
-  somewhere in the JSON text of the later tool call(s) - for a file or folder path, its last path segment (so
-  "/app/a.py" counts as mentioned by a command that names "a.py" without the leading folders) is searched for
-  instead of the whole path, since the large model rarely repeats a full path verbatim. For "toolchain", there is
-  no one name to search for (the target is just the word "toolchain"); instead, a later call "mentions" it when its
-  command contains one of the patterns Qwen itself uses to probe the toolchain: "which ", "command -v",
-  "--version", "import ", or "/etc/os-release".
+- A later tool call "mentions" a step's target when the JSON text of the later tool call(s) contains any one of
+  the target's search strings (usually just one: the name above; for a toolchain probe or a processes-and-ports
+  step, one of the fixed search strings listed above instead; for a service's port, either form of "localhost:PORT").
 
 - Used: a step is "used" when the teacher run's very next "model_turn" trace line after it (the large model's next
   turn, once the scout hands over) makes a tool call that mentions the step's target.
@@ -83,20 +102,80 @@ import re
 import statistics
 import sys
 from pathlib import Path, PurePosixPath
+from typing import Callable, NamedTuple
 
 from gate0_report import latest_trial
 
 KNOWN_KINDS = ("read", "peek", "list", "search", "find", "toolchain", "service", "docs", "check", "run", "install", "repeat")
-PATH_KINDS = ("read", "peek", "list")
-TOOLCHAIN_TARGET = "toolchain"
 TOOLCHAIN_MARKERS = ("which ", "command -v", "--version", "import ", "/etc/os-release")
+PROCESS_MARKERS = ("ps ", "ss -", "netstat")
 WRITE_IN_BASH = ("cat >", "tee ")
 
-ABS_PATH = re.compile(r"/[^\s'\"]+")
 CD_PREFIX = re.compile(r"^\s*cd\s+\S+\s*&&\s*")
-LOCALHOST = re.compile(r"localhost:\d+")
-APT_INSTALL = re.compile(r"\b(?:apt-get|apt)\s+install\s+(\S+)")
-PIP_INSTALL = re.compile(r"\b(?:pip3?|python3\s+-m\s+pip)\s+install\s+(\S+)")
+
+
+class StepTarget(NamedTuple):
+    """What a scout step is about, as one or more search strings: a later tool call "mentions" the step's target
+    when its JSON text contains any one of them. See the module docstring's "target of a step"."""
+
+    needles: tuple[str, ...]
+
+
+def _path(match: re.Match[str]) -> StepTarget:
+    return StepTarget((PurePosixPath(match.group(1)).name,))
+
+
+def _name(match: re.Match[str]) -> StepTarget:
+    return StepTarget((match.group(1),))
+
+
+def _find_name(match: re.Match[str]) -> StepTarget:
+    return StepTarget((match.group(1).removeprefix("**/"),))
+
+
+def _markers(*needles: str) -> Callable[[re.Match[str]], StepTarget]:
+    def build(_match: re.Match[str]) -> StepTarget:
+        return StepTarget(needles)
+
+    return build
+
+
+def _localhost(match: re.Match[str]) -> StepTarget:
+    port_token = match.group(1)
+    port = port_token.split(":", 1)[1]
+    return StepTarget((port_token, f":{port}"))
+
+
+def _command(match: re.Match[str]) -> StepTarget:
+    return StepTarget((CD_PREFIX.sub("", match.group(1)).strip(),))
+
+
+# Each entry is a fixed sentence pi's own option descriptions use (see lists.ts, qwen-tools.ts, probes.ts), matched
+# whole against the description, paired with how to build this step's target from the match.
+DESCRIPTION_PATTERNS: list[tuple[re.Pattern[str], Callable[[re.Match[str]], StepTarget]]] = [
+    (re.compile(r"^Read the file (.+)$"), _path),
+    (re.compile(r"^Read lines \d+ to \d+ of (.+)$"), _path),
+    (re.compile(r"^Look at the data in (.+)$"), _path),
+    (re.compile(r"^Show the type of every file in (.+)$"), _path),
+    (re.compile(r"^List the folder (.+)$"), _path),
+    (re.compile(r"^Show the last 20 lines of (.+)$"), _path),
+    (re.compile(r'^Search the project for the text "(.*)"$'), _name),
+    (re.compile(r"^Find files matching (.+)$"), _find_name),
+    (re.compile(r"^Check which tools and languages are installed:.*$"), _markers(*TOOLCHAIN_MARKERS)),
+    (re.compile(r"^Check which installed packages match:.*$"), _markers(*TOOLCHAIN_MARKERS)),
+    (re.compile(r"^Search the whole filesystem for a program named (.+)$"), _name),
+    (re.compile(r"^Request http://(localhost:\d+)/ once$"), _localhost),
+    (re.compile(r"^Check the (.+) configuration$"), _name),
+    (re.compile(r"^Show running processes and listening ports$"), _markers(*PROCESS_MARKERS)),
+    (re.compile(r"^Show the README of the npm package (.+)$"), _name),
+    (re.compile(r"^List what the npm package (.+) exports$"), _name),
+    (re.compile(r"^List what the Python module (.+) provides$"), _name),
+    (re.compile(r"^Show the help of (.+)$"), _name),
+    (re.compile(r"^Install (.+) with apt \(package .+\)$"), _name),
+    (re.compile(r"^Install the Python package (.+) with pip$"), _name),
+    (re.compile(r"^Run: (.+)$"), _command),
+    (re.compile(r"^Run the last shell command again: (.+)$"), _command),
+]
 
 
 def read_trace(trial: Path) -> list[dict]:
@@ -164,50 +243,29 @@ def phase_grouped_calls(session_calls: list[tuple[str | None, dict]]) -> dict[in
     return grouped
 
 
-def step_target(kind: str, tool_call: dict) -> str:
-    """The one thing a scout step of this kind is about; see the module docstring's "target of a step"."""
-    args = tool_call.get("arguments", {})
-    command = args.get("command")
-    if kind in ("read", "peek"):
-        if isinstance(args.get("path"), str):
-            return args["path"]
-        if not isinstance(command, str):
-            raise ValueError(f"a {kind} step has neither a path argument nor a command to find a path in: {tool_call}")
-        match = ABS_PATH.search(command)
-        if not match:
-            raise ValueError(f"a {kind} step's command names no absolute path: {command}")
-        return match.group(0)
-    if kind == "list":
-        if not isinstance(args.get("path"), str):
-            raise ValueError(f"a list step has no path argument: {tool_call}")
-        return args["path"]
-    if kind == "toolchain":
-        return TOOLCHAIN_TARGET
-    if not isinstance(command, str):
-        raise ValueError(f"a {kind} step has no command: {tool_call}")
-    if kind == "service":
-        match = LOCALHOST.search(command)
-        if not match:
-            raise ValueError(f"a service step's command names no localhost:<port>: {command}")
-        return match.group(0)
-    if kind in ("docs", "install"):
-        for pattern in (APT_INSTALL, PIP_INSTALL):
-            match = pattern.search(command)
-            if match:
-                return match.group(1)
-        raise ValueError(f"a {kind} step's command names no package or program to install: {command}")
-    if kind in ("check", "run", "repeat"):
-        return CD_PREFIX.sub("", command).strip()
-    raise ValueError(f"unknown scout tool kind: {kind}")
+def step_target(description: str) -> StepTarget:
+    """The one thing a scout step is about, read from the English description of the argument option the scout
+    picked; see the module docstring's "target of a step"."""
+    for pattern, build in DESCRIPTION_PATTERNS:
+        match = pattern.fullmatch(description)
+        if match:
+            return build(match)
+    raise ValueError(f"no target pattern matches the chosen option's description: {description!r}")
 
 
-def mentions(kind: str, target: str, calls: list[dict]) -> bool:
+def chosen_description(decision: dict) -> str:
+    """The description of the option chosen at a step decision's last question (its last entry in "levels")."""
+    last = decision["levels"][-1]
+    for option in last["options"]:
+        if option["id"] == last["chosen"]:
+            return option["description"]
+    raise ValueError(f"decision {decision['decision']}'s chosen option {last['chosen']!r} is not among its last level's options")
+
+
+def mentions(target: StepTarget, calls: list[dict]) -> bool:
     """Whether one of `calls` mentions this step's target; see the module docstring's "mentions"."""
     text = json.dumps(calls)
-    if kind == "toolchain":
-        return any(marker in text for marker in TOOLCHAIN_MARKERS)
-    needle = PurePosixPath(target).name if kind in PATH_KINDS else target
-    return needle in text
+    return any(needle in text for needle in target.needles)
 
 
 def value(teacher_trial: Path, base_trial: Path) -> dict:
@@ -249,11 +307,11 @@ def value(teacher_trial: Path, base_trial: Path) -> dict:
         if kind not in KNOWN_KINDS or line["action"]["kind"] != "step":
             continue
         bucket(kind)["chosen"] += 1
-        target = step_target(kind, line["action"]["tool_call"])
+        target = step_target(chosen_description(line))
         next_turn = next((l for l in trace[index + 1 :] if l.get("kind", "model_turn") == "model_turn"), None)
-        if next_turn is not None and mentions(kind, target, next_turn["action"]["tool_calls"]):
+        if next_turn is not None and mentions(target, next_turn["action"]["tool_calls"]):
             bucket(kind)["used"] += 1
-        if mentions(kind, target, base_phase_calls.get(phases[index], [])):
+        if mentions(target, base_phase_calls.get(phases[index], [])):
             bucket(kind)["anticipated"] += 1
 
     return {

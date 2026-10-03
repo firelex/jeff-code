@@ -1,16 +1,17 @@
 import json
-from pathlib import Path
 
-from scout_value import value
+import pytest
+
+from scout_value import PROCESS_MARKERS, TOOLCHAIN_MARKERS, StepTarget, step_target, value
 
 
-def trial_dir(root: Path, task: str, trial_id: str) -> Path:
+def trial_dir(root, task: str, trial_id: str):
     trial = root / f"{task}-20261002-120000" / f"{task}__{trial_id}"
     (trial / "agent" / "pi" / "sessions").mkdir(parents=True)
     return trial
 
 
-def write_trace(trial: Path, lines: list[dict]) -> None:
+def write_trace(trial, lines: list[dict]) -> None:
     (trial / "agent" / "jeff-first-trace.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
 
 
@@ -22,12 +23,12 @@ def assistant_message(provider: str | None, tool_calls: list[dict]) -> dict:
     return message
 
 
-def write_session(trial: Path, messages: list[dict]) -> None:
+def write_session(trial, messages: list[dict]) -> None:
     lines = [json.dumps({"type": "message", "message": message}) for message in messages]
     (trial / "agent" / "pi" / "sessions" / "s1.jsonl").write_text("\n".join(lines) + "\n")
 
 
-def decision(number: int, tool_options: list[str], chosen_kind: str, tool_call: dict, chooser_ms: float) -> dict:
+def decision(number: int, tool_options: list[str], chosen_kind: str, tool_call: dict, description: str, chooser_ms: float) -> dict:
     return {
         "schema": "jeff-first-trace/3",
         "kind": "decision",
@@ -45,7 +46,7 @@ def decision(number: int, tool_options: list[str], chosen_kind: str, tool_call: 
                 "level": "argument",
                 "page": 1,
                 "tool": chosen_kind,
-                "options": [{"id": f"{chosen_kind}-1", "description": chosen_kind, "toolCall": tool_call}],
+                "options": [{"id": f"{chosen_kind}-1", "description": description, "toolCall": tool_call}],
                 "picks": [],
                 "chosen": f"{chosen_kind}-1",
             },
@@ -81,8 +82,15 @@ def test_value_on_a_hand_computed_example(tmp_path):
     write_trace(
         teacher,
         [
-            decision(1, ["read", "toolchain", "hand_over"], "read", read_call, chooser_ms=1000),
-            decision(2, ["read", "toolchain", "hand_over"], "toolchain", toolchain_call, chooser_ms=500),
+            decision(1, ["read", "toolchain", "hand_over"], "read", read_call, "Read the file /app/a.py", chooser_ms=1000),
+            decision(
+                2,
+                ["read", "toolchain", "hand_over"],
+                "toolchain",
+                toolchain_call,
+                "Check which tools and languages are installed: python3, pip3",
+                chooser_ms=500,
+            ),
             model_turn(1, [qwen_cat_call], model_ms=4000),
         ],
     )
@@ -117,3 +125,40 @@ def test_value_on_a_hand_computed_example(tmp_path):
         "read": {"offered": 2, "chosen": 1, "used": 1, "anticipated": 1},
         "toolchain": {"offered": 2, "chosen": 1, "used": 0, "anticipated": 0},
     }
+
+
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        ("Read the file /app/a.py", StepTarget(("a.py",))),
+        ("Read lines 10 to 69 of /app/a.py", StepTarget(("a.py",))),
+        ("Look at the data in /app/data.csv", StepTarget(("data.csv",))),
+        ("Show the type of every file in /app", StepTarget(("app",))),
+        ("List the folder /app", StepTarget(("app",))),
+        ("Show the last 20 lines of /var/log/app.log", StepTarget(("app.log",))),
+        ('Search the project for the text "foo_bar"', StepTarget(("foo_bar",))),
+        ("Find files matching **/foo.py", StepTarget(("foo.py",))),
+        ("Check which tools and languages are installed: python3, pip3", StepTarget(TOOLCHAIN_MARKERS)),
+        ("Check which installed packages match: numpy", StepTarget(TOOLCHAIN_MARKERS)),
+        ("Search the whole filesystem for a program named ffmpeg", StepTarget(("ffmpeg",))),
+        ("Request http://localhost:8000/ once", StepTarget(("localhost:8000", ":8000"))),
+        ("Check the nginx configuration", StepTarget(("nginx",))),
+        ("Show running processes and listening ports", StepTarget(PROCESS_MARKERS)),
+        ("Show the README of the npm package left-pad", StepTarget(("left-pad",))),
+        ("List what the npm package left-pad exports", StepTarget(("left-pad",))),
+        ("List what the Python module numpy provides", StepTarget(("numpy",))),
+        ("Show the help of ffmpeg", StepTarget(("ffmpeg",))),
+        # The target is the apt program, not the package named in parentheses: they can differ.
+        ("Install ffmpeg with apt (package ffmpeg-full)", StepTarget(("ffmpeg",))),
+        ("Install the Python package scikit-learn with pip", StepTarget(("scikit-learn",))),
+        ("Run: cd /app && pytest tests/test_x.py", StepTarget(("pytest tests/test_x.py",))),
+        ("Run the last shell command again: cd /app && pytest tests/test_x.py", StepTarget(("pytest tests/test_x.py",))),
+    ],
+)
+def test_step_target_per_description_family(description, expected):
+    assert step_target(description) == expected
+
+
+def test_step_target_fails_loudly_on_an_unrecognised_description():
+    with pytest.raises(ValueError, match="Do something nobody described"):
+        step_target("Do something nobody described")
