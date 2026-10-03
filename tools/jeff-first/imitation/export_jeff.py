@@ -39,6 +39,7 @@ Usage (from tools/jeff-first):
 import argparse
 import hashlib
 import json
+import math
 import random
 from collections.abc import Sequence
 from pathlib import Path
@@ -199,6 +200,31 @@ def export_rows(row_files: Sequence[Path], splits: dict, out: Path) -> dict[str,
     if not seen:
         raise ValueError("No rows were read; refusing to write an empty export")
     return counts
+
+
+def length_summary(lengths: Sequence[int], max_length: int) -> dict:
+    """The distribution of prompt lengths in tokens (nearest-rank percentiles) and how many exceed `max_length`, the
+    longest prompt train.py accepts (`--max-length`; a longer one stops training with an error, nothing is cut)."""
+    if not lengths:
+        raise ValueError("no lengths to summarize")
+    ordered = sorted(lengths)
+
+    def percentile(share: float) -> int:
+        return ordered[max(0, math.ceil(share * len(ordered)) - 1)]
+
+    over = sum(length > max_length for length in ordered)
+    return {
+        "rows": len(ordered),
+        "min": ordered[0],
+        "median": percentile(0.5),
+        "p90": percentile(0.9),
+        "p99": percentile(0.99),
+        "max": ordered[-1],
+        "mean": round(sum(ordered) / len(ordered), 1),
+        "max_length": max_length,
+        "over_max_length": over,
+        "share_over_max_length": round(over / len(ordered), 6),
+    }
 
 
 def main(argv: list[str] | None = None) -> None:

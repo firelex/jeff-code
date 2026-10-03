@@ -8,6 +8,7 @@ import pytest
 from imitation.export_jeff import (
     STAGE1_SHARES,
     export_rows,
+    length_summary,
     main,
     make_splits,
     question_text,
@@ -259,3 +260,10 @@ def test_later_page_questions_equal_the_typescript_prompt(tmp_path):
     cases = [{"state": state, "lists": lists, "level": r["level"], "page": r["page"], "kind": "read"} for r in rows]
     for row, content in zip(rows, teacher_contents(tmp_path, cases), strict=True):
         assert_same_prompt(to_example(row), content)
+
+
+def test_length_summary_gives_percentiles_and_the_share_over_the_limit():
+    summary = length_summary(list(range(1, 101)), max_length=90)
+    assert summary == {"rows": 100, "min": 1, "median": 50, "p90": 90, "p99": 99, "max": 100, "mean": 50.5, "max_length": 90, "over_max_length": 10, "share_over_max_length": 0.1}
+    with pytest.raises(ValueError, match="no lengths"):
+        length_summary([], max_length=90)
