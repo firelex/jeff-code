@@ -180,7 +180,7 @@ function unique(values: string[]): string[] {
 }
 
 /** Whether a text file is small enough for pi's read tool to return whole: at most DEFAULT_MAX_BYTES bytes and
- * fewer than DEFAULT_MAX_LINES lines. Larger files go to Data peek instead. undefined when a fact needed to decide
+ * fewer than DEFAULT_MAX_LINES lines (counted as newline characters). Larger files go to Data peek instead. undefined when a fact needed to decide
  * is unknown. The size is checked before the lines are counted, so a huge file is never read whole. */
 export function readLimitFit(facts: FileFacts, path: string): boolean | undefined {
 	const text = facts.isText(path);
@@ -188,6 +188,9 @@ export function readLimitFit(facts: FileFacts, path: string): boolean | undefine
 	const size = facts.size(path);
 	if (size === undefined) return undefined;
 	if (size > DEFAULT_MAX_BYTES) return false;
+	// Every line ends in at least one byte, so a file this small has fewer lines than the limit: no count needed
+	// (facts rebuilt from a listing know a file's size but not its line count).
+	if (size < DEFAULT_MAX_LINES) return true;
 	const lines = facts.lineCount(path);
 	if (lines === undefined) return undefined;
 	return lines < DEFAULT_MAX_LINES;
@@ -348,8 +351,11 @@ function findOptions(input: ListsInput): Built[] {
 	}
 	const names: string[] = [];
 	for (const token of named) {
-		const name = basename(token.replace(/\.$/, ""));
-		if (!FILE_NAME.test(name) || input.facts.kind(resolve(input.cwd, token)) !== undefined) continue;
+		// A sentence's closing period is not part of the name.
+		const path = token.replace(/\.$/, "");
+		const name = basename(path);
+		// Only a path known not to exist where it was named: an unknown one may well be there.
+		if (!FILE_NAME.test(name) || input.facts.kind(resolve(input.cwd, path)) !== "missing") continue;
 		names.push(name);
 	}
 	return unique(names)

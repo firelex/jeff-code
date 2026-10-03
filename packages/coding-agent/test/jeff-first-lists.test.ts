@@ -344,6 +344,12 @@ describe("buildLists", () => {
 		expect(liveFacts().isText(join(cwd, "tool"))).toBe(false);
 	});
 
+	it("answers 'missing' on the live disk for a path that does not exist", () => {
+		expect(liveFacts().kind(join(cwd, "nope.py"))).toBe("missing");
+		expect(liveFacts().kind(join(cwd, "src"))).toBe("folder");
+		expect(liveFacts().kind(join(cwd, "README.md"))).toBe("file");
+	});
+
 	it("names the file when a file cannot be read for the binary check", () => {
 		expect(() => liveFacts().isText(join(cwd, "src"))).toThrow(/src/);
 	});
@@ -430,6 +436,7 @@ describe("buildLists", () => {
 		expect(lists.argumentsByTool.read).toBeUndefined();
 		expect(lists.argumentsByTool.peek).toBeUndefined();
 		expect(lists.argumentsByTool.run).toBeUndefined();
+		expect(lists.argumentsByTool.find).toBeUndefined();
 		expect((lists.argumentsByTool.list ?? []).map(target)).toEqual([cwd]);
 		const tools = lists.tools.map((t) => t.id);
 		expect(tools).toContain("toolchain");

@@ -7,10 +7,10 @@ import type { Step } from "./transcript.ts";
  * What the option builders may know about files and programs. Every answer is either a fact or undefined, which
  * means unknown: the live disk knows everything, but facts rebuilt from a transcript (where the container's files
  * are gone) know only what the session revealed. A builder never guesses an unknown fact; an option that needs one
- * is left out.
+ * is left out. kind answers "missing" only when the path is known not to exist; undefined still means unknown.
  */
 export interface FileFacts {
-	kind(path: string): "file" | "folder" | undefined;
+	kind(path: string): "file" | "folder" | "missing" | undefined;
 	size(path: string): number | undefined;
 	isText(path: string): boolean | undefined;
 	/** The number of newline characters in the file. */
@@ -26,19 +26,21 @@ const PATH_MAX_BYTES = 4095;
 /** Linux refuses any single path segment (the text between two "/") longer than this, in bytes. */
 const PATH_SEGMENT_MAX_BYTES = 255;
 
-function pathKind(path: string): "file" | "folder" | undefined {
-	// No file can be named with a null byte, so that is "not a file", not a fallback.
-	if (path.includes("\u0000")) return undefined;
+/** "missing" when nothing exists at the path; undefined for something that exists but is neither a file nor a
+ * folder (a socket, a device). */
+function pathKind(path: string): "file" | "folder" | "missing" | undefined {
+	// No file can be named with a null byte, so such a path is missing, not a fallback.
+	if (path.includes("\u0000")) return "missing";
 	// No file can have a path over 4095 bytes, or a segment (the text between two "/") over 255 bytes: statSync
-	// would throw ENAMETOOLONG for one, so this is "not a file", not a fallback, by the same reasoning as above.
+	// would throw ENAMETOOLONG for one, so such a path is missing, not a fallback, by the same reasoning as above.
 	if (
 		Buffer.byteLength(path) > PATH_MAX_BYTES ||
 		path.split("/").some((segment) => Buffer.byteLength(segment) > PATH_SEGMENT_MAX_BYTES)
 	) {
-		return undefined;
+		return "missing";
 	}
 	const stats = statSync(path, { throwIfNoEntry: false });
-	if (stats === undefined) return undefined;
+	if (stats === undefined) return "missing";
 	return stats.isDirectory() ? "folder" : stats.isFile() ? "file" : undefined;
 }
 
