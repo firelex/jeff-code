@@ -429,6 +429,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 						chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel, TEACHER_RETRY_POLICY),
 						isSessionTurn,
 						runApproval: jeffFirst.runApproval,
+						driverBuild: jeffFirst.driverBuild,
 					});
 
 	const agent = new Agent({

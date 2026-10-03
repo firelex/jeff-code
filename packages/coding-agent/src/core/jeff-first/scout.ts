@@ -14,9 +14,11 @@ import type { Choice, Chooser } from "./chooser.ts";
 import type { RunApproval } from "./config.ts";
 import { buildLists, type ToolKind } from "./lists.ts";
 import type { MenuToolCall } from "./menu.ts";
+import { argumentPage, NONE_OF_THESE, SHOW_MORE, toolPage } from "./pages.ts";
 import { JEFF_PROVIDER } from "./provider.ts";
 import { trimState } from "./state.ts";
 import { describeError, errorStream, forwardModelTurn, JEFF_FIRST_ERROR_PREFIX, ZERO_USAGE } from "./stream.ts";
+import type { Level } from "./teacher-prompt.ts";
 import type { DecisionRecord, LevelRecord, TraceWriter } from "./trace.ts";
 import { activeToolNames, collectSteps, taskText } from "./transcript.ts";
 
@@ -32,6 +34,7 @@ export interface ScoutOptions {
 	chooser: Chooser;
 	isSessionTurn: (sessionId: string | undefined) => boolean;
 	runApproval: RunApproval;
+	driverBuild: string;
 }
 
 /** The scout's assistant messages since the large model's last message (or since the user's message). */
@@ -74,9 +77,12 @@ function messageStream(message: AssistantMessage): AssistantMessageEventStream {
 	return stream;
 }
 
-function levelRecord(options: LevelRecord["options"], choice: Choice, chooser: string): LevelRecord {
+function levelRecord(level: Level, choice: Choice, chooser: string): LevelRecord {
 	return {
-		options,
+		level: level.level,
+		page: level.page,
+		tool: level.level === "argument" ? level.tool.id : null,
+		options: level.options,
 		chooser,
 		shares: choice.shares,
 		picks: choice.picks,
@@ -109,7 +115,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 			checks ??= detectCheckCommands(options.cwd, task);
 			const state = trimState(task, steps);
 			const base = {
-				schema: "jeff-first-trace/2",
+				schema: "jeff-first-trace/3",
 				kind: "decision",
 				task_id: options.taskId,
 				session_id: sessionId as string,
@@ -117,6 +123,8 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 				step_in_stint: stint,
 				mode: "teacher",
 				driver: model.id,
+				driver_build: options.driverBuild,
+				run_approval: options.runApproval,
 				time: new Date().toISOString(),
 				state,
 				check_command_notes: checks.notes,
@@ -126,8 +134,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 			if (stint >= STEP_CAP) {
 				record = {
 					...base,
-					tool_level: null,
-					argument_level: null,
+					levels: [],
 					action: { kind: "hand_over", why: "cap" },
 					timings_ms: { lists: 0, chooser: 0 },
 				};
@@ -143,41 +150,58 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 				});
 				const listsMs = performance.now() - listsStarted;
 				const chooserStarted = performance.now();
-				const toolChoice = await options.chooser.choose(state, { level: "tool", page: 1, options: lists.tools });
-				const toolLevel = levelRecord(lists.tools, toolChoice, options.chooser.name);
-				if (toolChoice.optionId === "hand_over") {
-					record = {
-						...base,
-						tool_level: toolLevel,
-						argument_level: null,
-						action: { kind: "hand_over", why: "chosen" },
-						timings_ms: { lists: listsMs, chooser: performance.now() - chooserStarted },
-					};
-					call = null;
+				const levels: LevelRecord[] = [];
+				const ask = async (level: Level): Promise<string> => {
+					const choice = await options.chooser.choose(state, level);
+					levels.push(levelRecord(level, choice, options.chooser.name));
+					return choice.optionId;
+				};
+				let page = 1;
+				let toolId = await ask({ level: "tool", page, options: toolPage(lists, page) });
+				while (toolId === SHOW_MORE.id) {
+					page++;
+					toolId = await ask({ level: "tool", page, options: toolPage(lists, page) });
+				}
+				let action: DecisionRecord["action"];
+				if (toolId === "hand_over") {
+					action = { kind: "hand_over", why: "chosen" };
 				} else {
-					const kind = toolChoice.optionId as ToolKind;
+					const kind = toolId as ToolKind;
 					const tool = lists.tools.find((option) => option.id === kind);
 					const argumentOptions = lists.argumentsByTool[kind];
 					if (!tool || !argumentOptions)
 						throw new Error(`the chooser picked the tool ${kind}, which was not offered`);
-					const argumentChoice = await options.chooser.choose(state, {
+					// The argument step opens on the page where the tool was picked: earlier pages were already passed over.
+					let argumentId = await ask({
 						level: "argument",
-						page: 1,
+						page,
 						tool,
-						options: argumentOptions,
+						options: argumentPage(argumentOptions, page),
 					});
-					const chosen = argumentOptions.find((option) => option.id === argumentChoice.optionId);
-					if (!chosen)
-						throw new Error(`the chooser picked ${argumentChoice.optionId}, which is not an argument option`);
-					record = {
-						...base,
-						tool_level: toolLevel,
-						argument_level: levelRecord(argumentOptions, argumentChoice, options.chooser.name),
-						action: { kind: "step", tool_call: chosen.toolCall },
-						timings_ms: { lists: listsMs, chooser: performance.now() - chooserStarted },
-					};
-					call = chosen.toolCall;
+					while (argumentId === SHOW_MORE.id) {
+						page++;
+						argumentId = await ask({
+							level: "argument",
+							page,
+							tool,
+							options: argumentPage(argumentOptions, page),
+						});
+					}
+					if (argumentId === NONE_OF_THESE.id) {
+						action = { kind: "hand_over", why: "none_of_these" };
+					} else {
+						const chosen = argumentOptions.find((option) => option.id === argumentId);
+						if (!chosen) throw new Error(`the chooser picked ${argumentId}, which is not an argument option`);
+						action = { kind: "step", tool_call: chosen.toolCall };
+					}
 				}
+				record = {
+					...base,
+					levels,
+					action,
+					timings_ms: { lists: listsMs, chooser: performance.now() - chooserStarted },
+				};
+				call = action.kind === "step" ? action.tool_call : null;
 			}
 			options.trace.append(record);
 		} catch (error) {
@@ -199,13 +223,14 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 			inner,
 			(final) => {
 				options.trace.append({
-					schema: "jeff-first-trace/2",
+					schema: "jeff-first-trace/3",
 					kind: "model_turn",
 					task_id: options.taskId,
 					session_id: sessionId as string,
 					turn: thisTurn,
 					mode: "teacher",
 					driver: model.id,
+					driver_build: options.driverBuild,
 					time: new Date().toISOString(),
 					action: {
 						stop_reason: final.stopReason,

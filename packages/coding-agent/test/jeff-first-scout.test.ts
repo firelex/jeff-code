@@ -66,16 +66,17 @@ function fakeModel(message: AssistantMessage) {
 	return { inner, calls };
 }
 
-/** A chooser that answers each level from a script and records what it was asked. */
-function scripted(answers: { tool: string; argument?: string } | Error): Chooser & { asked: Level[] } {
+/** A chooser that answers each question in turn from a list of option ids, and records what it was asked. */
+function scripted(answers: string[] | Error): Chooser & { asked: Level[] } {
 	const asked: Level[] = [];
+	const queue = answers instanceof Error ? [] : [...answers];
 	return {
 		name: "teacher:fake",
 		asked,
 		async choose(_state, level): Promise<Choice> {
 			asked.push(level);
 			if (answers instanceof Error) throw answers;
-			const optionId = level.level === "tool" ? answers.tool : (answers.argument ?? level.options[0].id);
+			const optionId = queue.shift() ?? level.options[0].id;
 			return {
 				optionId,
 				shares: { [optionId]: 1 },
@@ -132,6 +133,7 @@ describe("createScoutStreamFn", () => {
 			chooser,
 			isSessionTurn: (id) => id === "s1",
 			runApproval: "all",
+			driverBuild: "test-build",
 		});
 	}
 
@@ -140,7 +142,7 @@ describe("createScoutStreamFn", () => {
 
 	it("returns the chosen step as an assistant message from the scout, without calling the model", async () => {
 		const { inner, calls } = fakeModel(assistant("local", [{ type: "text", text: "hi" }], "stop"));
-		const stream = await scout(scripted({ tool: "read" }), inner)(model, context(start), { sessionId: "s1" });
+		const stream = await scout(scripted(["read"]), inner)(model, context(start), { sessionId: "s1" });
 		const message = await stream.result();
 		expect(calls.count).toBe(0);
 		expect(message.provider).toBe(JEFF_PROVIDER);
@@ -151,18 +153,25 @@ describe("createScoutStreamFn", () => {
 			arguments: { path: join(cwd, "README.md") },
 		});
 		expect(lines()[0]).toMatchObject({
+			schema: "jeff-first-trace/3",
 			kind: "decision",
 			decision: 1,
 			step_in_stint: 0,
 			driver: "qwen",
+			driver_build: "test-build",
+			run_approval: "all",
 			action: { kind: "step" },
+			levels: [
+				{ level: "tool", page: 1 },
+				{ level: "argument", page: 1, tool: "read" },
+			],
 		});
 	});
 
 	it("hands over when the teacher chooses to, and logs the model's turn", async () => {
 		const reply = assistant("local", [{ type: "toolCall", id: "r1", name: "bash", arguments: { command: "ls" } }]);
 		const { inner, calls } = fakeModel(reply);
-		const stream = await scout(scripted({ tool: "hand_over" }), inner)(model, context(start), { sessionId: "s1" });
+		const stream = await scout(scripted(["hand_over"]), inner)(model, context(start), { sessionId: "s1" });
 		expect((await stream.result()).content).toEqual(reply.content);
 		expect(calls.count).toBe(1);
 		expect(lines().map((l) => l.kind)).toEqual(["decision", "model_turn"]);
@@ -171,7 +180,7 @@ describe("createScoutStreamFn", () => {
 	});
 
 	it(`hands over without asking after ${STEP_CAP} scout steps`, async () => {
-		const chooser = scripted({ tool: "read" });
+		const chooser = scripted(["read"]);
 		const { inner, calls } = fakeModel(assistant("local", [{ type: "text", text: "done" }], "stop"));
 		const messages = [...start];
 		for (let i = 0; i < STEP_CAP; i++) messages.push(assistant(JEFF_PROVIDER, []));
@@ -180,7 +189,7 @@ describe("createScoutStreamFn", () => {
 		expect(calls.count).toBe(1);
 		expect(lines()[0]).toMatchObject({
 			step_in_stint: STEP_CAP,
-			tool_level: null,
+			levels: [],
 			action: { kind: "hand_over", why: "cap" },
 		});
 	});
@@ -201,10 +210,35 @@ describe("createScoutStreamFn", () => {
 	});
 
 	it("passes requests that are not agent turns straight to the model", async () => {
-		const chooser = scripted({ tool: "read" });
+		const chooser = scripted(["read"]);
 		const { inner, calls } = fakeModel(assistant("local", [{ type: "text", text: "summary" }], "stop"));
 		await (await scout(chooser, inner)(model, context(start), { sessionId: undefined })).result();
 		expect(calls.count).toBe(1);
 		expect(chooser.asked).toHaveLength(0);
+	});
+
+	it("hands over when the teacher picks None of these, and records why", async () => {
+		const { inner, calls } = fakeModel(assistant("local", [{ type: "text", text: "ok" }], "stop"));
+		await (
+			await scout(scripted(["read", "none_of_these"]), inner)(model, context(start), { sessionId: "s1" })
+		).result();
+		expect(calls.count).toBe(1);
+		expect(lines()[0].action).toEqual({ kind: "hand_over", why: "none_of_these" });
+		expect(lines()[0].levels.map((l: { level: string }) => l.level)).toEqual(["tool", "argument"]);
+	});
+
+	it("asks the next page after Show more options, and opens the argument step on the page the tool was picked", async () => {
+		for (let i = 0; i < 14; i++) writeFileSync(join(cwd, `f${i}.txt`), "x");
+		const task = [
+			{ role: "user", content: Array.from({ length: 14 }, (_, i) => `f${i}.txt`).join(" "), timestamp: 0 },
+		] as Message[];
+		const chooser = scripted(["show_more", "read", "read-11"]);
+		const { inner } = fakeModel(assistant("local", [], "stop"));
+		const message = await (await scout(chooser, inner)(model, context(task), { sessionId: "s1" })).result();
+		expect(chooser.asked.map((l) => `${l.level}:${l.page}`)).toEqual(["tool:1", "tool:2", "argument:2"]);
+		expect(chooser.asked[2].options.map((o) => o.id)).toContain("read-11");
+		expect(chooser.asked[2].options.map((o) => o.id)).not.toContain("read-1");
+		expect(message.content[0]).toMatchObject({ type: "toolCall", name: "read" });
+		expect(lines()[0].levels.map((l: { page: number }) => l.page)).toEqual([1, 2, 2]);
 	});
 });

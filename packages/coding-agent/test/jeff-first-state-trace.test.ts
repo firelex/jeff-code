@@ -87,12 +87,12 @@ describe("trimState with large tool-call arguments", () => {
 	});
 });
 
-describe("TraceWriter with schema 2", () => {
+describe("TraceWriter with schema 3", () => {
 	it("writes a decision line as one JSON object", () => {
 		const folder = mkdtempSync(join(tmpdir(), "jeff-first-trace2-"));
 		const writer = new TraceWriter(join(folder, "t.jsonl"));
 		const record: DecisionRecord = {
-			schema: "jeff-first-trace/2",
+			schema: "jeff-first-trace/3",
 			kind: "decision",
 			task_id: "t",
 			session_id: "s",
@@ -100,18 +100,24 @@ describe("TraceWriter with schema 2", () => {
 			step_in_stint: 0,
 			mode: "teacher",
 			driver: "qwen",
+			driver_build: "test-build",
+			run_approval: "all",
 			time: "2026-10-02T00:00:00.000Z",
 			state: { task: "Fix it.", recentSteps: [], stepsLeftOut: 0 },
 			check_command_notes: [],
-			tool_level: {
-				options: [{ id: "hand_over", description: "Hand over" }],
-				chooser: "teacher:glm",
-				shares: { hand_over: 1 },
-				picks: [{ optionId: "hand_over", reason: "nothing to look at", failedAttempts: [] }],
-				chosen: "hand_over",
-				word_joiners_inserted: 0,
-			},
-			argument_level: null,
+			levels: [
+				{
+					level: "tool",
+					page: 1,
+					tool: null,
+					options: [{ id: "hand_over", description: "Hand over" }],
+					chooser: "teacher:glm",
+					shares: { hand_over: 1 },
+					picks: [{ optionId: "hand_over", reason: "nothing to look at", failedAttempts: [] }],
+					chosen: "hand_over",
+					word_joiners_inserted: 0,
+				},
+			],
 			action: { kind: "hand_over", why: "chosen" },
 			timings_ms: { lists: 1, chooser: 2 },
 		};

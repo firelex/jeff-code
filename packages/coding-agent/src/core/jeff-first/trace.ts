@@ -2,9 +2,11 @@ import { appendFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { JsonObject, StopReason } from "@earendil-works/pi-ai";
 import type { Pick } from "./chooser.ts";
-import type { ArgumentOption, ToolOption } from "./lists.ts";
+import type { RunApproval } from "./config.ts";
+import type { ArgumentOption } from "./lists.ts";
 import type { MenuMatch, MenuOption, MenuToolCall } from "./menu.ts";
 import type { JeffState } from "./state.ts";
+import type { ShownOption } from "./teacher-prompt.ts";
 
 /** One line per large-model turn in phase 0 (shadow mode). Field names are snake_case for the Python tools that read the traces. */
 export interface ShadowRecord {
@@ -30,9 +32,13 @@ export interface ShadowRecord {
 	timings_ms: { menu: number; model: number; jeff: null };
 }
 
-/** One level of a decision: the options shown, who chose, each option's share, the teacher's picks, the winner. */
+/** One question asked in a decision: the options shown, who chose, each option's share, the teacher's picks, the winner. */
 export interface LevelRecord {
-	options: Array<ToolOption | ArgumentOption>;
+	level: "tool" | "argument";
+	page: number;
+	/** The chosen tool, for argument pages; null on tool pages. */
+	tool: string | null;
+	options: Array<ShownOption | ArgumentOption>;
 	chooser: string;
 	shares: Record<string, number>;
 	picks: Pick[];
@@ -43,7 +49,7 @@ export interface LevelRecord {
 
 /** One line per decision in teacher mode: Jeff's place, taken by the teacher. */
 export interface DecisionRecord {
-	schema: "jeff-first-trace/2";
+	schema: "jeff-first-trace/3";
 	kind: "decision";
 	task_id: string;
 	session_id: string;
@@ -53,25 +59,27 @@ export interface DecisionRecord {
 	mode: "teacher";
 	/** The large model driving the session (its model id). */
 	driver: string;
+	driver_build: string;
+	run_approval: RunApproval;
 	time: string;
 	state: JeffState;
 	check_command_notes: string[];
-	/** null when the step cap handed over without asking. */
-	tool_level: LevelRecord | null;
-	argument_level: LevelRecord | null;
-	action: { kind: "step"; tool_call: MenuToolCall } | { kind: "hand_over"; why: "chosen" | "cap" };
+	/** Every question asked in this decision, in order; empty when the step cap handed over without asking. */
+	levels: LevelRecord[];
+	action: { kind: "step"; tool_call: MenuToolCall } | { kind: "hand_over"; why: "chosen" | "none_of_these" | "cap" };
 	timings_ms: { lists: number; chooser: number };
 }
 
 /** One line per large-model turn in teacher mode. */
 export interface ModelTurnRecord {
-	schema: "jeff-first-trace/2";
+	schema: "jeff-first-trace/3";
 	kind: "model_turn";
 	task_id: string;
 	session_id: string;
 	turn: number;
 	mode: "teacher";
 	driver: string;
+	driver_build: string;
 	time: string;
 	action: {
 		stop_reason: StopReason;

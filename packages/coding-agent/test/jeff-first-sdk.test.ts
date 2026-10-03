@@ -156,6 +156,7 @@ describe("JeffFirst through createAgentSession", () => {
 			"decision:hand_over",
 			"model_turn:stop",
 		]);
+		expect(lines[0].schema).toBe("jeff-first-trace/3");
 		expect(lines[1].state.recentSteps[0].output).toContain("The bug is in main.py.");
 		expect(provider.calls).toBe(2);
 		expect(teacher.requests).toHaveLength(4 * 5);
