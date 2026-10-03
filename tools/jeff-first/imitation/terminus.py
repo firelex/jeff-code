@@ -95,6 +95,11 @@ class TerminusTurn:
     part_folders: list[list[str | None]] = field(default_factory=list)
     # True when the reply starts with C-c that interrupted the previous command (see the module docstring).
     interrupts: bool = False
+    # For each command, how many seconds the harness waited after typing it before it typed the next keys or took the
+    # screen: the command's own "duration" plus those of the wait-only keystrokes after it (the replay uses them).
+    durations: list[float] = field(default_factory=list)
+    # Seconds of wait-only keystrokes before the reply's first command (a wait on the previous reply's last command).
+    leading_wait: float = 0.0
 
 
 END_REASONS = ("complete", "interactive", "unparsed_final_reply", "folder_unknown")
@@ -190,6 +195,11 @@ class _Reply:
     plan: str
     keystrokes: list[str]
     task_complete: bool
+    # Each keystroke string's "duration" in seconds; the harness waits 1 second for a command that gives none.
+    durations: list[float]
+
+
+HARNESS_DEFAULT_DURATION = 1.0
 
 
 def _correction(screen_message: str | None, turn: int) -> str:
@@ -217,13 +227,14 @@ def _json_reply(rest: str) -> dict | None:
     return None
 
 
-def _tool_call_reply(rest: str, turn: int) -> tuple[list[str], bool] | None:
-    """Keystrokes and task completion from `<tool_call>{"name": ..., "arguments": ...}</tool_call>` blocks, or None
-    when there is no block or one cannot be read."""
+def _tool_call_reply(rest: str, turn: int) -> tuple[list[str], bool, list[float]] | None:
+    """Keystrokes, task completion and each keystroke's duration from `<tool_call>{"name": ..., "arguments": ...}
+    </tool_call>` blocks, or None when there is no block or one cannot be read."""
     blocks = TOOL_CALL.findall(rest)
     if not blocks:
         return None
     keystrokes: list[str] = []
+    durations: list[float] = []
     complete = False
     for body in blocks:
         try:
@@ -233,11 +244,12 @@ def _tool_call_reply(rest: str, turn: int) -> tuple[list[str], bool] | None:
         name = call.get("name") if isinstance(call, dict) else None
         if name == "bash_command":
             keystrokes.append(call["arguments"]["keystrokes"])
+            durations.append(float(call["arguments"].get("duration", HARNESS_DEFAULT_DURATION)))
         elif name == "mark_task_complete":
             complete = True
         else:
             raise ValueError(f"turn {turn}: a tool call names the tool {name!r}; only bash_command and mark_task_complete are known")
-    return keystrokes, complete
+    return keystrokes, complete, durations
 
 
 def _reply(content: str, turn: int) -> _Reply | None:
@@ -252,14 +264,15 @@ def _reply(content: str, turn: int) -> _Reply | None:
     value = _json_reply(rest)
     if value is not None:
         keystrokes = [command["keystrokes"] for command in value["commands"]]
-        return _Reply(thinking, str(value.get("analysis", "")), str(value.get("plan", "")), keystrokes, bool(value.get("task_complete", False)))
+        durations = [float(command.get("duration", HARNESS_DEFAULT_DURATION)) for command in value["commands"]]
+        return _Reply(thinking, str(value.get("analysis", "")), str(value.get("plan", "")), keystrokes, bool(value.get("task_complete", False)), durations)
     calls = _tool_call_reply(rest, turn)
     if calls is None:
         return None
     text = rest[: rest.find("<tool_call>")].strip()
     labelled = LABELLED_TEXT.match(text)
     analysis, plan = (labelled.group("analysis"), labelled.group("plan") or "") if labelled else (text, "")
-    return _Reply(thinking, analysis, plan, calls[0], calls[1])
+    return _Reply(thinking, analysis, plan, calls[0], calls[1], calls[2])
 
 
 def _interactive(keystrokes: str) -> bool:
@@ -479,12 +492,24 @@ def parse_terminus(conversation: list[dict]) -> TerminusSession:
         previous = next((turn for turn in reversed(turns) if turn.commands), None)
         interrupts = previous is not None and _is_interrupt(reply.keystrokes, conversation[index - 3]["content"], screen_message)
         keystrokes = reply.keystrokes[1:] if interrupts else reply.keystrokes
+        waits = reply.durations[1:] if interrupts else reply.durations
         interactive = next((k for k in keystrokes if _interactive(k)), None)
         if interactive is not None:
             end_reason, end_detail = "interactive", f"turn {number} sends interactive keystrokes {interactive!r}"
             break
-        # A keystroke string that is empty or only presses Enter waits; it is not a command.
-        texts = [k[:-1] for k in keystrokes if k.strip()]
+        # A keystroke string that is empty or only presses Enter waits; it is not a command. Its wait adds to the
+        # command before it (or, first in the reply, to the previous reply's last command).
+        texts: list[str] = []
+        durations: list[float] = []
+        leading_wait = 0.0
+        for k, wait in zip(keystrokes, waits, strict=True):
+            if k.strip():
+                texts.append(k[:-1])
+                durations.append(wait)
+            elif durations:
+                durations[-1] += wait
+            else:
+                leading_wait += wait
         outputs: list[str | None] = [None] * len(texts)
         folders: list[str | None] = [None] * len(texts)
         if screen_message is not None:
@@ -512,6 +537,8 @@ def parse_terminus(conversation: list[dict]) -> TerminusSession:
                 prompt_folders=folders,
                 confirms_completion=asked_to_confirm and not texts,
                 interrupts=interrupts,
+                durations=durations,
+                leading_wait=leading_wait,
             )
         )
     turns, unknown = _with_folders(turns, cwd, home)

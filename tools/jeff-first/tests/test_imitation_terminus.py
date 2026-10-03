@@ -546,3 +546,40 @@ def test_other_uses_of_c_c_still_end_the_session(reply, before, screen):
     session = parse_terminus(conv)
     assert session.end_reason == "interactive" and "turn 2" in session.end_detail
     assert len(session.turns) == 1
+
+
+def test_each_command_keeps_its_wait_and_a_following_wait_only_keystroke_adds_to_it():
+    body = {
+        "analysis": "a",
+        "plan": "p",
+        "commands": [
+            {"keystrokes": "ls\n", "duration": 0.5},
+            {"keystrokes": "make\n", "duration": 5.0},
+            {"keystrokes": "", "duration": 30.0},
+            # The harness's documented default when a command gives no duration: 1 second.
+            {"keystrokes": "cat main.py\n"},
+        ],
+    }
+    conv = [
+        user(FIRST_USER),
+        {"role": "assistant", "content": json.dumps(body)},
+        screen("root@abc123:/app# ls", "main.py", "root@abc123:/app# make", "root@abc123:/app# cat main.py", "x"),
+        tool_call_reply(
+            {"name": "bash_command", "arguments": {"keystrokes": "\n", "duration": 2.0}},
+            {"name": "bash_command", "arguments": {"keystrokes": "ls\n", "duration": 3.0}},
+        ),
+        screen("root@abc123:/app# ls", "main.py"),
+    ]
+    session = parse_terminus(conv)
+    assert session.turns[0].durations == [0.5, 35.0, 1.0]
+    # A wait before the first command of a reply waits on the previous reply's last command; the replay waits it there.
+    assert session.turns[1].durations == [3.0]
+    assert session.turns[1].leading_wait == 2.0
+
+
+def test_an_interrupting_c_c_takes_no_command_slot_in_the_durations():
+    screen_text = "New Terminal Output:\n\n^C\nroot@abc123:/app# ls\nmain.py\nroot@abc123:/app#\n"
+    conv = interrupted(["C-c", "ls\n"], screen_text)
+    session = parse_terminus(conv)
+    assert session.turns[1].interrupts
+    assert session.turns[1].durations == [0.1]
