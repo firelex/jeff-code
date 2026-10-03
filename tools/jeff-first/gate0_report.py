@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pi_errors import jeff_first_errors
+from scout_quality import quality
 
 # A turn cut off at the length limit still cost the large model a turn.
 COUNTED_STOPS = {"toolUse", "stop", "length"}
@@ -31,6 +32,8 @@ class TaskResult:
     scout_steps: int
     teacher_seconds: float
     timed_out: bool
+    forced_steps: int
+    max_identical_in_stint: int
 
 
 def latest_trial(runs: Path, task: str) -> Path:
@@ -58,6 +61,7 @@ def summarise(runs: Path, tasks: list[str]) -> dict[str, TaskResult]:
         reward = (trial_result.get("verifier_result") or {}).get("rewards", {}).get("reward")
         if reward is None:
             raise ValueError(f"{trial} has no reward in result.json; the verifier did not finish")
+        q = quality(lines)
         results[task] = TaskResult(
             turns=len(turns),
             model_seconds=sum(l["timings_ms"]["model"] for l in turns) / 1000,
@@ -65,6 +69,8 @@ def summarise(runs: Path, tasks: list[str]) -> dict[str, TaskResult]:
             scout_steps=sum(1 for d in decisions if d["action"]["kind"] == "step"),
             teacher_seconds=sum(d["timings_ms"]["chooser"] for d in decisions) / 1000,
             timed_out=info is not None,
+            forced_steps=q.forced_steps,
+            max_identical_in_stint=q.max_identical_in_stint,
         )
     return results
 
@@ -108,15 +114,16 @@ def gate(base: dict[str, TaskResult], teacher: dict[str, TaskResult]) -> tuple[b
 
 def render(base: dict[str, TaskResult], teacher: dict[str, TaskResult]) -> str:
     rows = [
-        "| Task | Base turns | Teacher-arm turns | Base model s | Teacher-arm model s | Scout steps | Teacher s "
-        "| Passed (base / teacher arm) | Timed out (base / teacher arm) |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Task | Base turns | Teacher-arm turns | Base model s | Teacher-arm model s | Scout steps | Forced steps "
+        "| Most identical steps in a stint | Teacher s | Passed (base / teacher arm) | Timed out (base / teacher arm) |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for task in base:
         b, t = base[task], teacher[task]
         rows.append(
             f"| {task} | {b.turns} | {t.turns} | {b.model_seconds:.0f} | {t.model_seconds:.0f} | {t.scout_steps} "
-            f"| {t.teacher_seconds:.0f} | {yes_no(b.passed)} / {yes_no(t.passed)} | {yes_no(b.timed_out)} / {yes_no(t.timed_out)} |"
+            f"| {t.forced_steps} | {t.max_identical_in_stint} | {t.teacher_seconds:.0f} "
+            f"| {yes_no(b.passed)} / {yes_no(t.passed)} | {yes_no(b.timed_out)} / {yes_no(t.timed_out)} |"
         )
     _, line = gate(base, teacher)
     timeouts = (

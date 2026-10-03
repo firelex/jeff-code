@@ -22,12 +22,18 @@ def shadow_turn(stop="toolUse", ms=4000):
 
 
 def model_turn(stop="toolUse", ms=4000):
-    return {"schema": "jeff-first-trace/2", "kind": "model_turn", "action": {"stop_reason": stop}, "timings_ms": {"model": ms}}
+    return {"schema": "jeff-first-trace/3", "kind": "model_turn", "action": {"stop_reason": stop}, "timings_ms": {"model": ms}}
 
 
 def decision(kind="step", chooser_ms=2000):
     action = {"kind": "step", "tool_call": {}} if kind == "step" else {"kind": "hand_over", "why": "chosen"}
-    return {"schema": "jeff-first-trace/2", "kind": "decision", "action": action, "timings_ms": {"lists": 1, "chooser": chooser_ms}}
+    return {
+        "schema": "jeff-first-trace/3",
+        "kind": "decision",
+        "levels": [],
+        "action": action,
+        "timings_ms": {"lists": 1, "chooser": chooser_ms},
+    }
 
 
 def test_counts_model_turns_and_seconds_in_both_schemas(tmp_path):
@@ -35,8 +41,14 @@ def test_counts_model_turns_and_seconds_in_both_schemas(tmp_path):
     write_trial(tmp_path / "teach", "t1", [decision(), decision("hand_over"), model_turn(), model_turn("stop")], 0.0)
     base = summarise(tmp_path / "base", ["t1"])
     teach = summarise(tmp_path / "teach", ["t1"])
-    assert base["t1"] == TaskResult(turns=3, model_seconds=12.0, passed=True, scout_steps=0, teacher_seconds=0.0, timed_out=False)
-    assert teach["t1"] == TaskResult(turns=2, model_seconds=8.0, passed=False, scout_steps=1, teacher_seconds=4.0, timed_out=False)
+    assert base["t1"] == TaskResult(
+        turns=3, model_seconds=12.0, passed=True, scout_steps=0, teacher_seconds=0.0, timed_out=False,
+        forced_steps=0, max_identical_in_stint=0,
+    )
+    assert teach["t1"] == TaskResult(
+        turns=2, model_seconds=8.0, passed=False, scout_steps=1, teacher_seconds=4.0, timed_out=False,
+        forced_steps=0, max_identical_in_stint=1,
+    )
 
 
 def test_counts_a_turn_cut_off_at_the_length_limit(tmp_path):
@@ -74,7 +86,10 @@ def test_fails_loudly_on_any_other_trial_exception(tmp_path):
 
 
 def result(turns, seconds, passed, timed_out=False):
-    return TaskResult(turns=turns, model_seconds=seconds, passed=passed, scout_steps=0, teacher_seconds=0.0, timed_out=timed_out)
+    return TaskResult(
+        turns=turns, model_seconds=seconds, passed=passed, scout_steps=0, teacher_seconds=0.0, timed_out=timed_out,
+        forced_steps=0, max_identical_in_stint=0,
+    )
 
 
 def test_gate_passes_with_25_percent_fewer_turns_and_seconds_and_at_most_one_pass_lost():
@@ -127,7 +142,7 @@ def test_render_lists_timeouts_per_task_and_arm():
     report = render(base, teacher)
     assert "Timed out in the base arm: b. Timed out in the teacher arm: a, b." in report
     assert "| Timed out (base / teacher arm) |" in report
-    assert "| a | 40 | 20 | 160 | 80 | 0 | 0 | yes / yes | no / yes |" in report
+    assert "| a | 40 | 20 | 160 | 80 | 0 | 0 | 0 | 0 | yes / yes | no / yes |" in report
 
 
 def test_reports_a_setup_failure_with_its_reason_even_without_pi_output(tmp_path):
