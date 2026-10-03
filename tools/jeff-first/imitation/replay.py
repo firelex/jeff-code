@@ -40,7 +40,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
-from imitation.labels import SessionLabeler, gathers_information
+from imitation.labels import Decision, SessionLabeler, gathers_information
 from imitation.rows import Menu, Row, RowSource, ShellStep, render_state, rows_for_decision
 from imitation.terminus import SessionResult, TerminusSession, _label_turns, parse_terminus
 
@@ -136,10 +136,13 @@ class ReplayedCommand:
 
 @dataclass(frozen=True)
 class SessionReplay:
+    meta: RowSource
     rows: list[Row]
     result: SessionResult
     dropped_turns: list[int]
     commands: list[ReplayedCommand]
+    # Every labelled decision with the full menu built for it, so rows can be made again without a replay.
+    decisions: list[Decision]
 
     @property
     def information_mismatches(self) -> int:
@@ -225,12 +228,32 @@ def replay_session(meta: RowSource, session: TerminusSession, container: Contain
         state = render_state(session.task, point.history)
         rows.extend(rows_for_decision(meta, decision, point.turn, state, point.menu, point.choice))
     result = SessionResult(session.end_reason, session.end_detail, len(rows), len(labeler.decisions))
-    return SessionReplay(rows, result, labeler.dropped, replayed)
+    return SessionReplay(meta, rows, result, labeler.dropped, replayed, labeler.decisions)
 
 
 def row_json(row: Row, machine: str) -> str:
     """One row as a JSON line, with the machine that replayed it (ASCII escapes, as Row.to_json writes them)."""
     return json.dumps({**asdict(row), "machine": machine})
+
+
+def decision_lines(replay: SessionReplay, machine: str) -> list[str]:
+    """One JSON line per decision: its session, index, turn, the chosen tool kind and option (None for hand over) and
+    the full menu the container built for it."""
+    return [
+        json.dumps(
+            {
+                "session": replay.meta.session,
+                "task": replay.meta.task,
+                "machine": machine,
+                "decision": index,
+                "turn": decision.turn,
+                "kind": decision.choice.kind,
+                "option": decision.choice.option_id,
+                "menu": decision.menu,
+            }
+        )
+        for index, decision in enumerate(replay.decisions)
+    ]
 
 
 def stop_batch(failures: int, total: int) -> bool:
@@ -412,6 +435,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     rows_out = open(args.out / "stage2-rows.jsonl", "w")
     commands_out = open(args.out / "stage2-replay.jsonl", "w")
+    decisions_out = open(args.out / "stage2-decisions.jsonl", "w")
     sessions_out = open(args.out / "stage2-sessions.jsonl", "w")
     lock = threading.Lock()
     failures: list[dict] = []
@@ -439,6 +463,8 @@ def main() -> None:
                         continue
                     for row in replay.rows:
                         rows_out.write(row_json(row, machine) + "\n")
+                    for line in decision_lines(replay, machine):
+                        decisions_out.write(line + "\n")
                     for command in replay.commands:
                         commands_out.write(json.dumps({"session": trial.session, "task": trial.task, **asdict(command)}) + "\n")
                     record = {
@@ -452,11 +478,11 @@ def main() -> None:
                         "seconds": round(seconds),
                     }
                     sessions_out.write(json.dumps(record) + "\n")
-                    for handle in (rows_out, commands_out, sessions_out):
+                    for handle in (rows_out, commands_out, decisions_out, sessions_out):
                         handle.flush()
                     print(f"done {trial.session}: {len(replay.rows)} rows, {replay.result.decisions} decisions, {round(seconds)} s", flush=True)
             running = {future: trial for future, trial in running.items() if not future.cancelled()}
-    for handle in (rows_out, commands_out, sessions_out):
+    for handle in (rows_out, commands_out, decisions_out, sessions_out):
         handle.close()
     summary = {"sessions": len(kept), "skipped": len(skipped), "failed": len(failures), "stopped": stopped, "failures": failures}
     (args.out / "stage2-run.json").write_text(json.dumps(summary, indent=1))

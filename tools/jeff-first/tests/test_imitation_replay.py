@@ -6,6 +6,7 @@ from imitation.replay import (
     COMMAND_CAP_SECONDS,
     Ran,
     conversation_from_atif,
+    decision_lines,
     differs,
     replay_session,
     row_json,
@@ -238,3 +239,18 @@ def test_the_batch_stops_once_failures_reach_five_percent():
     assert stop_batch(failures=3, total=45)
     assert not stop_batch(failures=0, total=1)
     assert stop_batch(failures=1, total=10)
+
+
+def test_argument_rows_carry_the_tool_description_and_decisions_keep_their_full_menus():
+    container = FakeContainer(outputs={"ls": "main.py\n"})
+    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container)
+    argument = json.loads(row_json(replay.rows[1], "casdgx01"))
+    assert argument["level"] == "argument" and argument["tool_description"] == "List a folder"
+    records = [json.loads(line) for line in decision_lines(replay, "casdgx01")]
+    assert [(r["decision"], r["turn"], r["kind"], r["option"]) for r in records] == [
+        (0, 1, "list", "list-1"),
+        (1, 1, "read", "read-1"),
+        (2, 2, None, None),
+        (3, 3, None, None),
+    ]
+    assert records[0]["menu"] == MENU and records[0]["session"] == "trial-1" and records[0]["machine"] == "casdgx01"
