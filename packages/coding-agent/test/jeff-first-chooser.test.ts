@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
-	GlmTeacher,
-	TEACHER_RETRY_POLICY,
-	TEACHER_SAMPLES,
-	tally,
-	WORD_JOINER,
-} from "../src/core/jeff-first/chooser.ts";
+import { GlmTeacher, TEACHER_RETRY_POLICY, TEACHER_SAMPLES, tally } from "../src/core/jeff-first/chooser.ts";
 import type { ToolOption } from "../src/core/jeff-first/lists.ts";
 import type { JeffState } from "../src/core/jeff-first/state.ts";
 import { answerFor, type FakeTeacher, startFakeTeacher } from "./jeff-first-fake-teacher.ts";
@@ -189,45 +183,5 @@ describe("GlmTeacher retries", () => {
 			/answered 500: .*gave up after 3 attempts.*attempt 1: .*answered 500.*attempt 2: .*answered 500/,
 		);
 		expect(teacher.requests).toHaveLength(TEACHER_SAMPLES * 3);
-	});
-});
-
-describe("GlmTeacher and the firewall in front of the GLM endpoint", () => {
-	let teacher: FakeTeacher | undefined;
-	afterEach(async () => {
-		await teacher?.close();
-		teacher = undefined;
-	});
-
-	it("puts an invisible word joiner between two dots and a slash or backslash, explains it, and counts it", async () => {
-		teacher = await startFakeTeacher((options) => answerFor(options, "Read"));
-		const withDots: JeffState = {
-			task: "Read ../config.json and ..\\win.ini",
-			recentSteps: [],
-			stepsLeftOut: 0,
-		};
-		const choice = await new GlmTeacher(teacher.url, "glm-test", FAST).choose(withDots, {
-			level: "tool",
-			page: 1,
-			options: tools,
-		});
-		const sent = JSON.stringify(teacher.requests[0].messages);
-		expect(sent).not.toMatch(/\.\.\/|\.\.\\\\/);
-		expect(sent).toContain(`..${WORD_JOINER}/config.json`);
-		const system = (teacher.requests[0].messages as Array<{ role: string; content: string }>)[0];
-		expect(system.content).toMatch(/invisible character .* word joiner/);
-		expect(choice.wordJoinersInserted).toBe(2);
-	});
-
-	it("leaves text without such dots unchanged and adds no note", async () => {
-		teacher = await startFakeTeacher((options) => answerFor(options, "Read"));
-		const choice = await new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, {
-			level: "tool",
-			page: 1,
-			options: tools,
-		});
-		expect(JSON.stringify(teacher.requests[0].messages)).not.toContain(WORD_JOINER);
-		expect(JSON.stringify(teacher.requests[0].messages)).not.toMatch(/word joiner/);
-		expect(choice.wordJoinersInserted).toBe(0);
 	});
 });

@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import type { JeffState } from "./state.ts";
-import { ANSWER_CODES, answerSchema, type ChatMessage, type Level, teacherMessages } from "./teacher-prompt.ts";
+import { ANSWER_CODES, answerSchema, type Level, teacherMessages } from "./teacher-prompt.ts";
 
 export const TEACHER_SAMPLES = 5;
 const TEACHER_TEMPERATURE = 1;
@@ -16,16 +16,6 @@ export interface TeacherRetryPolicy {
  * 5 minutes and ended the task. Retries cover hangs and server errors only, never a refusal such as a 403.
  */
 export const TEACHER_RETRY_POLICY: TeacherRetryPolicy = { timeoutMs: 30_000, retryDelaysMs: [2_000, 4_000, 8_000] };
-
-/**
- * The firewall in front of the GLM endpoint answers 403 to any request containing two dots followed by a slash or
- * a backslash (a path-traversal pattern), and decodes JSON escapes before it checks. An invisible word joiner
- * between the dots and the slash gets past it; the note tells the teacher to read the text as if it were not there.
- */
-export const WORD_JOINER = "\u2060";
-const BLOCKED_DOTS = /\.\.(?=[/\\])/g;
-const WORD_JOINER_NOTE =
-	"Note: in the text below, an invisible character (U+2060, word joiner) was inserted between every pair of dots and a following slash or backslash, only so the request passes a network filter. It is not part of any path or command: read the text as if it were not there.";
 
 export interface FailedAttempt {
 	error: string;
@@ -44,8 +34,6 @@ export interface Choice {
 	optionId: string;
 	shares: Record<string, number>;
 	picks: Pick[];
-	/** Word joiners put into the text sent to the teacher to get past the endpoint's firewall; 0 for Jeff. */
-	wordJoinersInserted: number;
 }
 
 /** A teacher failure worth retrying: no answer in time, no connection, rate limited, or a server error. */
@@ -69,7 +57,7 @@ export function tally(optionIds: string[], picks: Pick[]): Choice {
 		if ((counts.get(pick.optionId) ?? 0) > (counts.get(optionId) ?? 0)) optionId = pick.optionId;
 	}
 	const shares = Object.fromEntries(optionIds.map((id) => [id, (counts.get(id) ?? 0) / picks.length]));
-	return { optionId, shares, picks, wordJoinersInserted: 0 };
+	return { optionId, shares, picks };
 }
 
 function excerpt(text: string): string {
@@ -84,25 +72,6 @@ function describeFetchError(error: unknown): string {
 	if (!(cause instanceof Error)) return `${error.message} (${String(cause)})`;
 	const code = "code" in cause && typeof cause.code === "string" ? ` [${cause.code}]` : "";
 	return `${error.message} (${cause.message === "" ? cause.name : cause.message}${code})`;
-}
-
-/** Puts a word joiner into every blocked dot pattern; adds the note to the system message when it changed anything. */
-function passFirewall(messages: ChatMessage[]): { messages: ChatMessage[]; inserted: number } {
-	let inserted = 0;
-	const joined = messages.map((message) => ({
-		...message,
-		content: message.content.replace(BLOCKED_DOTS, () => {
-			inserted++;
-			return `..${WORD_JOINER}`;
-		}),
-	}));
-	if (inserted === 0) return { messages, inserted };
-	return {
-		messages: joined.map((message) =>
-			message.role === "system" ? { ...message, content: `${WORD_JOINER_NOTE}\n\n${message.content}` } : message,
-		),
-		inserted,
-	};
 }
 
 /** GLM 5.3 behind the GLM proxy, which adds the real key; this client always sends "unused". */
@@ -122,7 +91,7 @@ export class GlmTeacher implements Chooser {
 	async choose(state: JeffState, level: Level): Promise<Choice> {
 		const options: Array<{ id: string }> = level.options;
 		const codes = ANSWER_CODES.slice(0, options.length);
-		const { messages, inserted } = passFirewall(teacherMessages(state, level));
+		const messages = teacherMessages(state, level);
 		const body = JSON.stringify({
 			model: this.model,
 			messages,
@@ -135,11 +104,10 @@ export class GlmTeacher implements Chooser {
 		const picks = await Promise.all(
 			Array.from({ length: TEACHER_SAMPLES }, () => this.askWithRetries(body, codes, options)),
 		);
-		const choice = tally(
+		return tally(
 			options.map((option) => option.id),
 			picks,
 		);
-		return { ...choice, wordJoinersInserted: inserted };
 	}
 
 	private async askWithRetries(body: string, codes: string[], options: Array<{ id: string }>): Promise<Pick> {

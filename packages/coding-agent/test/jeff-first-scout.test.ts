@@ -81,7 +81,6 @@ function scripted(answers: string[] | Error): Chooser & { asked: Level[] } {
 				optionId,
 				shares: { [optionId]: 1 },
 				picks: [{ optionId, reason: "scripted", failedAttempts: [] }],
-				wordJoinersInserted: 0,
 			};
 		},
 	};
