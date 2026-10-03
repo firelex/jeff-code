@@ -1,8 +1,8 @@
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "../tools/truncate.ts";
 import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
 import type { RunApproval } from "./config.ts";
+import type { FileFacts } from "./facts.ts";
 import {
 	callKey,
 	candidates,
@@ -10,7 +10,6 @@ import {
 	type MenuInput,
 	type MenuToolCall,
 	namedPaths,
-	pathKind,
 	RECENT_OUTPUTS,
 } from "./menu.ts";
 import { shellQuote } from "./probes.ts";
@@ -20,7 +19,6 @@ import { docsOptions, installOptions, peekOptions, serviceOptions, toolchainOpti
 export const ARGUMENT_LIMIT = 30;
 /** How many of the coding model's most recent calls name files for Read. */
 export const MODEL_CALLS = 10;
-const BINARY_SNIFF_BYTES = 8000;
 const WRITE_IN_BASH =
 	/(?:\bcat\s*>>?|\btee\s+(?:-a\s+)?)\s*['"]?([^\s'";&|<>]+)|\bcat\s*<<-?\s*['"]?\w+['"]?\s*>>?\s*['"]?([^\s'";&|<>]+)/g;
 /** A scout bash step (Check or Repeat) never runs longer than this: the teacher chose Repeat on a hung test script once and it ran for ~40 minutes with no timeout. */
@@ -162,32 +160,22 @@ function unique(values: string[]): string[] {
 	return [...new Set(values)];
 }
 
-/** A file is text unless its first 8,000 bytes hold a null byte (compiled programs, model weights, images). */
-export function isTextFile(path: string): boolean {
-	const buffer = Buffer.alloc(BINARY_SNIFF_BYTES);
-	let descriptor: number;
-	try {
-		descriptor = openSync(path, "r");
-	} catch (error) {
-		throw new Error(`could not open ${path} to check whether it is text: ${(error as Error).message}`);
-	}
-	try {
-		const read = readSync(descriptor, buffer, 0, BINARY_SNIFF_BYTES, 0);
-		return !buffer.subarray(0, read).includes(0);
-	} catch (error) {
-		throw new Error(`could not read ${path} to check whether it is text: ${(error as Error).message}`);
-	} finally {
-		closeSync(descriptor);
-	}
+/** Whether a text file is small enough for pi's read tool to return whole: at most DEFAULT_MAX_BYTES bytes and
+ * fewer than DEFAULT_MAX_LINES lines. Larger files go to Data peek instead. undefined when a fact needed to decide
+ * is unknown. The size is checked before the lines are counted, so a huge file is never read whole. */
+export function readLimitFit(facts: FileFacts, path: string): boolean | undefined {
+	const text = facts.isText(path);
+	if (text !== true) return text;
+	const size = facts.size(path);
+	if (size === undefined) return undefined;
+	if (size > DEFAULT_MAX_BYTES) return false;
+	const lines = facts.lineCount(path);
+	if (lines === undefined) return undefined;
+	return lines < DEFAULT_MAX_LINES;
 }
 
-/** A text file small enough for pi's read tool to return whole: at most DEFAULT_MAX_BYTES bytes and fewer than
- * DEFAULT_MAX_LINES lines. Larger files go to Data peek instead. */
-export function fitsReadLimit(path: string): boolean {
-	if (!isTextFile(path)) return false;
-	if (statSync(path).size > DEFAULT_MAX_BYTES) return false;
-	const lines = readFileSync(path, "utf8").split("\n").length - 1;
-	return lines < DEFAULT_MAX_LINES;
+export function fitsReadLimit(facts: FileFacts, path: string): boolean {
+	return readLimitFit(facts, path) === true;
 }
 
 /** Files the coding model wrote or edited (write, edit, or a bash "cat > file" / "tee file"), newest first. */
@@ -232,7 +220,7 @@ function modelCallFiles(input: MenuInput): string[] {
 		if (step.call.name === "bash" && typeof args.command === "string") tokens.push(...candidates(args.command));
 		for (const token of tokens) {
 			const path = resolve(input.cwd, token);
-			if (pathKind(path) === "file" && !files.includes(path)) files.push(path);
+			if (input.facts.kind(path) === "file" && !files.includes(path)) files.push(path);
 		}
 	}
 	return files;
@@ -243,8 +231,9 @@ function modelCallFiles(input: MenuInput): string[] {
  * candidate must be a readable text file. */
 function readOptions(input: ListsInput): MenuToolCall[] {
 	const calls: MenuToolCall[] = [];
-	const readable = (path: string) => pathKind(path) === "file" && isTextFile(path);
-	const wholeFileReadable = (path: string) => pathKind(path) === "file" && fitsReadLimit(path);
+	const { facts } = input;
+	const readable = (path: string) => facts.kind(path) === "file" && facts.isText(path) === true;
+	const wholeFileReadable = (path: string) => facts.kind(path) === "file" && fitsReadLimit(facts, path);
 	const changed = writtenFiles(input).filter(({ path, index }) => index > lastScoutRead(input, path));
 	for (const { path } of changed) if (wholeFileReadable(path)) calls.push({ name: "read", arguments: { path } });
 	const seen = new Set<string>();
@@ -264,7 +253,7 @@ function readOptions(input: ListsInput): MenuToolCall[] {
 	for (const path of modelCallFiles(input))
 		if (wholeFileReadable(path)) calls.push({ name: "read", arguments: { path } });
 	for (const file of namedPaths(input).files)
-		if (fitsReadLimit(file)) calls.push({ name: "read", arguments: { path: file } });
+		if (fitsReadLimit(facts, file)) calls.push({ name: "read", arguments: { path: file } });
 	return calls;
 }
 
@@ -328,7 +317,7 @@ function findOptions(input: ListsInput): MenuToolCall[] {
 	const patterns: string[] = [];
 	for (const token of named) {
 		const name = basename(token.replace(/\.$/, ""));
-		if (!FILE_NAME.test(name) || pathKind(resolve(input.cwd, token)) !== undefined) continue;
+		if (!FILE_NAME.test(name) || input.facts.kind(resolve(input.cwd, token)) !== undefined) continue;
 		patterns.push(`**/${name}`);
 	}
 	return unique(patterns)
@@ -382,7 +371,7 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 		if (done.has(path)) continue;
 		done.add(path);
 		const interpreter = INTERPRETERS[path.slice(path.lastIndexOf("."))];
-		if (!interpreter || pathKind(path) !== "file" || !isTextFile(path)) continue;
+		if (!interpreter || input.facts.kind(path) !== "file" || input.facts.isText(path) !== true) continue;
 		const ran = lastRun(input, path);
 		if (ran >= index) continue;
 		if (input.runApproval === "seen" && ran < 0) continue;

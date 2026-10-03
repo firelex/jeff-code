@@ -1,7 +1,7 @@
-import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
+import { type FileFacts, stringsIn } from "./facts.ts";
 import type { Step } from "./transcript.ts";
 
 export const MENU_LIMIT = 25;
@@ -24,6 +24,8 @@ export interface MenuInput {
 	steps: Step[];
 	activeTools: Set<string>;
 	checkCommands: string[];
+	/** Where every file and program fact comes from: the live disk, or facts rebuilt from a transcript. */
+	facts: FileFacts;
 }
 
 export type MenuMatch = { kind: "exact" | "near"; optionId: string } | { kind: "none" };
@@ -34,27 +36,6 @@ const LS_LISTING = /^ls((?:\s+-\S+)*)(?:\s+(\S+))?$/;
 
 /** A control character (U+0000-U+001F or U+007F): never part of a real file name, only junk from binary output. */
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
-
-/** Linux refuses any path longer than this, in bytes. */
-const PATH_MAX_BYTES = 4095;
-/** Linux refuses any single path segment (the text between two "/") longer than this, in bytes. */
-const PATH_SEGMENT_MAX_BYTES = 255;
-
-export function pathKind(path: string): "file" | "folder" | undefined {
-	// No file can be named with a null byte, so that is "not a file", not a fallback.
-	if (path.includes("\u0000")) return undefined;
-	// No file can have a path over 4095 bytes, or a segment (the text between two "/") over 255 bytes: statSync
-	// would throw ENAMETOOLONG for one, so this is "not a file", not a fallback, by the same reasoning as above.
-	if (
-		Buffer.byteLength(path) > PATH_MAX_BYTES ||
-		path.split("/").some((segment) => Buffer.byteLength(segment) > PATH_SEGMENT_MAX_BYTES)
-	) {
-		return undefined;
-	}
-	const stats = statSync(path, { throwIfNoEntry: false });
-	if (stats === undefined) return undefined;
-	return stats.isDirectory() ? "folder" : stats.isFile() ? "file" : undefined;
-}
 
 export function candidates(text: string): string[] {
 	return text
@@ -77,29 +58,51 @@ function listedFolder(step: Step, cwd: string): string | undefined {
 	return undefined;
 }
 
-/** Existing files and folders named in recent outputs (newest first) and then in the task. */
-export function namedPaths(input: MenuInput): { files: string[]; folders: string[] } {
-	const sources: Array<{ text: string; bases: string[] }> = [];
-	for (const step of input.steps.slice(-RECENT_OUTPUTS).reverse()) {
-		if (step.output === null) continue;
-		const folder = listedFolder(step, input.cwd);
-		sources.push({ text: step.output, bases: folder ? [input.cwd, folder] : [input.cwd] });
-	}
-	sources.push({ text: input.task, bases: [input.cwd] });
+type Source = { text: string; bases: string[] };
 
+/** Existing files and folders named in the sources, in order: each token is resolved against each of its bases. */
+function pathsIn(input: MenuInput, sources: Source[]): { files: string[]; folders: string[] } {
 	const files: string[] = [];
 	const folders: string[] = [];
 	for (const source of sources) {
 		for (const token of candidates(source.text)) {
 			for (const base of source.bases) {
 				const path = resolve(base, token);
-				const kind = pathKind(path);
+				const kind = input.facts.kind(path);
 				if (kind === "file" && !files.includes(path)) files.push(path);
 				if (kind === "folder" && path !== input.cwd && !folders.includes(path)) folders.push(path);
 			}
 		}
 	}
 	return { files, folders };
+}
+
+function outputSource(step: Step, cwd: string): Source[] {
+	if (step.output === null) return [];
+	const folder = listedFolder(step, cwd);
+	return [{ text: step.output, bases: folder ? [cwd, folder] : [cwd] }];
+}
+
+/** Existing files and folders named in recent outputs (newest first) and then in the task. */
+export function namedPaths(input: MenuInput): { files: string[]; folders: string[] } {
+	const sources = input.steps
+		.slice(-RECENT_OUTPUTS)
+		.reverse()
+		.flatMap((step) => outputSource(step, input.cwd));
+	sources.push({ text: input.task, bases: [input.cwd] });
+	return pathsIn(input, sources);
+}
+
+/** Existing files and folders the session has revealed: named in any step's output or call arguments (newest step
+ * first, its output before its arguments), then in the task. */
+export function revealedPaths(input: MenuInput): { files: string[]; folders: string[] } {
+	const sources: Source[] = [];
+	for (const step of [...input.steps].reverse()) {
+		sources.push(...outputSource(step, input.cwd));
+		for (const text of stringsIn(step.call.arguments)) sources.push({ text, bases: [input.cwd] });
+	}
+	sources.push({ text: input.task, bases: [input.cwd] });
+	return pathsIn(input, sources);
 }
 
 function sortedJson(value: JsonValue): string {

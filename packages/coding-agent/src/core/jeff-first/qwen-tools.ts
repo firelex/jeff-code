@@ -1,16 +1,16 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import { extname } from "node:path";
+import type { FileFacts } from "./facts.ts";
 import {
 	type Built,
 	escapeRegExp,
 	fitsReadLimit,
-	isTextFile,
 	type ListsInput,
+	readLimitFit,
 	recentOutputs,
 	SCOUT_COMMAND_TIMEOUT_SECONDS,
 	writtenFiles,
 } from "./lists.ts";
-import { namedPaths, pathKind, RECENT_OUTPUTS } from "./menu.ts";
+import { RECENT_OUTPUTS, revealedPaths } from "./menu.ts";
 import {
 	CORE_PROGRAMS,
 	folderTypesProbe,
@@ -48,14 +48,20 @@ const PEEK_BY_EXTENSION: Record<string, PeekKind> = {
 };
 const LONG_TEXT_LINES = 200;
 
-/** The probe kind for this file, from its extension, or from its text/binary nature and size; undefined when Read covers it. */
-export function peekKind(path: string): PeekKind | undefined {
+/** The probe kind for this file, from its extension, or from its text/binary nature and size; undefined when Read
+ * covers it, or when a fact needed to decide is unknown. */
+export function peekKind(facts: FileFacts, path: string): PeekKind | undefined {
 	const byType = PEEK_BY_EXTENSION[extname(path).toLowerCase()];
 	if (byType) return byType;
-	if (!isTextFile(path)) return "binary";
-	if (!fitsReadLimit(path)) return "text";
+	const text = facts.isText(path);
+	if (text === undefined) return undefined;
+	if (!text) return "binary";
+	const fit = readLimitFit(facts, path);
+	if (fit === undefined) return undefined;
+	if (!fit) return "text";
 	if ([".log", ".txt"].includes(extname(path).toLowerCase())) {
-		const lines = readFileSync(path, "utf8").split("\n").length - 1;
+		const lines = facts.lineCount(path);
+		if (lines === undefined) return undefined;
 		if (lines > LONG_TEXT_LINES) return "text";
 	}
 	return undefined;
@@ -65,19 +71,15 @@ function probe(command: string, description: string, timeout: number = PROBE_TIM
 	return { call: { name: "bash", arguments: { command, timeout } }, description };
 }
 
-/** One Data peek option per data file: those named in recent outputs and the task, then regular files directly in
- * the working folder (sorted by name) that the coding model did not write. Finally, if any was offered, one more
- * option showing the type of every file in the folder. */
+/** One Data peek option per data file the session has revealed (named in the task, an output or a call's
+ * arguments) that the coding model did not write. Finally, if any was offered, one more option showing the type of
+ * every file in the working folder. */
 export function peekOptions(input: ListsInput): Built[] {
 	const written = new Set(writtenFiles(input).map((entry) => entry.path));
-	const inFolder = readdirSync(input.cwd)
-		.sort()
-		.map((name) => join(input.cwd, name))
-		.filter((path) => pathKind(path) === "file" && !written.has(path));
-	const candidates = [...new Set([...namedPaths(input).files, ...inFolder])];
+	const candidates = revealedPaths(input).files.filter((path) => !written.has(path));
 	const options: Built[] = [];
 	for (const path of candidates) {
-		const kind = peekKind(path);
+		const kind = peekKind(input.facts, path);
 		if (kind) options.push(probe(peekProbe(path, kind), `Look at the data in ${path}`));
 	}
 	if (options.length > 0) {
@@ -142,7 +144,7 @@ export const PIP_TO_MODULE: Record<string, string> = {
 	biopython: "Bio",
 };
 
-/** What a file extension, seen in the working folder or named in the task, suggests is needed. */
+/** What a file extension, of a file the session revealed or named in the task, suggests is needed. */
 const FILE_TYPE_RULES: Record<string, { programs?: string[]; modules?: string[] }> = {
 	".pdf": { programs: ["pdftotext"] },
 	".png": { programs: ["tesseract"], modules: ["PIL"] },
@@ -244,14 +246,15 @@ function installNames(command: string, pattern: RegExp, valueFlags: Set<string>,
 	return names;
 }
 
-/** File extensions present among the files directly in the working folder, or named as a word in the task (its
- * trailing sentence punctuation stripped first, so "model.pth." is seen as model.pth). */
+/** File extensions of the existing files the session has revealed (named in an output, a call's arguments or the
+ * task), or named as a word in the task (its trailing sentence punctuation stripped first, so "model.pth." is seen
+ * as model.pth). */
 function fileTypeExtensions(input: ListsInput): string[] {
 	const extensions: string[] = [];
 	const push = (ext: string) => {
 		if (ext && !extensions.includes(ext)) extensions.push(ext);
 	};
-	for (const name of readdirSync(input.cwd).sort()) push(extname(name).toLowerCase());
+	for (const path of revealedPaths(input).files) push(extname(path).toLowerCase());
 	for (const word of wordsIn(input.task)) push(extname(word.replace(/[.,;:!?)]+$/, "")).toLowerCase());
 	return extensions;
 }
@@ -375,9 +378,10 @@ function modelSources(input: ListsInput): string[] {
 	const sources = [...recentCommands(input)];
 	const seen = new Set<string>();
 	for (const { path } of writtenFiles(input)) {
-		if (seen.has(path) || pathKind(path) !== "file" || !fitsReadLimit(path)) continue;
+		if (seen.has(path) || input.facts.kind(path) !== "file" || !fitsReadLimit(input.facts, path)) continue;
 		seen.add(path);
-		sources.push(readFileSync(path, "utf8"));
+		const text = input.facts.readText(path);
+		if (text !== undefined) sources.push(text);
 	}
 	return sources;
 }
@@ -405,7 +409,7 @@ function serviceNames(input: ListsInput): string[] {
 function serviceLogs(input: ListsInput): string[] {
 	const logs: string[] = [];
 	const push = (path: string) => {
-		if (pathKind(path) === "file" && !logs.includes(path)) logs.push(path);
+		if (input.facts.kind(path) === "file" && !logs.includes(path)) logs.push(path);
 	};
 	for (const match of input.task.matchAll(LOG_IN_TASK)) push(match[0]);
 	for (const source of modelSources(input)) for (const match of source.matchAll(LOG_IN_SOURCE)) push(match[1]);
@@ -475,26 +479,9 @@ function docPythonModules(input: ListsInput): string[] {
 	return names;
 }
 
-/** Whether `name` is a file on PATH with an executable bit set for someone (owner, group or other). PATH itself
- * missing is a broken environment, not a reason to say no silently, so that throws; a PATH entry that does not
- * exist as a folder is simply skipped, and the candidate file is checked with pathKind (so an overly long name
- * cannot throw ENAMETOOLONG here either) rather than a try/catch around statSync. */
-export function isExecutableOnPath(name: string): boolean {
-	const path = process.env.PATH;
-	if (path === undefined) throw new Error("process.env.PATH is not set, so programs on PATH cannot be found");
-	for (const dir of path.split(":")) {
-		if (pathKind(dir) !== "folder") continue;
-		const candidate = join(dir, name);
-		if (pathKind(candidate) !== "file") continue;
-		const stats = statSync(candidate);
-		if ((stats.mode & 0o111) !== 0) return true;
-	}
-	return false;
-}
-
 /** Known tools, named as a whole word in the task, that are actually executable on PATH. */
 function docProgramNames(input: ListsInput): string[] {
-	return KNOWN_TOOLS.filter((tool) => isTaskSpecificName(input.task, tool) && isExecutableOnPath(tool));
+	return KNOWN_TOOLS.filter((tool) => isTaskSpecificName(input.task, tool) && input.facts.onPath(tool) === true);
 }
 
 /** For each npm package the model installed: its README, then what it exports. For each Python module named by an

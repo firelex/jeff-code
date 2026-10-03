@@ -3,6 +3,7 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
 import type { RunApproval } from "./config.ts";
+import { liveFacts } from "./facts.ts";
 import { buildLists, type Lists } from "./lists.ts";
 import { type JeffState, trimState } from "./state.ts";
 import { describeError, errorStream, forwardModelTurn, JEFF_FIRST_ERROR_PREFIX } from "./stream.ts";
@@ -34,7 +35,7 @@ interface Prepared {
  * always calls the inner model and forwards its message unchanged.
  */
 export function createRecordStreamFn(options: RecordOptions): StreamFn {
-	let checks: CheckCommands | undefined;
+	const facts = liveFacts();
 	// Taken on the first turn: compaction later replaces the first user message with a summary.
 	let task: string | undefined;
 	let turn = 0;
@@ -53,13 +54,15 @@ export function createRecordStreamFn(options: RecordOptions): StreamFn {
 			const started = performance.now();
 			task ??= taskText(context.messages);
 			const steps = collectSteps(context.messages);
-			checks ??= detectCheckCommands(options.cwd, task);
+			// Detected anew each turn: a project file counts only once the session has revealed it.
+			const checks = detectCheckCommands({ cwd: options.cwd, task, steps, facts });
 			const lists = buildLists({
 				cwd: options.cwd,
 				task,
 				steps,
 				activeTools: activeToolNames(context.messages),
 				checkCommands: checks.commands,
+				facts,
 				runApproval: options.runApproval,
 			});
 			prepared = { state: trimState(task, steps), lists, checks, listsMs: performance.now() - started };

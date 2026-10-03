@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { type FileFacts, revealedTexts } from "./facts.ts";
+import type { Step } from "./transcript.ts";
 
 export const CHECK_COMMAND_LIMIT = 3;
 
@@ -21,28 +22,43 @@ function commandsInTask(task: string): string[] {
 	return commands;
 }
 
-function fileContains(path: string, text: string): boolean {
-	return existsSync(path) && readFileSync(path, "utf8").includes(text);
+export interface CheckCommandsInput {
+	cwd: string;
+	task: string;
+	steps: Step[];
+	facts: FileFacts;
 }
 
-/** The project's test or build commands, detected once per task. */
-export function detectCheckCommands(cwd: string, task: string): CheckCommands {
-	const found = commandsInTask(task);
+/** The project's test or build commands: those the task names, then those read from project files in the working
+ * folder (Makefile, package.json, pytest settings, Cargo.toml, go.mod) whose name the session has revealed. A file
+ * whose existence or text is unknown offers nothing. */
+export function detectCheckCommands(input: CheckCommandsInput): CheckCommands {
+	const { cwd, facts } = input;
+	const found = commandsInTask(input.task);
 	const notes: string[] = [];
+	const texts = revealedTexts(input.task, input.steps);
+	/** Whether the project file `name` (a fixed name such as "go.mod") was revealed and is known to exist in the
+	 * working folder. The name must stand alone ("Makefile", "./Makefile", "/app/Makefile"), not inside a longer name; a sentence's closing period after it is allowed. */
+	const isProjectFile = (name: string): boolean => {
+		const named = new RegExp(`(?<![\\w.-])${name.replaceAll(".", "\\.")}(?![\\w-]|\\.\\w)`);
+		return texts.some((text) => named.test(text)) && facts.kind(join(cwd, name)) === "file";
+	};
+	/** The text of a revealed project file, or undefined when it was not revealed, does not exist or is unknown. */
+	const projectFile = (name: string): string | undefined =>
+		isProjectFile(name) ? facts.readText(join(cwd, name)) : undefined;
 
-	const makefile = join(cwd, "Makefile");
-	if (existsSync(makefile)) {
-		const text = readFileSync(makefile, "utf8");
+	const makefile = projectFile("Makefile");
+	if (makefile !== undefined) {
 		for (const target of ["test", "check", "build"]) {
-			if (new RegExp(`^${target}\\s*:`, "m").test(text)) found.push(`make ${target}`);
+			if (new RegExp(`^${target}\\s*:`, "m").test(makefile)) found.push(`make ${target}`);
 		}
 	}
 
-	const packageJson = join(cwd, "package.json");
-	if (existsSync(packageJson)) {
+	const packageJson = projectFile("package.json");
+	if (packageJson !== undefined) {
 		let scripts: unknown;
 		try {
-			scripts = (JSON.parse(readFileSync(packageJson, "utf8")) as { scripts?: unknown }).scripts;
+			scripts = (JSON.parse(packageJson) as { scripts?: unknown }).scripts;
 		} catch (error) {
 			// A broken package.json can be the task itself; offer no npm command and say why in the trace.
 			notes.push(`package.json could not be parsed: ${error instanceof Error ? error.message : String(error)}`);
@@ -55,15 +71,15 @@ export function detectCheckCommands(cwd: string, task: string): CheckCommands {
 	}
 
 	if (
-		existsSync(join(cwd, "pytest.ini")) ||
-		existsSync(join(cwd, "conftest.py")) ||
-		fileContains(join(cwd, "pyproject.toml"), "[tool.pytest") ||
-		fileContains(join(cwd, "setup.cfg"), "[tool:pytest]")
+		isProjectFile("pytest.ini") ||
+		isProjectFile("conftest.py") ||
+		projectFile("pyproject.toml")?.includes("[tool.pytest") === true ||
+		projectFile("setup.cfg")?.includes("[tool:pytest]") === true
 	) {
 		found.push("pytest");
 	}
-	if (existsSync(join(cwd, "Cargo.toml"))) found.push("cargo test");
-	if (existsSync(join(cwd, "go.mod"))) found.push("go test ./...");
+	if (isProjectFile("Cargo.toml")) found.push("cargo test");
+	if (isProjectFile("go.mod")) found.push("go test ./...");
 
 	return { commands: [...new Set(found)].slice(0, CHECK_COMMAND_LIMIT), notes };
 }

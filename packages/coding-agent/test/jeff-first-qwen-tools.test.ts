@@ -2,12 +2,12 @@ import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { liveFacts } from "../src/core/jeff-first/facts.ts";
 import type { ListsInput } from "../src/core/jeff-first/lists.ts";
 import { CORE_PROGRAMS, MODULES_HEADER, PROGRAMS_HEADER } from "../src/core/jeff-first/probes.ts";
 import {
 	docsOptions,
 	installOptions,
-	isExecutableOnPath,
 	peekKind,
 	peekOptions,
 	serviceOptions,
@@ -28,6 +28,7 @@ describe("Data peek", () => {
 			activeTools: ALL_TOOLS,
 			checkCommands: [],
 			runApproval: "all",
+			facts: liveFacts(),
 		};
 	});
 	afterEach(() => {
@@ -40,24 +41,43 @@ describe("Data peek", () => {
 		writeFileSync(join(cwd, "x.bin"), Buffer.from([0, 1, 2]));
 		writeFileSync(join(cwd, "small.py"), "print(1)\n");
 		writeFileSync(join(cwd, "big.txt"), "x\n".repeat(30000));
-		expect(peekKind(join(cwd, "w.json"))).toBe("json");
-		expect(peekKind(join(cwd, "m.pth"))).toBe("weights");
-		expect(peekKind(join(cwd, "x.bin"))).toBe("binary");
-		expect(peekKind(join(cwd, "small.py"))).toBeUndefined();
-		expect(peekKind(join(cwd, "big.txt"))).toBe("text");
+		expect(peekKind(input.facts, join(cwd, "w.json"))).toBe("json");
+		expect(peekKind(input.facts, join(cwd, "m.pth"))).toBe("weights");
+		expect(peekKind(input.facts, join(cwd, "x.bin"))).toBe("binary");
+		expect(peekKind(input.facts, join(cwd, "small.py"))).toBeUndefined();
+		expect(peekKind(input.facts, join(cwd, "big.txt"))).toBe("text");
 	});
 
-	it("offers one look per data file in the working folder, then the folder's file types", () => {
+	const listing = (output: string) => ({
+		call: { type: "toolCall" as const, id: `l${Math.random()}`, name: "bash", arguments: { command: "ls" } },
+		output,
+		isError: false,
+		byScout: false,
+	});
+
+	it("offers one look per revealed data file, then the folder's file types", () => {
 		writeFileSync(join(cwd, "weights.json"), "{}");
 		writeFileSync(join(cwd, "data.csv"), "a,b\n1,2\n");
 		writeFileSync(join(cwd, "main.py"), "print(1)\n");
+		input.steps = [listing("data.csv\nmain.py\nweights.json")];
 		const options = peekOptions(input);
 		expect(options.map((o) => o.description)).toEqual([
-			`Look at the data in ${join(cwd, "weights.json")}`,
 			`Look at the data in ${join(cwd, "data.csv")}`,
+			`Look at the data in ${join(cwd, "weights.json")}`,
 			`Show the type of every file in ${cwd}`,
 		]);
 		expect(options[0].call.arguments.timeout).toBe(60);
+	});
+
+	it("does not offer a data file in the working folder that was never revealed, until an ls output lists it", () => {
+		writeFileSync(join(cwd, "data.csv"), "a,b\n1,2\n");
+		input.task = "Summarise the data.";
+		expect(peekOptions(input)).toEqual([]);
+		input.steps = [listing("data.csv")];
+		expect(peekOptions(input).map((o) => o.description)).toEqual([
+			`Look at the data in ${join(cwd, "data.csv")}`,
+			`Show the type of every file in ${cwd}`,
+		]);
 	});
 
 	it("leaves out files the coding model wrote", () => {
@@ -80,7 +100,8 @@ describe("Data peek", () => {
 
 	it("skips a broken symlink in the working folder instead of throwing", () => {
 		writeFileSync(join(cwd, "data.csv"), "a,b\n1,2\n");
-		symlinkSync(join(cwd, "missing-target"), join(cwd, "broken-link"));
+		symlinkSync(join(cwd, "missing-target"), join(cwd, "broken.csv"));
+		input.steps = [listing("broken.csv\ndata.csv")];
 		expect(() => peekOptions(input)).not.toThrow();
 		expect(peekOptions(input).map((o) => o.description)).toEqual([
 			`Look at the data in ${join(cwd, "data.csv")}`,
@@ -101,6 +122,7 @@ describe("Toolchain check", () => {
 			activeTools: ALL_TOOLS,
 			checkCommands: [],
 			runApproval: "all",
+			facts: liveFacts(),
 		};
 	});
 	afterEach(() => {
@@ -112,7 +134,7 @@ describe("Toolchain check", () => {
 		input.task = "Design primers with oligotm and serve them with nginx.";
 		input.steps = [
 			{
-				call: { type: "toolCall", id: "a", name: "bash", arguments: { command: "xxd f" } },
+				call: { type: "toolCall", id: "a", name: "bash", arguments: { command: "xxd model.pth" } },
 				output: "bash: xxd: command not found",
 				isError: true,
 				byScout: false,
@@ -246,7 +268,8 @@ describe("Toolchain check", () => {
 	});
 });
 
-describe("isExecutableOnPath", () => {
+describe("liveFacts().onPath", () => {
+	const isExecutableOnPath = liveFacts().onPath;
 	let dir: string;
 	beforeEach(() => {
 		dir = mkdtempSync(join(tmpdir(), "jeff-first-path-"));
@@ -302,6 +325,7 @@ describe("Service check", () => {
 			activeTools: ALL_TOOLS,
 			checkCommands: [],
 			runApproval: "all",
+			facts: liveFacts(),
 		};
 	});
 	afterEach(() => {
@@ -371,6 +395,7 @@ describe("Package docs", () => {
 			activeTools: ALL_TOOLS,
 			checkCommands: [],
 			runApproval: "all",
+			facts: liveFacts(),
 		};
 	});
 	afterEach(() => {
@@ -427,6 +452,7 @@ describe("Install", () => {
 			activeTools: ALL_TOOLS,
 			checkCommands: [],
 			runApproval: "all",
+			facts: liveFacts(),
 		};
 	});
 	afterEach(() => {

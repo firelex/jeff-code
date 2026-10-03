@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ARGUMENT_LIMIT, buildLists, isTextFile, type ListsInput } from "../src/core/jeff-first/lists.ts";
+import { type FileFacts, liveFacts } from "../src/core/jeff-first/facts.ts";
+import { ARGUMENT_LIMIT, buildLists, type ListsInput } from "../src/core/jeff-first/lists.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 const ALL_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
@@ -51,6 +52,7 @@ describe("buildLists", () => {
 			activeTools: ALL_TOOLS,
 			checkCommands: ["pytest"],
 			runApproval: "all",
+			facts: liveFacts(),
 		};
 	});
 	afterEach(() => {
@@ -274,12 +276,12 @@ describe("buildLists", () => {
 		input.steps.push(step("bash", { command: "./tool" }, "tool: exit 1"));
 		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
 		expect(paths).not.toContain(join(cwd, "tool"));
-		expect(isTextFile(join(cwd, "src", "app.py"))).toBe(true);
-		expect(isTextFile(join(cwd, "tool"))).toBe(false);
+		expect(liveFacts().isText(join(cwd, "src", "app.py"))).toBe(true);
+		expect(liveFacts().isText(join(cwd, "tool"))).toBe(false);
 	});
 
 	it("names the file when a file cannot be read for the binary check", () => {
-		expect(() => isTextFile(join(cwd, "src"))).toThrow(/src/);
+		expect(() => liveFacts().isText(join(cwd, "src"))).toThrow(/src/);
 	});
 
 	it("gives every option a unique id", () => {
@@ -343,5 +345,30 @@ describe("buildLists", () => {
 		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
 		expect(paths.some((p) => typeof p === "string" && p.includes("\u0000"))).toBe(false);
 		expect(paths).toContain(join(cwd, "src", "app.py"));
+	});
+
+	it("offers no file options when every file fact is unknown, but still the Toolchain check and Hand over", () => {
+		const unknown: FileFacts = {
+			kind: () => undefined,
+			size: () => undefined,
+			isText: () => undefined,
+			lineCount: () => undefined,
+			readText: () => undefined,
+			listFolder: () => undefined,
+			onPath: () => undefined,
+		};
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		writeFileSync(join(cwd, "data.csv"), "a,b\n1,2\n");
+		input.task = "Fix src/app.py using data.csv and README.md.";
+		input.steps.push(step("write", { path: join(cwd, "scan.py"), content: "print(1)\n" }, "ok"));
+		input.facts = unknown;
+		const lists = buildLists(input);
+		expect(lists.argumentsByTool.read).toBeUndefined();
+		expect(lists.argumentsByTool.peek).toBeUndefined();
+		expect(lists.argumentsByTool.run).toBeUndefined();
+		expect((lists.argumentsByTool.list ?? []).map((o) => o.toolCall.arguments.path)).toEqual([cwd]);
+		const tools = lists.tools.map((t) => t.id);
+		expect(tools).toContain("toolchain");
+		expect(tools.at(-1)).toBe("hand_over");
 	});
 });

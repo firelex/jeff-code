@@ -9,9 +9,10 @@ import {
 	type Message,
 	type Model,
 } from "@earendil-works/pi-ai";
-import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
+import { detectCheckCommands } from "./check-commands.ts";
 import type { Choice, Chooser } from "./chooser.ts";
 import type { RunApproval } from "./config.ts";
+import { liveFacts } from "./facts.ts";
 import { buildLists, type ToolKind } from "./lists.ts";
 import type { MenuToolCall } from "./menu.ts";
 import { argumentPage, NONE_OF_THESE, SHOW_MORE, toolPage } from "./pages.ts";
@@ -105,7 +106,7 @@ function levelRecord(level: Level, choice: Choice, chooser: string): LevelRecord
 }
 
 export function createScoutStreamFn(options: ScoutOptions): StreamFn {
-	let checks: CheckCommands | undefined;
+	const facts = liveFacts();
 	// Taken on the first turn: compaction later replaces the first user message with a summary.
 	let task: string | undefined;
 	let decision = 0;
@@ -125,7 +126,8 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 			const listsStarted = performance.now();
 			task ??= taskText(context.messages);
 			const steps = collectSteps(context.messages);
-			checks ??= detectCheckCommands(options.cwd, task);
+			// Detected anew each turn: a project file counts only once the session has revealed it.
+			const checks = detectCheckCommands({ cwd: options.cwd, task, steps, facts });
 			const state = trimState(task, steps);
 			const base = {
 				schema: "jeff-first-trace/3",
@@ -159,6 +161,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 					steps,
 					activeTools: activeToolNames(context.messages),
 					checkCommands: checks.commands,
+					facts,
 					runApproval: options.runApproval,
 				});
 				const listsMs = performance.now() - listsStarted;

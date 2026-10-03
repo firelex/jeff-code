@@ -9,6 +9,7 @@ import {
 	type Model,
 } from "@earendil-works/pi-ai";
 import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
+import { liveFacts } from "./facts.ts";
 import { buildMenu, type MenuOption, matchToolCall } from "./menu.ts";
 import { type JeffState, trimState } from "./state.ts";
 import type { ShadowRecord, TraceWriter } from "./trace.ts";
@@ -107,7 +108,7 @@ interface Prepared {
 }
 
 export function createShadowStreamFn(options: ShadowOptions): StreamFn {
-	let checks: CheckCommands | undefined;
+	const facts = liveFacts();
 	// Taken on the first turn: compaction later replaces the first user message with a summary.
 	let task: string | undefined;
 	let turn = 0;
@@ -126,13 +127,15 @@ export function createShadowStreamFn(options: ShadowOptions): StreamFn {
 			const started = performance.now();
 			task ??= taskText(context.messages);
 			const steps = collectSteps(context.messages);
-			checks ??= detectCheckCommands(options.cwd, task);
+			// Detected anew each turn: a project file counts only once the session has revealed it.
+			const checks = detectCheckCommands({ cwd: options.cwd, task, steps, facts });
 			const menu = buildMenu({
 				cwd: options.cwd,
 				task,
 				steps,
 				activeTools: activeToolNames(context.messages),
 				checkCommands: checks.commands,
+				facts,
 			});
 			prepared = { state: trimState(task, steps), menu, checks, menuMs: performance.now() - started };
 		} catch (error) {

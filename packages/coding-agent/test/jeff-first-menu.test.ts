@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildMenu, type MenuInput, type MenuOption, matchToolCall, pathKind } from "../src/core/jeff-first/menu.ts";
+import { liveFacts } from "../src/core/jeff-first/facts.ts";
+import { buildMenu, type MenuInput, type MenuOption, matchToolCall } from "../src/core/jeff-first/menu.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 function step(name: string, args: JsonObject, output: string): Step {
@@ -33,6 +34,7 @@ describe("buildMenu", () => {
 		steps: [],
 		activeTools: new Set(["read", "bash", "edit", "write"]),
 		checkCommands: [],
+		facts: liveFacts(),
 		...over,
 	});
 
@@ -134,7 +136,8 @@ describe("buildMenu", () => {
 	});
 });
 
-describe("pathKind", () => {
+describe("liveFacts().kind", () => {
+	const pathKind = liveFacts().kind;
 	it("treats a path containing a null byte as not a file, rather than throwing", () => {
 		expect(pathKind("/app/\u0000x")).toBeUndefined();
 	});
