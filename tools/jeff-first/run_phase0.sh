@@ -17,10 +17,12 @@
 #                e.g. 65536, since pi's default of 16,384 tokens is too small for a thinking model
 #   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write)
 #   MODEL        the model id at BASE_URL, e.g. qwen3.8-flash-next or scissero-glm-5.3
-#   MODE         shadow (log what the model does) or teacher (the teacher model scouts before every model turn;
+#   MODE         shadow (log what the model does), teacher (the teacher model scouts before every model turn;
 #                needs JEFF_FIRST_TEACHER_URL, the GLM proxy as containers reach it, JEFF_FIRST_TEACHER_MODEL,
 #                JEFF_FIRST_RUN_APPROVAL (all, seen or never) and JEFF_FIRST_DRIVER_BUILD, e.g.
-#                qwen3.8-27b-nvfp4@spark-head)
+#                qwen3.8-27b-nvfp4@spark-head) or record (plain Qwen works alone; at every turn, logs the scout's
+#                full option lists for later labelling; needs JEFF_FIRST_RUN_APPROVAL and JEFF_FIRST_DRIVER_BUILD,
+#                same meaning as in teacher mode, but no teacher URL or model)
 #   TIMEOUT_MULTIPLIER  positive number that multiplies each task's agent time limit (Harbor's
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
 #                the teacher's (GLM's) latency never decides a task through the time limit
@@ -61,7 +63,11 @@ case "$mode" in
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE teacher needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE teacher needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     ;;
-  *) echo "MODE must be shadow or teacher" >&2; exit 2 ;;
+  record)
+    case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE record needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
+    [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE record needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
+    ;;
+  *) echo "MODE must be shadow, teacher or record" >&2; exit 2 ;;
 esac
 export JEFF_FIRST_TEACHER_URL="${JEFF_FIRST_TEACHER_URL:-}" JEFF_FIRST_TEACHER_MODEL="${JEFF_FIRST_TEACHER_MODEL:-}"
 export JEFF_RUN_THINKING_FORMAT="${JEFF_RUN_THINKING_FORMAT:-}" JEFF_RUN_MAX_OUTPUT_TOKENS="${JEFF_RUN_MAX_OUTPUT_TOKENS:-}" JEFF_FIRST_RUN_APPROVAL="${JEFF_FIRST_RUN_APPROVAL:-}" JEFF_FIRST_DRIVER_BUILD="${JEFF_FIRST_DRIVER_BUILD:-}"
@@ -101,6 +107,10 @@ run_one() {
   if [ "$mode" = teacher ]; then
     command+=(
       --ae "JEFF_FIRST_TEACHER_URL=$JEFF_FIRST_TEACHER_URL" --ae "JEFF_FIRST_TEACHER_MODEL=$JEFF_FIRST_TEACHER_MODEL"
+      --ae "JEFF_FIRST_RUN_APPROVAL=$JEFF_FIRST_RUN_APPROVAL" --ae "JEFF_FIRST_DRIVER_BUILD=$JEFF_FIRST_DRIVER_BUILD"
+    )
+  elif [ "$mode" = record ]; then
+    command+=(
       --ae "JEFF_FIRST_RUN_APPROVAL=$JEFF_FIRST_RUN_APPROVAL" --ae "JEFF_FIRST_DRIVER_BUILD=$JEFF_FIRST_DRIVER_BUILD"
     )
   fi
