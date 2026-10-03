@@ -102,6 +102,8 @@ export class GlmTeacher implements Chooser {
 				type: "json_schema",
 				json_schema: { name: "choice", strict: true, schema: answerSchema(codes) },
 			},
+			// The teacher must not think—thinking makes some requests take minutes; the training labels come from GLM without thinking.
+			chat_template_kwargs: { enable_thinking: false },
 		});
 		const picks = await Promise.all(
 			Array.from({ length: TEACHER_SAMPLES }, () => this.askWithRetries(body, codes, options)),

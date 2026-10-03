@@ -64,6 +64,7 @@ describe("GlmTeacher", () => {
 			temperature: 1,
 			authorization: "Bearer unused",
 			response_format: { type: "json_schema" },
+			chat_template_kwargs: { enable_thinking: false },
 		});
 		expect(choice.optionId).toBe("check");
 		expect(choice.shares).toEqual({ read: 0.4, check: 0.6, hand_over: 0 });
