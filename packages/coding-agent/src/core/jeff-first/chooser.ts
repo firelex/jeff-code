@@ -12,10 +12,12 @@ export interface TeacherRetryPolicy {
 }
 
 /**
- * A choice takes about 2.5 s (99% within 8 s in Gate 0); without a limit, one hung request waited Node's default
- * 5 minutes and ended the task. Retries cover hangs and server errors only, never a refusal such as a 403.
+ * A choice takes about 2.5 s (99% within 8 s in Gate 0), but the shared B200 that serves GLM also serves other
+ * work, so a request can queue well past that; without a limit, one hung request waited Node's default 5 minutes
+ * and ended the task. 120 seconds gives real queuing room before giving up. Retries cover hangs and server errors
+ * only, never a refusal such as a 403.
  */
-export const TEACHER_RETRY_POLICY: TeacherRetryPolicy = { timeoutMs: 30_000, retryDelaysMs: [2_000, 4_000, 8_000] };
+export const TEACHER_RETRY_POLICY: TeacherRetryPolicy = { timeoutMs: 120_000, retryDelaysMs: [2_000, 4_000, 8_000] };
 
 export interface FailedAttempt {
 	error: string;

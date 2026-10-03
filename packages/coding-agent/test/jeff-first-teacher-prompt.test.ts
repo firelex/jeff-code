@@ -51,7 +51,8 @@ describe("teacherMessages", () => {
 	it("asks for the next kind of step, with lettered options", () => {
 		const [system, user] = teacherMessages(state, { level: "tool", page: 1, options: tools });
 		expect(system.role).toBe("system");
-		expect(system.content).toContain("Hand over as soon as");
+		expect(system.content).toContain("Hand over when further looking would not help");
+		expect(system.content).toContain("each step it would otherwise take itself saves it a slow turn");
 		expect(user.content).toContain("What should the next step be?");
 		expect(user.content).toContain(
 			"A: Read part or all of a file\nB: Hand over to the coding model for its next turn",

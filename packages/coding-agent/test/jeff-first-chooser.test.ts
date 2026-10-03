@@ -130,8 +130,8 @@ describe("GlmTeacher retries", () => {
 		teacher = undefined;
 	});
 
-	it("uses a 30-second limit per request and retries after 2, 4 and 8 seconds by default", () => {
-		expect(TEACHER_RETRY_POLICY).toEqual({ timeoutMs: 30_000, retryDelaysMs: [2_000, 4_000, 8_000] });
+	it("uses a 120-second limit per request and retries after 2, 4 and 8 seconds by default", () => {
+		expect(TEACHER_RETRY_POLICY).toEqual({ timeoutMs: 120_000, retryDelaysMs: [2_000, 4_000, 8_000] });
 	});
 
 	it("retries a request that times out and records the failed attempt on its pick", async () => {
