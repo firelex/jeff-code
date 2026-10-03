@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from imitation.record_rows import read_trace, record_rows
+from imitation.record_rows import read_trace, record_rows, trial_cut
 
 
 def option(kind, number, description, command):
@@ -74,7 +74,7 @@ def test_record_rows_label_each_logged_turn(tmp_path):
         record(1, [call("ls -la /app"), call("cat /app/main.py")]),
         record(2, [call("cat > /app/main.py <<'EOF'\nprint(1)\nEOF")], recent=[{"tool": "bash", "arguments": {"command": c}} for c in ("ls -la /app", "cat /app/main.py")]),
     ]
-    rows, notes = record_rows(trace, sorted(folder.glob("*.jsonl")))
+    rows, notes = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
     assert notes == []
     assert [(r.decision, r.turn, r.level, r.label) for r in rows] == [
         (0, 1, "tool", "list"),
@@ -92,7 +92,7 @@ def test_record_rows_label_each_logged_turn(tmp_path):
 @pytest.mark.parametrize("stop_reason", ["error", "aborted"])
 def test_a_failed_model_turn_gets_no_row_never_hand_over(tmp_path, stop_reason):
     folder = write_session(tmp_path, [{"type": "message", "message": {"role": "assistant", "content": []}}])
-    rows, notes = record_rows([record(1, [], stop_reason=stop_reason)], sorted(folder.glob("*.jsonl")))
+    rows, notes = record_rows([record(1, [], stop_reason=stop_reason)], sorted(folder.glob("*.jsonl")), cut=False)
     assert rows == []
     assert notes == [f"sess-1 turn 1: the model call ended with {stop_reason}; no row"]
 
@@ -105,7 +105,7 @@ def test_a_failed_turn_between_good_turns_keeps_the_others(tmp_path):
     ]
     folder = write_session(tmp_path, entries)
     trace = [record(1, [], stop_reason="error"), record(2, [call("cat /app/main.py")])]
-    rows, notes = record_rows(trace, sorted(folder.glob("*.jsonl")))
+    rows, notes = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
     assert [(r.turn, r.label) for r in rows] == [(2, "read"), (2, "read-1")]
     assert notes == ["sess-1 turn 1: the model call ended with error; no row"]
 
@@ -120,7 +120,7 @@ def test_both_logged_step_shapes_are_read(tmp_path):
     files = sorted(folder.glob("*.jsonl"))
     old = [{"tool": "bash", "arguments": {"command": "ls -la /app"}, "output": "main.py", "isError": False, "byScout": False}]
     for recent in (old, [new_shape("ls -la /app", "main.py")]):
-        rows, _ = record_rows([record(1, [call("ls -la /app")]), record(2, [call("cat /app/main.py")], recent=recent)], files)
+        rows, _ = record_rows([record(1, [call("ls -la /app")]), record(2, [call("cat /app/main.py")], recent=recent)], files, cut=False)
         assert [(r.turn, r.label) for r in rows] == [(1, "list"), (1, "list-1"), (2, "read"), (2, "read-1")]
 
 
@@ -129,37 +129,37 @@ def test_a_logged_last_step_that_is_not_the_sessions_is_an_error(tmp_path):
     folder = write_session(tmp_path, entries)
     trace = [record(1, [call("ls -la /app")]), record(2, [call("cat /app/main.py")], recent=[new_shape("ls /tmp", "")])]
     with pytest.raises(ValueError, match="last step"):
-        record_rows(trace, sorted(folder.glob("*.jsonl")))
+        record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
     shapeless = [record(1, [call("ls -la /app")]), record(2, [call("cat /app/main.py")], recent=[{"output": ""}])]
     with pytest.raises(ValueError, match="neither a command"):
-        record_rows(shapeless, sorted(folder.glob("*.jsonl")))
+        record_rows(shapeless, sorted(folder.glob("*.jsonl")), cut=False)
 
 
 def test_trace_and_session_that_disagree_are_an_error(tmp_path):
     folder = write_session(tmp_path, [assistant(bash("c1", "ls")), result("c1", "x")])
     with pytest.raises(ValueError, match="turn 1"):
-        record_rows([record(1, [call("pwd")])], sorted(folder.glob("*.jsonl")))
+        record_rows([record(1, [call("pwd")])], sorted(folder.glob("*.jsonl")), cut=False)
 
 
 def test_missing_session_file_is_an_error(tmp_path):
     with pytest.raises(ValueError, match="sess-1"):
-        record_rows([record(1, [])], [])
+        record_rows([record(1, [])], [], cut=False)
 
 
 def test_a_non_bash_tool_call_is_an_error(tmp_path):
     folder = write_session(tmp_path, [assistant({"type": "toolCall", "id": "c1", "name": "read", "arguments": {"path": "a"}}), result("c1", "x")])
     with pytest.raises(ValueError, match="bash"):
-        record_rows([record(1, [{"name": "read", "arguments": {"path": "a"}}])], sorted(folder.glob("*.jsonl")))
+        record_rows([record(1, [{"name": "read", "arguments": {"path": "a"}}])], sorted(folder.glob("*.jsonl")), cut=False)
 
 
 def test_a_step_count_that_differs_from_the_logged_state_is_an_error(tmp_path):
     folder = write_session(tmp_path, [assistant(bash("c1", "ls")), result("c1", "x"), assistant(), ])
     with pytest.raises(ValueError, match="steps"):
-        record_rows([record(1, [call("ls")]), record(2, [])], sorted(folder.glob("*.jsonl")))
+        record_rows([record(1, [call("ls")]), record(2, [])], sorted(folder.glob("*.jsonl")), cut=False)
 
 
 def write_trial(tmp_path, trace_text, exception_type=None):
-    (tmp_path / "agent").mkdir()
+    (tmp_path / "agent").mkdir(parents=True)
     (tmp_path / "agent" / "jeff-first-trace.jsonl").write_text(trace_text)
     info = None if exception_type is None else {"exception_type": exception_type, "exception_message": "timed out"}
     (tmp_path / "result.json").write_text(json.dumps({"task_name": "fix-bug", "exception_info": info}))
@@ -194,3 +194,68 @@ def test_any_other_unparsable_trace_line_is_an_error(tmp_path, text, exception_t
 def test_a_whole_trace_reads_without_notes(tmp_path):
     lines, notes = read_trace(write_trial(tmp_path, GOOD + GOOD, exception_type="AgentTimeoutError"))
     assert lines == [record(1, []), record(1, [])] and notes == []
+
+
+def test_a_bash_call_without_a_command_is_shown_as_state_ts_shows_it(tmp_path):
+    # Qwen sometimes sends a bash call with no arguments; pi answers "Validation failed" and state.ts shows the step
+    # as the tool name and its arguments ("bash {}"). The turn is labelled from that text: it matches no option.
+    entries = [
+        assistant({"type": "toolCall", "id": "c1", "name": "bash", "arguments": {}}),
+        result("c1", "Validation failed for tool \"bash\"", is_error=True),
+        assistant(bash("c2", "cat /app/main.py")),
+        result("c2", "x"),
+    ]
+    folder = write_session(tmp_path, entries)
+    shown = {"command": "bash {}", "output": "Validation failed for tool \"bash\"", "isError": True, "byScout": False}
+    trace = [record(1, [{"name": "bash", "arguments": {}}]), record(2, [call("cat /app/main.py")], recent=[shown])]
+    rows, notes = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
+    assert [(r.turn, r.label) for r in rows] == [(1, "hand_over"), (2, "read"), (2, "read-1")]
+    assert "$ bash {}\nValidation failed" in rows[1].state
+
+
+def test_bash_arguments_are_written_as_javascript_writes_json(tmp_path):
+    arguments = {"timeout": 5, "note": "é"}
+    entries = [assistant({"type": "toolCall", "id": "c1", "name": "bash", "arguments": arguments}), result("c1", "bad", True)]
+    folder = write_session(tmp_path, [*entries, assistant(bash("c2", "ls /app")), result("c2", "x")])
+    shown = {"command": 'bash {"timeout":5,"note":"é"}', "output": "bad", "isError": True, "byScout": False}
+    trace = [record(1, [{"name": "bash", "arguments": arguments}]), record(2, [call("ls /app")], recent=[shown])]
+    rows, _ = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
+    assert [(r.turn, r.label) for r in rows] == [(1, "hand_over"), (2, "list"), (2, "list-1")]
+
+
+def test_a_cut_trial_drops_record_lines_for_turns_the_session_file_does_not_have_yet(tmp_path):
+    # pi writes the record line and the session's assistant message separately; when the trial is stopped (or is still
+    # running when copied) the trace may hold the next turn already.
+    folder = write_session(tmp_path, [assistant(bash("c1", "ls -la /app")), result("c1", "main.py")])
+    files = sorted(folder.glob("*.jsonl"))
+    trace = [record(1, [call("ls -la /app")]), record(2, [call("cat /app/main.py")])]
+    rows, notes = record_rows(trace, files, cut=True)
+    assert [(r.turn, r.label) for r in rows] == [(1, "list"), (1, "list-1")]
+    assert notes == ["sess-1 turn 2: the trial was cut before the session file had this turn; record line dropped"]
+    with pytest.raises(ValueError, match=r"turns \[2\]"):
+        record_rows(trace, files, cut=False)
+
+
+def test_a_cut_trial_drops_an_unfinished_last_session_line(tmp_path):
+    folder = write_session(tmp_path, [assistant(bash("c1", "ls -la /app")), result("c1", "main.py")])
+    path = next(folder.glob("*.jsonl"))
+    path.write_text(path.read_text() + '{"type": "message", "message": {"role": "assis')
+    rows, notes = record_rows([record(1, [call("ls -la /app")])], [path], cut=True)
+    assert [(r.turn, r.label) for r in rows] == [(1, "list"), (1, "list-1")]
+    assert len(notes) == 1 and "cut off" in notes[0]
+    with pytest.raises(ValueError, match="not valid JSON"):
+        record_rows([record(1, [call("ls -la /app")])], [path], cut=False)
+
+
+def test_a_trial_without_result_json_was_cut(tmp_path):
+    (tmp_path / "agent").mkdir()
+    (tmp_path / "agent" / "jeff-first-trace.jsonl").write_text(GOOD + CUT)
+    assert trial_cut(tmp_path) == "no result.json (the trial was stopped or is still running)"
+    lines, notes = read_trace(tmp_path)
+    assert lines == [record(1, [])] and len(notes) == 1 and "no result.json" in notes[0]
+
+
+def test_trial_cut_names_a_timeout_and_nothing_else(tmp_path):
+    assert trial_cut(write_trial(tmp_path / "a", GOOD, exception_type="AgentTimeoutError")) == "AgentTimeoutError"
+    assert trial_cut(write_trial(tmp_path / "b", GOOD, exception_type="RuntimeError")) is None
+    assert trial_cut(write_trial(tmp_path / "c", GOOD)) is None

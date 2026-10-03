@@ -19,10 +19,16 @@ bash (the imitation harness runs pi with bash only). A turn whose model call end
 row (its menu is fine, but the coding model took no action to imitate), and so does a turn with no record line;
 the returned notes list each such turn.
 
+A bash call whose arguments hold no command text (Qwen sometimes sends `{}`; pi answers "Validation failed") ran
+nothing; state.ts shows it as the tool name and its arguments written as JSON (`bash {}`), and so does this module, so
+the turn is labelled from that text (it matches no option).
+
 `read_trace` reads one trial's trace (agent/jeff-first-trace.jsonl, next to result.json, Harbor's record of the
-trial). When Harbor stopped the agent at its time limit (result.json's exception type "AgentTimeoutError"), pi may
-have been killed in the middle of writing the trace's last line; only then is an unparsable last line dropped, and
-a note says so. Any other unparsable line raises.
+trial). A trial is "cut" (`trial_cut`) when Harbor stopped the agent at its time limit (result.json's exception type
+"AgentTimeoutError") or when it has no result.json (the collection was stopped, or the trial is still running when
+its folder is copied). Then pi may have been killed in the middle of writing the trace's or the session file's last
+line, and the trace may already hold the record line of a turn the session file does not have yet: only in a cut
+trial is an unparsable last line dropped and such a record line dropped, each with a note. Otherwise both raise.
 """
 
 import json
@@ -35,29 +41,40 @@ from imitation.rows import Menu, Row, RowSource, ShellStep, render_state, rows_f
 FAILED_STOPS = ("error", "aborted")
 TRACE_NAME = "jeff-first-trace.jsonl"
 AGENT_TIMEOUT = "AgentTimeoutError"
+NO_RESULT = "no result.json (the trial was stopped or is still running)"
 # state.ts before the terminal view shortened a long string argument to its first and last 600 characters.
 OLD_TRIM_CHARS = 600
 
 
-def read_trace(trial: Path) -> tuple[list[dict], list[str]]:
-    """The trace lines of one Harbor trial folder, and a note when a last line cut by the agent time limit was
-    dropped (see the module docstring)."""
-    path = trial / "agent" / TRACE_NAME
-    info = json.loads((trial / "result.json").read_text())["exception_info"]
-    timed_out = info is not None and info["exception_type"] == AGENT_TIMEOUT
-    texts = path.read_text().splitlines()
-    numbered = [(number, text) for number, text in enumerate(texts, start=1) if text.strip()]
+def trial_cut(trial: Path) -> str | None:
+    """Why one Harbor trial folder's files may end in the middle of a line (see the module docstring), or None."""
+    result = trial / "result.json"
+    if not result.exists():
+        return NO_RESULT
+    info = json.loads(result.read_text())["exception_info"]
+    return AGENT_TIMEOUT if info is not None and info["exception_type"] == AGENT_TIMEOUT else None
+
+
+def _json_lines(path: Path, cut: str | None) -> tuple[list[dict], list[str]]:
+    """The JSON lines of a file; in a cut trial an unparsable last line is dropped with a note."""
+    numbered = [(number, text) for number, text in enumerate(path.read_text().splitlines(), start=1) if text.strip()]
     lines: list[dict] = []
     notes: list[str] = []
     for position, (number, text) in enumerate(numbered):
         try:
             lines.append(json.loads(text))
         except json.JSONDecodeError as error:
-            if timed_out and position == len(numbered) - 1:
-                notes.append(f"{path} line {number}: cut off when the trial ended with {AGENT_TIMEOUT} ({error}); dropped")
+            if cut is not None and position == len(numbered) - 1:
+                notes.append(f"{path} line {number}: cut off when the trial ended ({cut}; {error}); dropped")
                 continue
             raise ValueError(f"{path} line {number} is not valid JSON: {error}") from error
     return lines, notes
+
+
+def read_trace(trial: Path) -> tuple[list[dict], list[str]]:
+    """The trace lines of one Harbor trial folder, and a note when a cut last line was dropped (see the module
+    docstring)."""
+    return _json_lines(trial / "agent" / TRACE_NAME, trial_cut(trial))
 
 
 def _check_last_step(logged: dict, real: ShellStep, where: str) -> None:
@@ -90,9 +107,10 @@ def _text(content: str | list[dict]) -> str:
     return "\n".join(part["text"] if part["type"] == "text" else "[image]" for part in content)
 
 
-def _read_session(path: Path) -> tuple[str, str, list[dict], dict[str, dict]]:
+def _read_session(path: Path, cut: bool, notes: list[str]) -> tuple[str, str, list[dict], dict[str, dict]]:
     """The session id, its working folder, its assistant messages in order, and tool results by call id."""
-    lines = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    lines, cut_notes = _json_lines(path, "cut" if cut else None)
+    notes.extend(cut_notes)
     if not lines or lines[0].get("type") != "session":
         raise ValueError(f"{path} does not start with a session header line")
     assistants: list[dict] = []
@@ -112,22 +130,40 @@ def _calls(message: dict) -> list[dict]:
     return [part for part in message["content"] if part["type"] == "toolCall"]
 
 
-def record_rows(trace: list[dict], session_files: list[Path], source: str = "jeff-pi-record") -> tuple[list[Row], list[str]]:
-    """Rows for every record line of `trace` (lines of other kinds are ignored), and notes on turns given no row."""
+def _command(call: dict) -> str:
+    """The shell command of a bash call, or what state.ts shows for one without command text: the tool name and its
+    arguments as JSON.stringify writes them (no spaces, characters unescaped)."""
+    command = call["arguments"].get("command")
+    if isinstance(command, str):
+        return command
+    return f"{call['name']} {json.dumps(call['arguments'], separators=(',', ':'), ensure_ascii=False)}"
+
+
+def record_rows(
+    trace: list[dict], session_files: list[Path], *, cut: bool, source: str = "jeff-pi-record"
+) -> tuple[list[Row], list[str]]:
+    """Rows for every record line of `trace` (lines of other kinds are ignored), and notes on turns given no row.
+    `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
     sessions = {}
+    notes: list[str] = []
     for path in session_files:
-        session_id, cwd, assistants, results = _read_session(path)
+        session_id, cwd, assistants, results = _read_session(path, cut, notes)
         sessions[session_id] = (cwd, assistants, results)
     by_session: dict[str, dict[int, dict]] = {}
     for line in trace:
         if line.get("kind") == "record":
             by_session.setdefault(line["session_id"], {})[line["turn"]] = line
     rows: list[Row] = []
-    notes: list[str] = []
     for session_id, records in by_session.items():
         if session_id not in sessions:
             raise ValueError(f"no pi session file holds the session {session_id} of the trace")
         cwd, assistants, results = sessions[session_id]
+        if cut:
+            for turn in sorted(number for number in records if number > len(assistants)):
+                notes.append(f"{session_id} turn {turn}: the trial was cut before the session file had this turn; record line dropped")
+                del records[turn]
+            if not records:
+                continue
         turns: list[LabelTurn] = []
         for number, message in enumerate(assistants, start=1):
             commands: list[TurnCommand] = []
@@ -136,7 +172,7 @@ def record_rows(trace: list[dict], session_files: list[Path], source: str = "jef
                     raise ValueError(f"{session_id} turn {number}: the tool call {call['name']} is not bash")
                 result = results.get(call["id"])
                 output = None if result is None else _text(result["content"])
-                commands.append(TurnCommand(call["arguments"]["command"], output, bool(result and result["isError"])))
+                commands.append(TurnCommand(_command(call), output, bool(result and result["isError"])))
             record = records.get(number)
             if record is None:
                 notes.append(f"{session_id} turn {number}: the trace has no record line for this turn; no row")

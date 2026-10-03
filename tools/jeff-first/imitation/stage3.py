@@ -1,0 +1,240 @@
+"""Stage 3 driver: Jeff training rows from our own record-mode collection runs (see record_rows.py for one trial).
+
+Input: one or more run folders. A run holds collection streams (one per machine or GPU), each with rounds of Harbor
+jobs; a trial folder is `<run>/<stream>/round-N/<task>-<time>/<task>__<id>/` with `config.json`, `result.json`
+(missing while the trial runs or after the collection was stopped), `agent/jeff-first-trace.jsonl` and
+`agent/pi/sessions/*.jsonl`.
+
+Each trial is checked in this order:
+1. Its task (config.json `task.path`). An evaluation task (training-tasks.json "excluded_evaluation") is an error,
+   whatever the build. `make-doom-for-mips` (a near-identical twin of an evaluation task) and any other task outside
+   "training" are skipped and counted.
+2. Its build: only trials whose scout tarball (config.json `agent.kwargs.tarball`) is CURRENT_TARBALL, the build with
+   the current menus, are used; others are skipped and counted by tarball.
+3. Its trace. No trace and no result.json: the trial is still running or was stopped before Qwen's first turn
+   (skipped, counted). No trace and a result.json naming an exception: the agent failed before its first turn (skipped,
+   counted by exception type). No trace and no exception is an error.
+4. It must have run in record mode (config env JEFF_FIRST_MODE), every trace line must be a record line of this task,
+   and every line's `driver_build` must equal the config's JEFF_FIRST_DRIVER_BUILD; anything else is an error.
+
+A trial without result.json, or one Harbor stopped at its time limit, is "cut" (record_rows.trial_cut): only its
+complete lines are used. Rows are record_rows' rows with stage 3, quality "exact", source "own", plus `machine`: the
+trace's driver build, e.g. "qwen3.8-27b-fp8@casdgx01-gpu5" (model format after "qwen3.8-27b-", machine after "@").
+
+Usage (from tools/jeff-first):
+    uv run python -m imitation.stage3 RUN [RUN ...] --tasks ../../results/imitation/training-tasks.json \\
+        --rows stage3-rows.jsonl --summary stage3-summary.json --stats ../../results/imitation/stage3-stats.md
+"""
+
+import argparse
+import json
+import re
+from collections import Counter, defaultdict
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+from imitation.record_rows import TRACE_NAME, read_trace, record_rows, trial_cut
+
+CURRENT_TARBALL = "jeff-pi-scout-4abde3ece.tgz"
+EVALUATION_TWIN = "make-doom-for-mips"
+SOURCE = "own"
+BUILD = re.compile(r"^qwen3\.8-27b-(fp8|nvfp4)@(.+)$")
+
+
+@dataclass(frozen=True)
+class Tasks:
+    training: frozenset[str]
+    evaluation: frozenset[str]
+
+
+def read_tasks(path: Path) -> Tasks:
+    data = json.loads(path.read_text())
+    tasks = Tasks(frozenset(data["training"]), frozenset(data["excluded_evaluation"]))
+    if tasks.training & tasks.evaluation or EVALUATION_TWIN in tasks.training:
+        raise ValueError(f"{path}: the training tasks include an evaluation task or {EVALUATION_TWIN}")
+    return tasks
+
+
+def model_format(build: str) -> str:
+    match = BUILD.match(build)
+    if match is None:
+        raise ValueError(f"the driver build {build!r} names no known model format (qwen3.8-27b-fp8@... or qwen3.8-27b-nvfp4@...)")
+    return match.group(1)
+
+
+@dataclass
+class Conversion:
+    rows: list[dict] = field(default_factory=list)
+    skipped: Counter = field(default_factory=Counter)
+    trials: list[dict] = field(default_factory=list)
+
+
+def find_trials(run: Path) -> list[Path]:
+    trials = sorted(config.parent for config in run.glob("*/round-*/*/*/config.json"))
+    if not trials:
+        raise ValueError(f"{run}: no trial folders (<stream>/round-N/<job>/<trial>/config.json)")
+    return trials
+
+
+def convert_trial(trial: Path, tasks: Tasks, conversion: Conversion) -> None:
+    config = json.loads((trial / "config.json").read_text())
+    task = config["task"]["path"]
+    if task in tasks.evaluation:
+        raise ValueError(f"{trial}: a session on the evaluation task {task}; evaluation tasks must never be collected")
+    if task == EVALUATION_TWIN:
+        conversion.skipped[f"{EVALUATION_TWIN} (twin of an evaluation task)"] += 1
+        return
+    if task not in tasks.training:
+        conversion.skipped["not a training task"] += 1
+        return
+    tarball = Path(config["agent"]["kwargs"]["tarball"]).name
+    if tarball != CURRENT_TARBALL:
+        conversion.skipped[f"older build {tarball}"] += 1
+        return
+    if not (trial / "agent" / TRACE_NAME).exists():
+        if not (trial / "result.json").exists():
+            conversion.skipped["no trace yet: no result.json and no trace (still running, or stopped before its first turn)"] += 1
+            return
+        info = json.loads((trial / "result.json").read_text())["exception_info"]
+        if info is None:
+            raise ValueError(f"{trial}: the trial finished without a trace and without an exception")
+        conversion.skipped[f"no trace: the agent failed before its first turn ({info['exception_type']})"] += 1
+        return
+    env = config["agent"]["env"]
+    if env["JEFF_FIRST_MODE"] != "record":
+        raise ValueError(f"{trial}: ran in {env['JEFF_FIRST_MODE']!r} mode, not record mode")
+    build = env["JEFF_FIRST_DRIVER_BUILD"]
+    model_format(build)
+    lines, notes = read_trace(trial)
+    cut = trial_cut(trial)
+    for line in lines:
+        if line["kind"] != "record" or line["task_id"] != task:
+            raise ValueError(f"{trial}: a trace line of kind {line['kind']!r} for task {line['task_id']!r}, not a record line for {task}")
+        if line["driver_build"] != build:
+            raise ValueError(f"{trial}: a trace line's driver build {line['driver_build']!r} is not the config's {build!r}")
+    if not lines:
+        conversion.skipped["empty trace (no complete record line)"] += 1
+        return
+    sessions = sorted((trial / "agent" / "pi" / "sessions").glob("*.jsonl"))
+    rows, row_notes = record_rows(lines, sessions, cut=cut is not None, source=SOURCE)
+    conversion.rows.extend({**asdict(row), "machine": build} for row in rows)
+    conversion.trials.append(
+        {
+            "trial": str(trial),
+            "task": task,
+            "machine": build,
+            "cut": cut,
+            "sessions": sorted({line["session_id"] for line in lines}),
+            "rows": len(rows),
+            "notes": notes + row_notes,
+        }
+    )
+
+
+def convert_runs(runs: list[Path], tasks: Tasks) -> Conversion:
+    conversion = Conversion()
+    for run in runs:
+        for trial in find_trials(run):
+            convert_trial(trial, tasks, conversion)
+    return conversion
+
+
+def _counts(rows: list[dict]) -> dict:
+    tool_rows = [row for row in rows if row["level"] == "tool" and row["label"] != "show_more"]
+    labels = Counter(row["label"] for row in tool_rows)
+    return {
+        "sessions": len({row["session"] for row in rows}),
+        "rows": len(rows),
+        "decisions": len(tool_rows),
+        "hand_over_share": round(labels["hand_over"] / len(tool_rows), 4) if tool_rows else None,
+        "tool_labels": dict(labels.most_common()),
+    }
+
+
+def summarize(conversion: Conversion) -> dict:
+    rows = conversion.rows
+    by_machine: dict[str, list[dict]] = defaultdict(list)
+    by_format: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        by_machine[row["machine"]].append(row)
+        by_format[model_format(row["machine"])].append(row)
+    notes = Counter()
+    for trial in conversion.trials:
+        for note in trial["notes"]:
+            notes[re.sub(r"^.*?(turn \d+: |line \d+: )", "", note).split(";")[0].split(" (")[0]] += 1
+    return {
+        **_counts(rows),
+        "trials_converted": len(conversion.trials),
+        "trials_cut": dict(Counter(trial["cut"] for trial in conversion.trials if trial["cut"]).most_common()),
+        "skipped": dict(conversion.skipped.most_common()),
+        "rows_by_level_and_page": {f"{level} page {page}": count for (level, page), count in sorted(Counter((r["level"], r["page"]) for r in rows).items())},
+        "argument_rows_by_tool": dict(Counter(r["label"].rsplit("-", 1)[0] for r in rows if r["level"] == "argument").most_common()),
+        "by_format": {name: _counts(group) for name, group in sorted(by_format.items())},
+        "by_machine": {name: _counts(group) for name, group in sorted(by_machine.items())},
+        "sessions_by_task": dict(sorted(Counter(row["task"] for row in rows if row["decision"] == 0 and row["level"] == "tool" and row["page"] == 1).items())),
+        "notes": dict(notes.most_common()),
+    }
+
+
+def _share(value: float | None) -> str:
+    return "-" if value is None else f"{100 * value:.1f}%"
+
+
+def stats_markdown(summary: dict) -> str:
+    lines = [
+        "# Stage 3 conversion statistics (own record-mode sessions)",
+        "",
+        f"Build: `{CURRENT_TARBALL}` only. Rows: stage 3, quality \"exact\", source \"{SOURCE}\", each with its `machine`.",
+        "",
+        "## Trials",
+        "",
+        f"- Converted: {summary['trials_converted']} (cut: "
+        + (", ".join(f"{reason} {count}" for reason, count in summary["trials_cut"].items()) or "none")
+        + ").",
+        "- Skipped: " + (", ".join(f"{reason} {count}" for reason, count in summary["skipped"].items()) or "none") + ".",
+        "- Turns given no row: " + (", ".join(f"{reason} {count}" for reason, count in summary["notes"].items()) or "none") + ".",
+        "",
+        "## Rows and decisions",
+        "",
+        f"- Sessions with rows: {summary['sessions']}; rows: {summary['rows']}; decisions: {summary['decisions']}; "
+        f"hand-over share of decisions: {_share(summary['hand_over_share'])}.",
+        "- Rows by level and page: " + ", ".join(f"{key} {count}" for key, count in summary["rows_by_level_and_page"].items()) + ".",
+        "- Argument rows by tool: " + (", ".join(f"{key} {count}" for key, count in summary["argument_rows_by_tool"].items()) or "none") + ".",
+        "",
+        "Labels at the tool level (one per decision):",
+        "",
+        "| Label | Decisions | Share |",
+        "|---|---|---|",
+    ]
+    for label, count in summary["tool_labels"].items():
+        lines.append(f"| {label} | {count} | {_share(count / summary['decisions'])} |")
+    for title, key, name in (("By model format", "by_format", "Format"), ("By machine", "by_machine", "Machine")):
+        lines += ["", f"## {title}", "", f"| {name} | Sessions | Rows | Decisions | Hand over | Labels |", "|---|---|---|---|---|---|"]
+        for group, counts in summary[key].items():
+            labels = ", ".join(f"{label} {count}" for label, count in counts["tool_labels"].items())
+            lines.append(f"| {group} | {counts['sessions']} | {counts['rows']} | {counts['decisions']} | {_share(counts['hand_over_share'])} | {labels} |")
+    lines += ["", "## Sessions by task", "", ", ".join(f"{task} {count}" for task, count in summary["sessions_by_task"].items()), ""]
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("runs", type=Path, nargs="+", help="Run folders (each holds <stream>/round-N/<job>/<trial>/)")
+    parser.add_argument("--tasks", type=Path, required=True, help="results/imitation/training-tasks.json")
+    parser.add_argument("--rows", type=Path, required=True, help="Output: the rows, one JSON object per line")
+    parser.add_argument("--summary", type=Path, required=True, help="Output: the counts as JSON")
+    parser.add_argument("--stats", type=Path, required=True, help="Output: the counts as a Markdown statistics file")
+    args = parser.parse_args(argv)
+    conversion = convert_runs(args.runs, read_tasks(args.tasks))
+    summary = summarize(conversion)
+    for path in (args.rows, args.summary, args.stats):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    # ASCII escapes, as Row.to_json writes them: a lone surrogate from a cut line is written as \udXXX, not raised on.
+    args.rows.write_text("".join(json.dumps(row) + "\n" for row in conversion.rows))
+    args.summary.write_text(json.dumps({**summary, "trials": conversion.trials}, indent=1) + "\n")
+    args.stats.write_text(stats_markdown(summary))
+    print(json.dumps(summary, indent=1))
+
+
+if __name__ == "__main__":
+    main()
