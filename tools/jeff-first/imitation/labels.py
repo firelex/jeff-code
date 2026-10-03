@@ -61,8 +61,10 @@ class Intent:
 
     `aspect` tells apart the targets of a service step (a "port", a service "name", the "processes" list, or a
     "log" file); for a find, it is the filter flag its target came from ("-name", "-iname", "-path", "-ipath"), or
-    "-type d" for a find of folders only with no such filter; for a peek, "slice" when the part prints a slice of the
-    file itself (see SLICE_TOOLS); for a toolchain step, what it asks about: "program" (`which X`, `X --version`),
+    "-type d" for a find of folders only with no such filter; for a peek, the view of the file it prints, when that
+    view is one a peek probe shows (see PEEK_VIEWS): "bytes" (its first bytes: head -c, or xxd/od/hexdump from the
+    start), "type" (`file`), "lines" (`wc -l` of the one file), "schema" (an SQLite schema listing or a SELECT ...
+    LIMIT), "keys" (`jq keys`) or "pdftext" (`pdftotext F -`), and "" for an analysis of the file; for a toolchain step, what it asks about: "program" (`which X`, `X --version`),
     "module" (`import X`), "os" (the OS release), "package" (whether a package is installed: `pip show X`, `pip
     list | grep X`, `dpkg -l X`) or "other" (anything the toolchain probes never report: `uname`, `dpkg -L`,
     `apt-cache`, `npm ls`). `targets` holds every name when the part names several (`which gcc make`, `pip install a b`);
@@ -107,11 +109,39 @@ BYTE_TOOL_VALUE_FLAGS = {
     "file": {"-m", "-e", "-F"},
     "strings": {"-n", "-t", "-e"},
 }
-# The programs whose output is a slice of the file itself, as the scout's peek probe shows one (probes.ts peekProbe:
-# `file`, the first bytes in hex, the first and last lines, the line count): every other byte tool analyses the file
-# (objdump -d, readelf, strings, nm, ...). head and tail are reads; with -c they print a slice of bytes.
-SLICE_TOOLS = {"file", "xxd", "od", "hexdump"}
+# The byte tools whose output is a view the scout's peek probe also shows (probes.ts peekProbe): `file`, and the first
+# bytes in hex. Every other byte tool analyses the file (objdump -d, readelf, strings, nm, ...).
 HEX_VIEWERS = {"xxd", "od", "hexdump"}
+HEX_SKIP_FLAGS = {"-s", "-j", "--skip-bytes", "-seek"}
+# What each peek probe (probes.ts peekProbe, by the file's kind) shows, as the views a coding-model command may print
+# (Intent.aspect); "head/tail" stands for a read with head or tail. A command matches a peek option only when its view
+# is one its probe shows: the first bytes of a binary, not the schema of a database file read as bytes.
+PEEK_VIEWS = {
+    "binary": {"bytes", "type"},
+    "text": {"lines", "head/tail"},
+    "jsonl": {"lines", "head/tail"},
+    "table": {"lines", "head/tail"},
+    "sqlite": {"schema"},
+    "json": {"keys"},
+    "pdf": {"pdftext"},
+    "image": {"type"},
+    "weights": {"type"},
+    "fasta": set(),
+}
+# A fixed line of each probe's command, telling its kind apart (probes.ts peekProbe).
+PEEK_PROBE_MARKS = {
+    "binary": "| od -A d -t x1z | head -n 20",
+    "text": "echo '--- first 20 lines ---'",
+    "jsonl": "head -n 3 '",
+    "table": "head -n 5 '",
+    "sqlite": "select name, sql from sqlite_master where type='table'",
+    "json": "data = json.load(open(sys.argv[1]))",
+    "pdf": "pdftotext -layout",
+    "image": "tesseract",
+    "weights": "def shape(value):",
+    "fasta": "awk '/^>/",
+}
+JQ_KEYS = {"keys", "keys_unsorted", ".|keys", ". | keys", ".|keys_unsorted", ". | keys_unsorted"}
 # cat flags that show control characters and line ends (-A is -vET): the coding model wanted the bytes, not the text.
 CAT_SHOWS_CONTROL = re.compile(r"^-[A-Za-z]*[AvEeTt][A-Za-z]*$")
 GREP_LIKE = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}
@@ -216,7 +246,8 @@ def _head_tail(word: str, args: list[str], part: Part) -> PartResult:
     if word == "tail" and any(arg in ("-f", "-F", "--follow") for arg in args):
         return Intent("service", path, aspect="log", word=word)
     if any(arg == "-c" or re.fullmatch(r"-c\d+|--bytes(=.*)?", arg) for arg in args):
-        return Intent("peek", path, aspect="slice", word=word)
+        # head -c: the file's first bytes; tail -c shows its last ones, which no probe shows.
+        return Intent("peek", path, aspect="bytes" if word == "head" else "", word=word)
     lines: tuple[int, int | None] | None = None
     if word == "head":
         count = None
@@ -245,23 +276,37 @@ def _sed(word: str, args: list[str], part: Part) -> PartResult:
 
 def _data_tool(word: str, args: list[str], part: Part) -> PartResult:
     plain = _plain_args(args, {"-F", "-d", "-f", "-k", "-t", "-v"})
+    script = plain[0] if word in DATA_TOOLS_WITH_SCRIPT and plain else None
     if word in DATA_TOOLS_WITH_SCRIPT:
         plain = plain[1:]
     if not plain:
         return OTHER
-    # The peek probe counts one file's lines (`wc -l F`); counting several files, or anything else, analyses them.
-    counts_lines = word == "wc" and [arg for arg in args if arg.startswith("-")] == ["-l"] and len(plain) == 1
-    return Intent("peek", plain[0], aspect="slice" if counts_lines else "", word=word)
+    # The text probes count one file's lines (`wc -l F`); counting several files, or anything else, analyses them.
+    if word == "wc" and [arg for arg in args if arg.startswith("-")] == ["-l"] and len(plain) == 1:
+        return Intent("peek", plain[0], aspect="lines", word=word)
+    if word == "jq" and script in JQ_KEYS:
+        return Intent("peek", plain[0], aspect="keys", word=word)
+    return Intent("peek", plain[0], word=word)
+
+
+def _from_the_start(part: Part) -> bool:
+    """Whether a byte view shows the file's first bytes: no filter but head or another hex viewer after it."""
+    return all(_basename(first_word(stage)[0]) in HEX_VIEWERS | {"head"} for stage in part.filters)
 
 
 def _peek_first_file(word: str, args: list[str], part: Part) -> PartResult:
     plain = _plain_args(args, BYTE_TOOL_VALUE_FLAGS.get(word, set()))
-    return Intent("peek", plain[0], aspect="slice" if word in SLICE_TOOLS else "", word=word) if plain else OTHER
+    if not plain:
+        return OTHER
+    if word == "file":
+        return Intent("peek", plain[0], aspect="type", word=word)
+    starts = not HEX_SKIP_FLAGS.intersection(args) and _from_the_start(part)
+    return Intent("peek", plain[0], aspect="bytes" if word in HEX_VIEWERS and starts else "", word=word)
 
 
 def _pdftotext(word: str, args: list[str], part: Part) -> PartResult:
     plain = _plain_args(args, {"-f", "-l"})
-    return Intent("peek", plain[0], aspect="slice", word=word) if len(plain) == 2 and plain[1] == "-" else OTHER
+    return Intent("peek", plain[0], aspect="pdftext", word=word) if len(plain) == 2 and plain[1] == "-" else OTHER
 
 
 SQL_SETTINGS = re.compile(r"^\.(?:headers|mode|width|nullvalue)\b", re.I)
@@ -288,7 +333,7 @@ def _sqlite(word: str, args: list[str], part: Part) -> PartResult:
     plain = _plain_args(args, {"-cmd", "-separator"})
     if not plain or WRITE_SQL.search(" ".join(plain[1:])) or part.heredoc is not None:
         return OTHER
-    return Intent("peek", plain[0], aspect="slice" if _sql_shows_a_slice(plain[1:]) else "", word=word)
+    return Intent("peek", plain[0], aspect="schema" if _sql_shows_a_slice(plain[1:]) else "", word=word)
 
 
 def _list(word: str, args: list[str], part: Part) -> PartResult:
@@ -625,6 +670,16 @@ def _into_hex_viewer(part: Part) -> bool:
     return any(_basename(first_word(stage)[0]) in HEX_VIEWERS for stage in part.filters)
 
 
+def _hex_view(result: Intent, part: Part) -> Intent:
+    """A read or a byte slice piped into a hex viewer (`head -5 F | xxd`): the file's first bytes when it starts at the
+    file's start (cat, head, head -c) and only head or hex viewers follow; otherwise a view no probe shows."""
+    starts = (result.word in ("cat", "head") and (result.lines is None or result.lines[0] == 1)) or result.aspect == "bytes"
+    stages = [_basename(first_word(stage)[0]) for stage in part.filters]
+    viewer = stages.index(next(stage for stage in stages if stage in HEX_VIEWERS))
+    only_head = all(stage in HEX_VIEWERS | {"head"} for stage in stages[viewer:])
+    return Intent("peek", result.target, aspect="bytes" if starts and only_head else "", word=result.word)
+
+
 def part_intent(part: Part) -> PartResult:
     """What one command part does; see the module docstring. Table-driven: INTENT_RULES."""
     assigned = re.match(r"^\w+=\$\((.*)\)\s*$", part.head, re.DOTALL)
@@ -665,8 +720,7 @@ def part_intent(part: Part) -> PartResult:
         if base in programs:
             result = handler(base, args, part)
             if isinstance(result, Intent) and result.kind in ("read", "peek") and _into_hex_viewer(part):
-                # `head -5 F | xxd`: the bytes of a slice of the file, as the peek probe's hex view shows them.
-                return Intent("peek", result.target, aspect="slice", word=base)
+                return _hex_view(result, part)
             return result
     if word.startswith("./") or word.startswith("/"):
         return Intent("run", word, word=word)
@@ -699,7 +753,8 @@ class _OptionTarget:
     """An option's target as read from its description: `form` is "path", "name", "find", "named" (an exact file
     name), "port", "command", "toolchain" (the toolchain probe: the `programs` and Python `modules` it checks, read
     from its command), "packages" (the installed-packages check: the `names` it filters by) or "markers" (one of
-    the fixed command shapes in `needles`)."""
+    the fixed command shapes in `needles`). For a peek option ("Look at the data in PATH"), `view` is its probe's kind
+    (PEEK_VIEWS), read from its command."""
 
     form: str
     value: str
@@ -708,6 +763,7 @@ class _OptionTarget:
     programs: tuple[str, ...] = ()
     modules: tuple[str, ...] = ()
     names: tuple[str, ...] = ()
+    view: str = ""
 
 
 APT_PACKAGE = re.compile(r"\(package (.+)\)$")
@@ -750,8 +806,21 @@ def _packages_target(option: ArgumentOption) -> _OptionTarget:
     return _OptionTarget("packages", "", names=tuple(shlex.split(pattern.group(1))[0].split("|")))
 
 
+PEEK_DESCRIPTION = "Look at the data in "
+
+
+def _peek_target(option: ArgumentOption) -> _OptionTarget:
+    command = _probe_command(option)
+    kinds = [kind for kind, mark in PEEK_PROBE_MARKS.items() if mark in command]
+    if len(kinds) != 1:
+        raise ValueError(f"the peek option {option['id']} runs a probe of kinds {kinds}, not one known kind: {command[:200]!r}")
+    return _OptionTarget("path", option["description"].removeprefix(PEEK_DESCRIPTION), view=kinds[0])
+
+
 def _option_target(option: ArgumentOption) -> _OptionTarget:
     description = option["description"]
+    if description.startswith(PEEK_DESCRIPTION):
+        return _peek_target(option)
     if description.startswith(TOOLCHAIN_DESCRIPTION):
         return _toolchain_target(option)
     if description.startswith(PACKAGES_DESCRIPTION):
@@ -817,15 +886,19 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
     if intent.kind == "read":
         if kind == "peek":
             # The first or last lines of a file are what the peek probe shows of a long text or a table.
-            return intent.word in ("head", "tail") and target.form == "path" and _same_path(intent.target, target.value, cwd)
+            return (
+                intent.word in ("head", "tail")
+                and "head/tail" in PEEK_VIEWS.get(target.view, set())
+                and _same_path(intent.target, target.value, cwd)
+            )
         return kind == "read" and target.form == "path" and _same_path(intent.target, target.value, cwd)
     if intent.kind == "peek":
         if kind != "peek":
             return False
         if target.form == "markers":
             return intent.word == "file"
-        # Only a slice of the file itself, as the probe prints one; an analysis of the file is another step.
-        return intent.aspect == "slice" and target.form == "path" and _same_path(intent.target, target.value, cwd)
+        # Only a view of the file its probe also shows; an analysis of the file is another step.
+        return bool(intent.aspect) and intent.aspect in PEEK_VIEWS.get(target.view, set()) and _same_path(intent.target, target.value, cwd)
     if intent.kind == "list":
         return kind == "list" and target.form == "path" and _same_path(intent.target, target.value, cwd)
     if intent.kind == "search":

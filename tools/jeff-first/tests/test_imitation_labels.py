@@ -555,16 +555,34 @@ def test_find_by_exact_name_matches_find_files_named(command, cwd, expected):
     assert found == (None if expected is None else Choice.step("find", expected))
 
 
+def peek_probe(path: str, kind: str) -> str:
+    """probes.ts peekProbe for the kinds used here (the Python scripts shortened to their first lines)."""
+    q = f"'{path}'"
+    needs = lambda program, body: f"if command -v {program} >/dev/null 2>&1; then\n{body}\nelse echo '{program}: MISSING'; fi"  # noqa: E731
+    python = lambda script: needs("python3", f"python3 - {q} <<'PY'\n{script}\nPY")  # noqa: E731
+    return {
+        "text": f"wc -l {q}\necho '--- first 20 lines ---'\nhead -n 20 {q} | cut -c1-300\necho '--- last 3 lines ---'\ntail -n 3 {q} | cut -c1-300",
+        "json": f"ls -l {q}\n" + python("import json, sys\ndata = json.load(open(sys.argv[1]))"),
+        "sqlite": f"ls -l {q}\n" + python("import sqlite3, sys\ntables = db.execute(\"select name, sql from sqlite_master where type='table'\")"),
+        "binary": f"ls -l {q}\n{needs('file', f'file {q}')}\n{needs('od', f'head -c 256 {q} | od -A d -t x1z | head -n 20')}",
+    }[kind]
+
+
+def peek_option(number: int, path: str, kind: str) -> dict:
+    return option("peek", number, f"Look at the data in {path}", peek_probe(path, kind))
+
+
 PEEK_MENU = make_menu(
     read=[option("read", 1, "Read the file /app/small.txt")],
     peek=[
-        option("peek", 1, "Look at the data in /app/data.bin"),
-        option("peek", 2, "Look at the data in /app/db.sqlite"),
-        option("peek", 3, "Look at the data in /app/config.json"),
-        option("peek", 4, "Look at the data in /app/orig"),
-        option("peek", 5, "Look at the data in /app/big.txt"),
-        option("peek", 6, "Look at the data in /app/small.txt"),
+        peek_option(1, "/app/data.bin", "binary"),
+        peek_option(2, "/app/db.sqlite", "sqlite"),
+        peek_option(3, "/app/config.json", "json"),
+        peek_option(4, "/app/orig", "binary"),
+        peek_option(5, "/app/big.txt", "text"),
+        peek_option(6, "/app/small.txt", "text"),
         option("peek", 7, "Show the type of every file in /app"),
+        peek_option(8, "/app/trunc.db", "sqlite"),
     ],
 )
 
@@ -572,8 +590,8 @@ PEEK_MENU = make_menu(
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
-        # Review of waves 2-3, finding 3: Peek matches only commands that print a slice of the file itself, the kinds
-        # of output the scout's peek probe shows (probes.ts peekProbe).
+        # Review of waves 2-3, finding 3: Peek matches only commands that print a slice of the file itself, of the
+        # kind the option's own probe shows (probes.ts peekProbe: by the file's kind).
         ("head -c 256 /app/data.bin | od -A d -t x1z", ("peek", "peek-1")),
         ("xxd /app/data.bin | head -20", ("peek", "peek-1")),
         ("hexdump -C /app/data.bin | head", ("peek", "peek-1")),
@@ -587,6 +605,8 @@ PEEK_MENU = make_menu(
         ("tail -n 3 /app/big.txt", ("peek", "peek-5")),
         ("wc -l /app/big.txt", ("peek", "peek-5")),
         ("file /app/*", ("peek", "peek-7")),
+        ("jq keys /app/config.json", ("peek", "peek-3")),
+        ("xxd -l 64 /app/orig", ("peek", "peek-4")),
         # A read of a file that also has a Read option keeps the Read (menu order).
         ("head -n 5 /app/small.txt", ("read", "read-1")),
         # Analyses do not print a slice of the file.
@@ -601,6 +621,16 @@ PEEK_MENU = make_menu(
         ("jq '.rows | length' /app/config.json", None),
         # wc -l over several files is not a peek of one (finding 6).
         ("wc -l /app/big.txt /app/small.txt", None),
+        # A view the option's probe does not show: bytes away from the start, the bytes of a database (its probe shows
+        # the schema), a text file's bytes, the text of a JSON file (its probe shows the keys).
+        ("od -A x -t x4 /app/orig | awk '$1>=80000 && $1<80060'", None),
+        ("xxd -s 0x80000 -l 64 /app/orig", None),
+        ("tail -c 64 /app/data.bin | xxd", None),
+        ("od -A x -t x1z /app/trunc.db | head -60", None),
+        ("head -c 300 /app/big.txt", None),
+        ("head -c 300 /app/config.json", None),
+        # A text file's type is not in its own probe, but "Show the type of every file in /app" shows it.
+        ("file /app/big.txt", ("peek", "peek-7")),
     ],
 )
 def test_peek_matches_only_commands_that_print_a_slice_of_the_file(command, expected):
@@ -626,9 +656,12 @@ def test_reads_that_show_control_characters_are_not_read(command):
 
 def test_a_read_piped_into_a_hex_viewer_is_a_byte_peek_not_a_read():
     found = intent("head -5 /app/small.txt | xxd | head -3")
-    assert isinstance(found, Intent) and found.kind == "peek"
-    assert match(PEEK_MENU, "head -5 /app/small.txt | xxd | head -3") == Choice.step("peek", "peek-6")
+    assert isinstance(found, Intent) and (found.kind, found.aspect) == ("peek", "bytes")
+    # small.txt's probe shows lines, not bytes.
+    assert match(PEEK_MENU, "head -5 /app/small.txt | xxd | head -3") is None
+    assert match(PEEK_MENU, "head -5 /app/data.bin | xxd | head -3") == Choice.step("peek", "peek-1")
     assert match(PEEK_MENU, "cat /app/data.bin | od -c | head") == Choice.step("peek", "peek-1")
+    assert match(PEEK_MENU, "sed -n '5,9p' /app/data.bin | xxd") is None
 
 
 TOOLCHAIN_MENU = make_menu(
