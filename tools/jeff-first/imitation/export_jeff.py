@@ -42,6 +42,7 @@ import json
 import math
 import random
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 TOOL_QUESTION = "What should the next step be? Choose one option."
@@ -165,40 +166,113 @@ def split_of(row: dict, splits: dict) -> str:
     raise ValueError(f"the stage {row['stage']} task {row['task']!r} is not in splits.json's Terminal-Bench tasks")
 
 
-def export_rows(row_files: Sequence[Path], splits: dict, out: Path) -> dict[str, int]:
-    """Convert the rows of one stage into the three split files under `out` (which must not hold them yet), one row
-    at a time; returns the number of examples per split."""
-    paths = {name: out / f"{name}.jsonl" for name in SPLITS}
-    for path in paths.values():
-        if path.exists():
-            raise FileExistsError(f"Refusing to overwrite {path}; choose an empty --out folder")
-    out.mkdir(parents=True, exist_ok=True)
-    counts = dict.fromkeys(SPLITS, 0)
+@dataclass(frozen=True)
+class OverLength:
+    """The rows a token measurement (imitation/token_lengths.py) found longer than `max_length` tokens, by example id,
+    and how many rows it measured."""
+
+    ids: frozenset[str]
+    measured_rows: int
+    max_length: int
+
+
+def read_over_length(path: Path, max_length: int) -> OverLength:
+    """The over-length ids of a token_lengths.py output file, which must have been measured against `max_length`."""
+    files = json.loads(path.read_text())
+    ids: set[str] = set()
+    measured = 0
+    for name, entry in files.items():
+        if entry["max_length"] != max_length:
+            raise ValueError(f"{path}: {name} was measured against max_length {entry['max_length']}, not {max_length}")
+        ids.update(entry["ids_over_max_length"])
+        measured += entry["rows"]
+    return OverLength(frozenset(ids), measured, max_length)
+
+
+def _read_stage_rows(row_files: Sequence[Path]):
+    """Each row with its example, checking that the rows are of one stage and that no id repeats."""
     seen: set[str] = set()
     stages: set[int] = set()
+    for row_file in row_files:
+        with row_file.open(encoding="utf-8") as lines:
+            for line in lines:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                stages.add(row["stage"])
+                if len(stages) > 1:
+                    raise ValueError(f"the rows mix stages {sorted(stages)}; export one stage at a time")
+                example = to_example(row)
+                if example["id"] in seen:
+                    raise ValueError(f"the row id {example['id']} appears more than once")
+                seen.add(example["id"])
+                yield row, example
+    if not seen:
+        raise ValueError("No rows were read; refusing to write an empty export")
+
+
+def _over_length_groups(row_files: Sequence[Path], over_length: OverLength) -> tuple[set[str], int]:
+    """The task groups holding a row over the limit, and the number of rows read. The measurement must cover exactly
+    these rows: every over-length id must be among them and it must have measured as many rows."""
+    groups: set[str] = set()
+    found: set[str] = set()
+    count = 0
+    for row, example in _read_stage_rows(row_files):
+        count += 1
+        if example["id"] in over_length.ids:
+            groups.add(example["family"])
+            found.add(example["id"])
+    if over_length.measured_rows != count:
+        raise ValueError(f"the token lengths measured {over_length.measured_rows} rows, but the rows hold {count}; measure these rows again")
+    missing = sorted(over_length.ids - found)
+    if missing:
+        raise ValueError(f"{len(missing)} over-length ids are not among the rows, e.g. {missing[0]}; measure these rows again")
+    return groups, count
+
+
+def export_rows(row_files: Sequence[Path], splits: dict, out: Path, over_length: OverLength | None = None) -> dict[str, int]:
+    """Convert the rows of one stage into the three split files under `out` (which must not hold them yet), one row
+    at a time; returns the number of examples per split. With `over_length`, every row of a task group (`family`)
+    that has a row longer than its max_length is dropped: train.py stops on a prompt over its --max-length, and
+    dropping whole groups keeps no part of a task. The dropped groups and counts go to dropped-over-length.json in
+    `out` and the totals are printed."""
+    paths = {name: out / f"{name}.jsonl" for name in SPLITS}
+    report = out / "dropped-over-length.json"
+    for path in [*paths.values(), report]:
+        if path.exists():
+            raise FileExistsError(f"Refusing to overwrite {path}; choose an empty --out folder")
+    dropped_groups, total = _over_length_groups(row_files, over_length) if over_length else (set(), 0)
+    out.mkdir(parents=True, exist_ok=True)
+    counts = dict.fromkeys(SPLITS, 0)
+    dropped = dict.fromkeys(SPLITS, 0)
     streams = {name: path.open("w", encoding="utf-8") for name, path in paths.items()}
     try:
-        for row_file in row_files:
-            with row_file.open(encoding="utf-8") as lines:
-                for line in lines:
-                    if not line.strip():
-                        continue
-                    row = json.loads(line)
-                    stages.add(row["stage"])
-                    if len(stages) > 1:
-                        raise ValueError(f"the rows mix stages {sorted(stages)}; export one stage at a time")
-                    example = to_example(row)
-                    if example["id"] in seen:
-                        raise ValueError(f"the row id {example['id']} appears more than once")
-                    seen.add(example["id"])
-                    name = split_of(row, splits)
-                    streams[name].write(json.dumps(example, ensure_ascii=False) + "\n")
-                    counts[name] += 1
+        for row, example in _read_stage_rows(row_files):
+            name = split_of(row, splits)
+            if example["family"] in dropped_groups:
+                dropped[name] += 1
+                continue
+            streams[name].write(json.dumps(example, ensure_ascii=False) + "\n")
+            counts[name] += 1
     finally:
         for stream in streams.values():
             stream.close()
-    if not seen:
-        raise ValueError("No rows were read; refusing to write an empty export")
+    if over_length:
+        summary = {
+            "max_length": over_length.max_length,
+            "rows_read": total,
+            "rows_over_max_length": len(over_length.ids),
+            "group_count": len(dropped_groups),
+            "rows_dropped": sum(dropped.values()),
+            "rows_dropped_by_split": dropped,
+            "rows_kept_by_split": counts,
+            "groups": sorted(dropped_groups),
+        }
+        report.write_text(json.dumps(summary, indent=1) + "\n")
+        print(
+            f"over {over_length.max_length} tokens: {len(over_length.ids)} rows in {len(dropped_groups)} task groups; "
+            f"dropped {summary['rows_dropped']} rows of those groups ({dropped}); kept {counts}"
+        )
     return counts
 
 
@@ -238,6 +312,8 @@ def main(argv: list[str] | None = None) -> None:
     export.add_argument("--rows", type=Path, nargs="+", required=True, help="JSONL files of imitation/rows.py Row records, all of one stage")
     export.add_argument("--splits", type=Path, required=True, help="splits.json written by the splits command")
     export.add_argument("--out", type=Path, required=True, help="Folder for train.jsonl, development.jsonl and temperature.jsonl")
+    export.add_argument("--over-length", type=Path, help="token_lengths.py output for these rows: drop every task group with a row over --max-length")
+    export.add_argument("--max-length", type=int, help="train.py's --max-length; required with --over-length")
     args = parser.parse_args(argv)
     if args.command == "splits":
         if args.out.exists():
@@ -245,7 +321,10 @@ def main(argv: list[str] | None = None) -> None:
         args.out.write_text(json.dumps(make_splits(args.tasks, args.seed), indent=1) + "\n")
         print(args.out.read_text())
         return
-    counts = export_rows(args.rows, json.loads(args.splits.read_text()), args.out)
+    if (args.over_length is None) != (args.max_length is None):
+        parser.error("Give --over-length and --max-length together")
+    over_length = None if args.over_length is None else read_over_length(args.over_length, args.max_length)
+    counts = export_rows(args.rows, json.loads(args.splits.read_text()), args.out, over_length)
     print(json.dumps(counts))
 
 
