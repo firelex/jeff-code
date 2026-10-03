@@ -583,6 +583,8 @@ PEEK_MENU = make_menu(
         peek_option(6, "/app/small.txt", "text"),
         option("peek", 7, "Show the type of every file in /app"),
         peek_option(8, "/app/trunc.db", "sqlite"),
+        # A path that names another probe's program (tesseract) does not make the probe that kind.
+        peek_option(9, "/usr/bin/tesseract", "binary"),
     ],
 )
 
@@ -607,6 +609,7 @@ PEEK_MENU = make_menu(
         ("file /app/*", ("peek", "peek-7")),
         ("jq keys /app/config.json", ("peek", "peek-3")),
         ("xxd -l 64 /app/orig", ("peek", "peek-4")),
+        ("xxd /usr/bin/tesseract | head", ("peek", "peek-9")),
         # A read of a file that also has a Read option keeps the Read (menu order).
         ("head -n 5 /app/small.txt", ("read", "read-1")),
         # Analyses do not print a slice of the file.

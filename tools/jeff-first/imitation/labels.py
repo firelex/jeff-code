@@ -136,10 +136,10 @@ PEEK_PROBE_MARKS = {
     "table": "head -n 5 '",
     "sqlite": "select name, sql from sqlite_master where type='table'",
     "json": "data = json.load(open(sys.argv[1]))",
-    "pdf": "pdftotext -layout",
-    "image": "tesseract",
+    "pdf": "if command -v pdftotext >/dev/null 2>&1; then",
+    "image": "if command -v tesseract >/dev/null 2>&1; then",
     "weights": "def shape(value):",
-    "fasta": "awk '/^>/",
+    "fasta": "awk '/^>/{if(n)print n",
 }
 JQ_KEYS = {"keys", "keys_unsorted", ".|keys", ". | keys", ".|keys_unsorted", ". | keys_unsorted"}
 # cat flags that show control characters and line ends (-A is -vET): the coding model wanted the bytes, not the text.
