@@ -1,0 +1,89 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	CORE_PROGRAMS,
+	folderTypesProbe,
+	installedPackagesProbe,
+	peekProbe,
+	shellQuote,
+	toolchainProbe,
+} from "../src/core/jeff-first/probes.ts";
+
+const bash = (script: string) => execFileSync("bash", ["-c", script], { encoding: "utf8" });
+
+describe("probes", () => {
+	let dir: string;
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "jeff-first-probes-"));
+	});
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("quotes text so bash sees it as one literal argument", () => {
+		expect(bash(`printf '%s' ${shellQuote("a b'c$(x)")}`)).toBe("a b'c$(x)");
+	});
+
+	it("reports each program as found or MISSING", () => {
+		const out = bash(toolchainProbe(["bash", "surely-not-a-program-xyz"], []));
+		expect(out).toMatch(/^bash: \/\S+$/m);
+		expect(out).toContain("surely-not-a-program-xyz: MISSING");
+		expect(CORE_PROGRAMS).toContain("python3");
+	});
+
+	it("reports Python modules as found with a version, or MISSING", () => {
+		const out = bash(toolchainProbe([], ["json", "surely_not_a_module_xyz"]));
+		expect(out).toMatch(/^json: /m);
+		expect(out).toContain("surely_not_a_module_xyz: MISSING");
+	});
+
+	it("shows the line count, first and last lines of a long text file", () => {
+		const path = join(dir, "big log.txt");
+		writeFileSync(path, Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n"));
+		const out = bash(peekProbe(path, "text"));
+		expect(out).toContain("300");
+		expect(out).toContain("line 1\n");
+		expect(out).toContain("line 300");
+		expect(out).not.toContain("line 150\n");
+	});
+
+	it("describes JSON by its top-level keys and value types", () => {
+		const path = join(dir, "w.json");
+		writeFileSync(path, JSON.stringify({ weights: [1, 2, 3], name: "m" }));
+		const out = bash(peekProbe(path, "json"));
+		expect(out).toMatch(/weights: list of 3/);
+		expect(out).toMatch(/name: str/);
+	});
+
+	it("shows record names and lengths of a FASTA file", () => {
+		const path = join(dir, "s.fasta");
+		writeFileSync(path, ">input\nACGT\nAC\n>output\nACGTACGT\n");
+		const out = bash(peekProbe(path, "fasta"));
+		expect(out).toContain(">input: 6");
+		expect(out).toContain(">output: 8");
+	});
+
+	it("shows a binary file's size and a hex dump of its start", () => {
+		// The hex dump uses GNU od's "-t x1z" format, which prints addresses like "0000000" on Linux
+		// (the scout's target container). macOS ships BSD od, which rejects the "z" format character
+		// and errors to stderr, so only the `ls -l` size line and the `file` classification are
+		// checked here; the hex dump itself is exercised in the target Linux container, not on macOS.
+		const path = join(dir, "blob.bin");
+		writeFileSync(path, Buffer.from([0, 1, 2, 255]));
+		const out = bash(peekProbe(path, "binary"));
+		expect(out).toContain("blob.bin");
+		expect(out).toMatch(/: data$/m);
+	});
+
+	it("filters installed packages by the given names", () => {
+		expect(installedPackagesProbe(["torch", "numpy"])).toContain("torch|numpy");
+	});
+
+	it("lists the type of every file in a folder", () => {
+		writeFileSync(join(dir, "a.txt"), "x");
+		expect(bash(folderTypesProbe(dir))).toContain("a.txt");
+	});
+});
