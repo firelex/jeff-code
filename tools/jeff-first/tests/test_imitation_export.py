@@ -1,42 +1,63 @@
 import json
+import subprocess
+from dataclasses import asdict
+from pathlib import Path
 
 import pytest
 
 from imitation.export_jeff import (
-    choose_holdout_tasks,
-    convert_rows,
+    STAGE1_SHARES,
+    export_rows,
     main,
+    make_splits,
     question_text,
-    read_holdout_tasks,
     row_id,
     shuffled_criteria,
-    split_by_task,
+    split_of,
+    task_group,
     to_example,
-    tool_descriptions,
 )
+from imitation.rows import Choice, RowSource, rows_for_decision
+from imitation.stage3 import convert_runs, read_tasks
+
+REPO = Path(__file__).resolve().parents[3]
+JEFF_FIRST_TS = REPO / "packages" / "coding-agent" / "src" / "core" / "jeff-first"
+FIXTURES = Path(__file__).parent / "fixtures" / "stage3"
 
 
 def opt(id_: str, description: str) -> dict:
     return {"id": id_, "description": description}
 
 
-def tool_row(task="t", session="s", decision=0, page=1, label="read", options=None, turn=1) -> dict:
+def tool_row(task="t", session="s", decision=0, page=1, label="read", options=None, turn=1, stage=3) -> dict:
     return {
-        "source": "src", "stage": 3, "quality": "exact", "task": task, "session": session,
+        "source": "src", "stage": stage, "quality": "exact", "task": task, "session": session,
         "decision": decision, "turn": turn, "level": "tool", "page": page,
-        "state": "Task:\nFix it.", "options": options or [opt("read", "Read a file"), opt("hand_over", "Hand over")],
-        "label": label,
+        "state": "Task:\nFix it.", "options": options or [opt("read", "Read a file: Read the file /app/main.py (1 option)"), opt("hand_over", "Hand over")],
+        "label": label, "tool_description": None,
     }
 
 
-def argument_row(task="t", session="s", decision=0, page=1, label="read-1", options=None, turn=1) -> dict:
+def argument_row(task="t", session="s", decision=0, page=1, label="read-1", turn=1, stage=3, tool_description="Read a file") -> dict:
     return {
-        "source": "src", "stage": 3, "quality": "exact", "task": task, "session": session,
+        "source": "src", "stage": stage, "quality": "exact", "task": task, "session": session,
         "decision": decision, "turn": turn, "level": "argument", "page": page,
         "state": "Task:\nFix it.",
-        "options": options or [opt("read-1", "Read the file /app/main.py"), opt("none_of_these", "None of these")],
-        "label": label,
+        "options": [opt("read-1", "Read the file /app/main.py"), opt("none_of_these", "None of these")],
+        "label": label, "tool_description": tool_description,
     }
+
+
+TASKS = {
+    "training": [f"tb-{n:02d}" for n in range(45)],
+    "excluded_evaluation": ["fix-git"],
+    "excluded_leak_twins": {},
+}
+
+
+def write_json(path: Path, value: object) -> Path:
+    path.write_text(json.dumps(value))
+    return path
 
 
 def test_row_id_is_unique_per_decision_level_and_page():
@@ -46,145 +67,195 @@ def test_row_id_is_unique_per_decision_level_and_page():
     assert len({row_id(a), row_id(b), row_id(c)}) == 3
 
 
-def test_tool_descriptions_reads_the_committed_tool_rows_description():
-    rows = [tool_row(label="read"), argument_row()]
-    descriptions = tool_descriptions(rows)
-    assert descriptions[("src", 3, "t", "s", 0)] == "Read a file"
+def test_question_text_for_tool_rows_and_later_pages():
+    assert question_text(tool_row(page=1)) == "What should the next step be? Choose one option."
+    text = question_text(tool_row(page=2))
+    assert text == (
+        "You asked to see more options. This is page 2; the options on earlier pages are not repeated here.\n"
+        "What should the next step be? Choose one option."
+    )
 
 
-def test_tool_descriptions_ignores_show_more_rows():
-    rows = [tool_row(page=1, label="show_more"), tool_row(page=2, label="read")]
-    descriptions = tool_descriptions(rows)
-    assert descriptions[("src", 3, "t", "s", 0)] == "Read a file"
+def test_question_text_for_an_argument_row_uses_the_rows_own_tool_description():
+    assert question_text(argument_row(tool_description="Read part or all of a file")) == (
+        "You have decided that the next step is: Read part or all of a file. Which one exactly? Choose one option."
+    )
 
 
-def test_tool_descriptions_rejects_two_committed_tool_rows_for_one_decision():
-    rows = [tool_row(label="read"), tool_row(label="list", options=[opt("list", "List a folder")])]
-    with pytest.raises(ValueError, match="more than one committed tool row"):
-        tool_descriptions(rows)
-
-
-def test_question_text_for_a_tool_row():
-    row = tool_row(page=1)
-    assert question_text(row, None) == "What should the next step be? Choose one option."
-
-
-def test_question_text_for_a_tool_row_on_a_later_page():
-    row = tool_row(page=2)
-    text = question_text(row, None)
-    assert text.startswith("You asked to see more options. This is page 2;")
-    assert text.endswith("What should the next step be? Choose one option.")
-
-
-def test_question_text_for_an_argument_row_uses_the_chosen_tools_description():
-    row = argument_row(page=1)
-    text = question_text(row, "Read a file")
-    assert text == "You have decided that the next step is: Read a file. Which one exactly? Choose one option."
-
-
-def test_question_text_for_an_argument_row_requires_a_tool_description():
-    with pytest.raises(ValueError, match="chosen tool description"):
-        question_text(argument_row(), None)
+def test_an_argument_row_without_a_tool_description_is_an_error():
+    row = argument_row()
+    del row["tool_description"]
+    with pytest.raises(ValueError, match="tool_description"):
+        question_text(row)
+    with pytest.raises(ValueError, match="tool_description"):
+        question_text(argument_row(tool_description=None))
 
 
 def test_shuffled_criteria_keeps_ids_and_descriptions_and_reruns_identically():
     options = [opt(f"o{i}", f"description {i}") for i in range(8)]
     first = shuffled_criteria(options, "same-id")
-    second = shuffled_criteria(options, "same-id")
-    assert first == second
+    assert first == shuffled_criteria(options, "same-id")
     assert set(first) == {o["id"] for o in options}
-    assert list(first) != [o["id"] for o in options]  # the identity order is vanishingly unlikely after a shuffle
-
-
-def test_shuffled_criteria_differs_by_identifier():
-    options = [opt(f"o{i}", f"description {i}") for i in range(8)]
+    assert list(first) != [o["id"] for o in options]
     assert list(shuffled_criteria(options, "id-a")) != list(shuffled_criteria(options, "id-b"))
 
 
+def test_task_group_joins_a_stage_1_task_with_its_retried_trials():
+    # ukisai names a second trial of a task "<task>__<trial label>"; both have the same task text.
+    assert task_group({"stage": 1, "task": "inferredbugs-0001__dsv4-trial-2"}) == "inferredbugs-0001"
+    assert task_group({"stage": 1, "task": "inferredbugs-0001"}) == "inferredbugs-0001"
+    assert task_group({"stage": 3, "task": "dna-assembly"}) == "dna-assembly"
+    with pytest.raises(ValueError, match="__"):
+        task_group({"stage": 2, "task": "a__b"})
+
+
 def test_to_example_builds_a_choice_example_with_a_one_hot_target():
-    row = tool_row(label="read")
-    example = to_example(row, None)
+    row = {**tool_row(label="read"), "machine": "qwen3.8-27b-fp8@casdgx01-gpu5"}
+    example = to_example(row)
     assert example["question"]["type"] == "choice"
     assert set(example["question"]["criteria"]) == {"read", "hand_over"}
-    assert example["label"] == "read"
-    assert example["target"] == "read"
-    assert example["suite"] == "t"
-    assert example["family"] == "t:s"
-    assert example["state"] == "Task:\nFix it."
+    assert example["label"] == example["target"] == "read"
+    assert example["suite"] == "t" and example["family"] == "t"
     assert example["id"] == row_id(row)
-
-
-def test_to_example_rejects_a_label_not_among_its_options():
-    row = tool_row(label="nope")
+    assert example["source"]["machine"] == "qwen3.8-27b-fp8@casdgx01-gpu5"
     with pytest.raises(ValueError, match="not among its options"):
-        to_example(row, None)
+        to_example(tool_row(label="nope"))
 
 
-def test_convert_rows_wires_the_argument_rows_question_to_its_decisions_tool_row():
-    rows = [tool_row(label="read"), argument_row(label="read-1")]
-    examples = convert_rows(rows)
-    argument_example = next(e for e in examples if e["source"]["level"] == "argument")
-    assert argument_example["question"]["instructions"] == (
-        "You have decided that the next step is: Read a file. Which one exactly? Choose one option."
-    )
+def test_make_splits_picks_4_and_4_terminal_bench_tasks_with_a_seed(tmp_path):
+    tasks = write_json(tmp_path / "tasks.json", TASKS)
+    first = make_splits(tasks, seed=20261003)
+    assert first == make_splits(tasks, seed=20261003)
+    bench = first["terminal_bench"]
+    assert len(bench["development"]) == 4 and len(bench["temperature"]) == 4 and len(bench["train"]) == 37
+    assert set(bench["development"]) | set(bench["temperature"]) | set(bench["train"]) == set(TASKS["training"])
+    assert not set(bench["development"]) & set(bench["temperature"])
+    assert first["stage1"]["shares"] == STAGE1_SHARES
+    assert make_splits(tasks, seed=1)["terminal_bench"]["development"] != bench["development"]
 
 
-def test_convert_rows_handles_a_hand_over_decision_with_no_argument_row():
-    rows = [tool_row(label="hand_over")]
-    examples = convert_rows(rows)
-    assert len(examples) == 1
-    assert examples[0]["label"] == "hand_over"
+def test_split_of_puts_stage_2_and_3_rows_of_one_task_in_the_same_split(tmp_path):
+    splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
+    development = splits["terminal_bench"]["development"][0]
+    assert split_of({"stage": 2, "task": development}, splits) == "development"
+    assert split_of({"stage": 3, "task": development}, splits) == "development"
+    with pytest.raises(ValueError, match="not in splits"):
+        split_of({"stage": 3, "task": "make-doom-for-mips"}, splits)
 
 
-def test_split_by_task_never_splits_a_tasks_rows():
-    examples = [to_example(tool_row(task="a", decision=0), None), to_example(tool_row(task="b", decision=1), None)]
-    train, holdout = split_by_task(examples, {"b"})
-    assert [e["suite"] for e in train] == ["a"]
-    assert [e["suite"] for e in holdout] == ["b"]
+def test_split_of_stage_1_keeps_a_task_group_together_and_is_near_90_5_5(tmp_path):
+    splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
+    names = [split_of({"stage": 1, "task": f"nl2bash-{n:04d}"}, splits) for n in range(4000)]
+    assert 0.04 < names.count("development") / 4000 < 0.06
+    assert 0.04 < names.count("temperature") / 4000 < 0.06
+    for n in range(200):
+        assert split_of({"stage": 1, "task": f"x-{n}"}, splits) == split_of({"stage": 1, "task": f"x-{n}__dsv4-trial-2"}, splits)
 
 
-def test_choose_holdout_tasks_is_deterministic_and_sized_by_fraction():
-    tasks = [f"task-{i}" for i in range(20)]
-    first = choose_holdout_tasks(tasks, 0.1, seed=7)
-    second = choose_holdout_tasks(tasks, 0.1, seed=7)
-    assert first == second
-    assert len(first) == 2
-
-
-def test_choose_holdout_tasks_rejects_a_fraction_outside_zero_one():
-    with pytest.raises(ValueError, match="--holdout-fraction"):
-        choose_holdout_tasks(["a", "b"], 1.5, seed=0)
-
-
-def test_read_holdout_tasks_strips_blank_lines(tmp_path):
-    path = tmp_path / "holdout.txt"
-    path.write_text("task-a\n\ntask-b\n")
-    assert read_holdout_tasks(path) == {"task-a", "task-b"}
-
-
-def test_main_writes_train_and_holdout_files_split_by_task(tmp_path):
-    rows_path = tmp_path / "rows.jsonl"
+def test_export_writes_three_disjoint_splits_by_task(tmp_path):
+    splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
+    bench = splits["terminal_bench"]
     rows = [
-        tool_row(task="train-task", session="s1", decision=0, label="read"),
-        argument_row(task="train-task", session="s1", decision=0, label="read-1"),
-        tool_row(task="held-task", session="s2", decision=0, label="hand_over"),
+        tool_row(task=bench["train"][0], session="s1"),
+        argument_row(task=bench["train"][0], session="s1"),
+        tool_row(task=bench["development"][0], session="s2", label="hand_over"),
+        tool_row(task=bench["temperature"][0], session="s3", label="hand_over"),
     ]
-    rows_path.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    train_path, holdout_path = tmp_path / "train.jsonl", tmp_path / "holdout.jsonl"
-    main([
-        "--rows", str(rows_path), "--out-train", str(train_path), "--out-holdout", str(holdout_path),
-        "--holdout-fraction", "0.5", "--seed", "1",
-    ])
-    train_examples = [json.loads(line) for line in train_path.read_text().splitlines()]
-    holdout_examples = [json.loads(line) for line in holdout_path.read_text().splitlines()]
-    assert len(train_examples) + len(holdout_examples) == 3
-    assert {e["suite"] for e in train_examples}.isdisjoint({e["suite"] for e in holdout_examples})
-
-
-def test_main_requires_exactly_one_holdout_method(tmp_path):
     rows_path = tmp_path / "rows.jsonl"
-    rows_path.write_text(json.dumps(tool_row(label="hand_over")) + "\n")
-    with pytest.raises(SystemExit):
-        main([
-            "--rows", str(rows_path), "--out-train", str(tmp_path / "t.jsonl"), "--out-holdout", str(tmp_path / "h.jsonl"),
-        ])
+    rows_path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    counts = export_rows([rows_path], splits, tmp_path / "out")
+    assert counts == {"train": 2, "development": 1, "temperature": 1}
+    written = {name: [json.loads(line) for line in (tmp_path / "out" / f"{name}.jsonl").read_text().splitlines()] for name in counts}
+    assert [e["suite"] for e in written["development"]] == [bench["development"][0]]
+    with pytest.raises(FileExistsError):
+        export_rows([rows_path], splits, tmp_path / "out")
+
+
+def test_export_refuses_mixed_stages_and_duplicate_ids(tmp_path):
+    splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
+    task = splits["terminal_bench"]["train"][0]
+    mixed = tmp_path / "mixed.jsonl"
+    mixed.write_text(json.dumps(tool_row(task=task, stage=3)) + "\n" + json.dumps(tool_row(task=task, stage=2, decision=1)) + "\n")
+    with pytest.raises(ValueError, match="stage"):
+        export_rows([mixed], splits, tmp_path / "a")
+    twice = tmp_path / "twice.jsonl"
+    twice.write_text(json.dumps(tool_row(task=task)) + "\n" + json.dumps(tool_row(task=task)) + "\n")
+    with pytest.raises(ValueError, match="more than once"):
+        export_rows([twice], splits, tmp_path / "b")
+
+
+def test_cli_writes_splits_then_exports(tmp_path):
+    tasks = write_json(tmp_path / "tasks.json", TASKS)
+    splits_path = tmp_path / "splits.json"
+    main(["splits", "--tasks", str(tasks), "--seed", "3", "--out", str(splits_path)])
+    with pytest.raises(FileExistsError):
+        main(["splits", "--tasks", str(tasks), "--seed", "3", "--out", str(splits_path)])
+    task = json.loads(splits_path.read_text())["terminal_bench"]["train"][0]
+    rows_path = tmp_path / "rows.jsonl"
+    rows_path.write_text(json.dumps(tool_row(task=task, label="hand_over")) + "\n")
+    main(["export", "--rows", str(rows_path), "--splits", str(splits_path), "--out", str(tmp_path / "out")])
+    assert len((tmp_path / "out" / "train.jsonl").read_text().splitlines()) == 1
+    assert (tmp_path / "out" / "development.jsonl").read_text() == ""
+
+
+TEACHER_SCRIPT = """
+import { readFileSync } from "node:fs";
+import { teacherMessages } from "%(ts)s/teacher-prompt.ts";
+import { argumentPage, toolPage } from "%(ts)s/pages.ts";
+const cases = JSON.parse(readFileSync(0, "utf8"));
+const out = cases.map(({ state, lists, level, page, kind }) => {
+  const menu = { tools: lists.tools, argumentsByTool: lists.arguments_by_tool };
+  const asked = level === "tool"
+    ? { level, page, options: toolPage(menu, page) }
+    : { level, page, tool: menu.tools.find((tool) => tool.id === kind), options: argumentPage(menu.argumentsByTool[kind], page) };
+  return teacherMessages(state, asked)[1].content;
+});
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+def teacher_contents(tmp_path: Path, cases: list[dict]) -> list[str]:
+    script = tmp_path / "teacher.mjs"
+    script.write_text(TEACHER_SCRIPT % {"ts": JEFF_FIRST_TS.as_posix()})
+    done = subprocess.run(["node", str(script)], input=json.dumps(cases), capture_output=True, text=True, check=True)
+    return json.loads(done.stdout)
+
+
+def assert_same_prompt(example: dict, content: str) -> None:
+    """teacherMessages' user message is: state, blank line, question, the options lettered A, B, ..., then the
+    answer instruction. The exported example must hold the same state and question text and the same options."""
+    head = f"{example['state']}\n\n{example['question']['instructions']}\n"
+    assert content.startswith(head)
+    listed = content[len(head):].split("\n\n")[0].split("\n")
+    assert sorted(line.split(": ", 1)[1] for line in listed) == sorted(example["question"]["criteria"].values())
+
+
+def test_a_real_record_rows_question_and_state_equal_the_typescript_prompt(tmp_path):
+    tasks = write_json(tmp_path / "tasks.json", {"training": ["dna-assembly"], "excluded_evaluation": [], "excluded_leak_twins": {}})
+    rows = convert_runs([FIXTURES / "runs-imitation-v5"], read_tasks(tasks)).rows
+    trace = next(FIXTURES.glob("runs-imitation-v5/*/round-1/*/*/agent/jeff-first-trace.jsonl"))
+    records = {line["turn"]: line for line in map(json.loads, trace.read_text().splitlines())}
+    assert [row["level"] for row in rows if row["turn"] == 2] == ["tool", "argument"]
+    cases = [
+        {"state": records[row["turn"]]["state"], "lists": records[row["turn"]]["lists"], "level": row["level"], "page": row["page"],
+         "kind": None if row["level"] == "tool" else row["label"].rsplit("-", 1)[0]}
+        for row in rows
+    ]
+    for row, content in zip(rows, teacher_contents(tmp_path, cases), strict=True):
+        assert_same_prompt(to_example(row), content)
+
+
+def test_later_page_questions_equal_the_typescript_prompt(tmp_path):
+    lists = {
+        "tools": [{"id": "read", "description": "Read part or all of a file"}, {"id": "hand_over", "description": "Hand over to the coding model for its next turn"}],
+        "arguments_by_tool": {
+            "read": [{"id": f"read-{n}", "description": f"Read the file /app/f{n}.py", "toolCall": {"name": "bash", "arguments": {"command": "x"}}} for n in range(1, 13)]
+        },
+    }
+    state = {"task": "Fix it.", "recentSteps": [], "stepsLeftOut": 0}
+    meta = RowSource(source="own", stage=3, quality="exact", task="t", session="s")
+    rows = [asdict(row) for row in rows_for_decision(meta, 0, 1, "Task:\nFix it.\n\nNo steps have been taken yet.", lists, Choice.step("read", "read-11"))]
+    assert [(r["level"], r["page"]) for r in rows] == [("tool", 1), ("tool", 2), ("argument", 2)]
+    cases = [{"state": state, "lists": lists, "level": r["level"], "page": r["page"], "kind": "read"} for r in rows]
+    for row, content in zip(rows, teacher_contents(tmp_path, cases), strict=True):
+        assert_same_prompt(to_example(row), content)

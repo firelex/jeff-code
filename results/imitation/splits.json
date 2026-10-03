@@ -1,0 +1,65 @@
+{
+ "seed": 20261003,
+ "tasks_file": "training-tasks.json",
+ "terminal_bench": {
+  "rule": "stages 2 and 3: the training tasks ordered by sha256('<seed>:<task>'); the first 4 are development, the next 4 temperature",
+  "development": [
+   "gcode-to-text",
+   "modernize-scientific-stack",
+   "nginx-request-logging",
+   "rstan-to-pystan"
+  ],
+  "temperature": [
+   "build-pmars",
+   "largest-eigenval",
+   "mteb-retrieve",
+   "path-tracing"
+  ],
+  "train": [
+   "adaptive-rejection-sampler",
+   "caffe-cifar-10",
+   "cancel-async-tasks",
+   "chess-best-move",
+   "circuit-fibsqrt",
+   "cobol-modernization",
+   "configure-git-webserver",
+   "distribution-search",
+   "dna-assembly",
+   "dna-insert",
+   "financial-document-processor",
+   "fix-ocaml-gc",
+   "git-leak-recovery",
+   "gpt2-codegolf",
+   "headless-terminal",
+   "log-summary-date-ranges",
+   "mailman",
+   "model-extraction-relu-logits",
+   "mteb-leaderboard",
+   "openssl-selfsigned-cert",
+   "overfull-hbox",
+   "path-tracing-reverse",
+   "polyglot-c-py",
+   "polyglot-rust-c",
+   "protein-assembly",
+   "pytorch-model-cli",
+   "qemu-alpine-ssh",
+   "qemu-startup",
+   "query-optimize",
+   "regex-chess",
+   "reshard-c4-data",
+   "schemelike-metacircular-eval",
+   "sparql-university",
+   "sqlite-db-truncate",
+   "tune-mjcf",
+   "winning-avg-corewars",
+   "write-compressor"
+  ]
+ },
+ "stage1": {
+  "rule": "the task group (task name up to '__') goes to development when int(sha256('<seed>:<group>'), 16) / 16**64 is below the development share, to temperature below the two shares together, else to train",
+  "shares": {
+   "development": 0.05,
+   "temperature": 0.05
+  }
+ }
+}
