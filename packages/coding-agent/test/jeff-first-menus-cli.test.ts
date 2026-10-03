@@ -69,10 +69,17 @@ describe("jeff-first-menus CLI", () => {
 					(o: { toolCall: { arguments: { command: string } } }) => o.toolCall.arguments.command,
 				),
 			).toEqual([`cat '${join(folder, "main.py")}'`]);
-			// A file named in an output but not on the disk is never offered.
+			// A file named in an output but not on the disk is never offered to read or look at; only Find by name
+			// (where is ghost.py?) mentions it.
 			const ghost = { ...live, id: "ghost", steps: [{ command: "ls", output: "ghost.py\n", byScout: false }] };
 			const shown = JSON.parse(run([ghost], ["--live"]).stdout.trim());
-			expect(JSON.stringify(shown.argumentsByTool)).not.toContain("ghost.py");
+			const { find, ...others } = shown.argumentsByTool;
+			expect(JSON.stringify(others)).not.toContain("ghost.py");
+			expect(
+				find
+					.filter((o: { description: string }) => o.description.includes("ghost.py"))
+					.map((o: { description: string }) => o.description),
+			).toEqual(["Find files named ghost.py"]);
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}
