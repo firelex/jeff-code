@@ -139,6 +139,14 @@ const MISSING_FILE = [/([\w.\-/]+): No such file or directory/g, /No such file o
 const TASK_NAME = /`([A-Za-z_][\w.:]{2,})`/g;
 const TASK_QUOTE = /"([^"\n]{4,80})"/g;
 const FILE_NAME = /^[\w*.-]+\.[A-Za-z][A-Za-z0-9]{0,9}$/;
+/** A symbol a compiler reported as missing, from a C/C++ or linker error. */
+const COMPILE_ERROR_SYMBOL = [
+	/error: ['‘]?(\w{3,})['’]? (?:was not declared|undeclared|has no member)/g,
+	/undefined reference to `?(\w{3,})/g,
+];
+/** A function, class or method defined in a file the scout or the coding model just read. */
+const READ_IDENTIFIER = [/\bdef (\w+)/g, /\bclass (\w+)/g, /\bfunction (\w+)/g];
+const READ_IDENTIFIER_LIMIT = 5;
 const FAILED_PYTEST = /^FAILED (\S+::\S+)/gm;
 
 export function recentOutputs(input: MenuInput): string[] {
@@ -263,6 +271,27 @@ function listOptions(input: ListsInput): MenuToolCall[] {
 	return folders.map((path) => ({ name: "ls", arguments: { path } }));
 }
 
+/** At most READ_IDENTIFIER_LIMIT function, class or method names defined in the output of the last read step
+ * (by the scout or the coding model), in the order they appear. */
+function lastReadIdentifiers(input: ListsInput): string[] {
+	let lastRead: (typeof input.steps)[number] | undefined;
+	for (let index = input.steps.length - 1; index >= 0; index--) {
+		if (input.steps[index].call.name === "read") {
+			lastRead = input.steps[index];
+			break;
+		}
+	}
+	if (!lastRead || lastRead.output === null) return [];
+	const names: string[] = [];
+	for (const pattern of READ_IDENTIFIER) {
+		for (const match of lastRead.output.matchAll(pattern)) {
+			if (names.length === READ_IDENTIFIER_LIMIT) return names;
+			names.push(match[1]);
+		}
+	}
+	return names;
+}
+
 function searchOptions(input: ListsInput): MenuToolCall[] {
 	const names: string[] = [];
 	for (const match of input.task.matchAll(TASK_NAME)) {
@@ -274,6 +303,12 @@ function searchOptions(input: ListsInput): MenuToolCall[] {
 		}
 	}
 	for (const match of input.task.matchAll(TASK_QUOTE)) names.push(match[1]);
+	for (const output of recentOutputs(input)) {
+		for (const pattern of COMPILE_ERROR_SYMBOL) {
+			for (const match of output.matchAll(pattern)) names.push(match[1]);
+		}
+	}
+	names.push(...lastReadIdentifiers(input));
 	return unique(names)
 		.slice(0, SEARCH_LIMIT)
 		.map((pattern) => ({

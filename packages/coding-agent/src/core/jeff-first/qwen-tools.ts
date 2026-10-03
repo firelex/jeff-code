@@ -314,6 +314,19 @@ export function toolchainOptions(input: ListsInput): Built[] {
 	if (added.length > 0) {
 		options.push(probe(installedPackagesProbe(added), `Check which installed packages match: ${added.join(", ")}`));
 	}
+	const searchedFor: string[] = [];
+	for (const output of recentOutputs(input)) {
+		for (const match of output.matchAll(COMMAND_NOT_FOUND)) {
+			if (searchedFor.includes(match[1])) continue;
+			searchedFor.push(match[1]);
+			options.push(
+				probe(
+					`find / -name ${shellQuote(`${match[1]}*`)} -not -path '/proc/*' -not -path '/sys/*' 2>/dev/null | head -n 20`,
+					`Search the whole filesystem for a program named ${match[1]}`,
+				),
+			);
+		}
+	}
 	return options;
 }
 

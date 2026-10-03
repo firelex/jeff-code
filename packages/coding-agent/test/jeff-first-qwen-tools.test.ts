@@ -146,6 +146,20 @@ describe("Toolchain check", () => {
 		expect(toolchainOptions(input).map((o) => o.description)).toHaveLength(1);
 	});
 
+	it("offers a filesystem search for a program reported as not found", () => {
+		input.steps = [
+			{
+				call: { type: "toolCall", id: "a", name: "bash", arguments: { command: "oligotm" } },
+				output: "bash: oligotm: command not found",
+				isError: true,
+				byScout: false,
+			},
+		];
+		expect(toolchainOptions(input).map((o) => o.description)).toContain(
+			"Search the whole filesystem for a program named oligotm",
+		);
+	});
+
 	it("strips sentence punctuation from a task word before taking its extension", () => {
 		input.task = "Load model.pth.";
 		const command = String(toolchainOptions(input)[0].call.arguments.command);

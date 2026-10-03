@@ -149,6 +149,21 @@ describe("buildLists", () => {
 		expect(first?.toolCall).toMatchObject({ name: "grep", arguments: { path: cwd, literal: true, limit: 50 } });
 	});
 
+	it("searches for symbols from compiler errors and functions in the file just read", () => {
+		input.steps.push(
+			step("bash", { command: "gcc a.c" }, "a.c:3: error: 'load_tensor' undeclared", true),
+			step(
+				"read",
+				{ path: join(cwd, "src", "app.py") },
+				"def parse_rows(x):\n    pass\nclass Loader:\n",
+				false,
+				true,
+			),
+		);
+		const patterns = (buildLists(input).argumentsByTool.search ?? []).map((o) => o.toolCall.arguments.pattern);
+		expect(patterns).toEqual(expect.arrayContaining(["load_tensor", "parse_rows", "Loader"]));
+	});
+
 	it("finds files the task or an error names but that are not where they were named", () => {
 		const patterns = (buildLists(input).argumentsByTool.find ?? []).map((o) => o.toolCall.arguments.pattern);
 		expect(patterns).toEqual(expect.arrayContaining(["**/config.yaml", "**/input.csv"]));
