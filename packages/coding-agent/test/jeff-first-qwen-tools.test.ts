@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ListsInput } from "../src/core/jeff-first/lists.ts";
 import {
 	docsOptions,
+	installOptions,
 	peekKind,
 	peekOptions,
 	serviceOptions,
@@ -305,5 +306,58 @@ describe("Package docs", () => {
 			"List what the npm package sparqlee exports",
 			"List what the Python module rdflib provides",
 		]);
+	});
+});
+
+describe("Install", () => {
+	let cwd: string;
+	let input: ListsInput;
+	beforeEach(() => {
+		cwd = mkdtempSync(join(tmpdir(), "jeff-first-install-"));
+		input = {
+			cwd,
+			task: "Use weights.json.",
+			steps: [],
+			activeTools: ALL_TOOLS,
+			checkCommands: [],
+			runApproval: "all",
+		};
+	});
+	afterEach(() => {
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	const failed = (output: string) => ({
+		call: { type: "toolCall" as const, id: `x${Math.random()}`, name: "bash", arguments: { command: "run" } },
+		output,
+		isError: true,
+		byScout: false,
+	});
+
+	it("offers apt and pip installs for missing programs and modules, with package names mapped", () => {
+		input.steps = [
+			failed("bash: oligotm: command not found"),
+			failed("ModuleNotFoundError: No module named 'sklearn'"),
+		];
+		expect(installOptions(input).map((o) => o.description)).toEqual([
+			"Install oligotm with apt (package primer3)",
+			"Install the Python package scikit-learn with pip",
+		]);
+		expect(installOptions(input)[0].call.arguments.timeout).toBe(300);
+	});
+
+	it("offers nothing under approval never, and under seen only installers the model has used", () => {
+		input.steps = [failed("bash: oligotm: command not found"), failed("No module named 'yaml'")];
+		input.runApproval = "never";
+		expect(installOptions(input)).toEqual([]);
+		input.runApproval = "seen";
+		expect(installOptions(input)).toEqual([]);
+		input.steps.push({
+			call: { type: "toolCall", id: "i", name: "bash", arguments: { command: "pip install requests" } },
+			output: "",
+			isError: false,
+			byScout: false,
+		});
+		expect(installOptions(input).map((o) => o.description)).toEqual(["Install the Python package pyyaml with pip"]);
 	});
 });

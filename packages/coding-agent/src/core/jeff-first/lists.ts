@@ -13,7 +13,7 @@ import {
 	pathKind,
 	RECENT_OUTPUTS,
 } from "./menu.ts";
-import { docsOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
+import { docsOptions, installOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
 export const ARGUMENT_LIMIT = 30;
@@ -46,6 +46,7 @@ export type ToolKind =
 	| "docs"
 	| "check"
 	| "run"
+	| "install"
 	| "repeat";
 
 export interface ToolOption {
@@ -81,6 +82,7 @@ const TOOL_ORDER: ToolKind[] = [
 	"docs",
 	"check",
 	"run",
+	"install",
 	"repeat",
 ];
 
@@ -96,6 +98,7 @@ const PI_TOOL: Record<ToolKind, string> = {
 	docs: "bash",
 	check: "bash",
 	run: "bash",
+	install: "bash",
 	repeat: "bash",
 };
 
@@ -110,6 +113,7 @@ const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 	docs: "Look up how to use a package or program",
 	check: "Run the project's tests or build, or one failing test",
 	run: "Run a script the coding model wrote or changed",
+	install: "Install a missing program or Python package",
 	repeat: "Run the coding model's last shell command again",
 	hand_over: "Hand over to the coding model for its next turn",
 };
@@ -353,7 +357,10 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 	return calls;
 }
 
-function describe(kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs">, call: MenuToolCall): string {
+function describe(
+	kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs" | "install">,
+	call: MenuToolCall,
+): string {
 	const args = call.arguments;
 	switch (kind) {
 		case "read":
@@ -376,7 +383,7 @@ function describe(kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "do
 }
 
 function builtFrom(
-	kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs">,
+	kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs" | "install">,
 	options: (input: ListsInput) => MenuToolCall[],
 ): (input: ListsInput) => Built[] {
 	return (input) => options(input).map((call) => ({ call, description: describe(kind, call) }));
@@ -393,6 +400,7 @@ const BUILDERS: Record<ToolKind, (input: ListsInput) => Built[]> = {
 	docs: docsOptions,
 	check: builtFrom("check", checkOptions),
 	run: builtFrom("run", runOptions),
+	install: installOptions,
 	repeat: builtFrom("repeat", repeatOptions),
 };
 

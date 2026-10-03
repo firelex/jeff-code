@@ -7,6 +7,7 @@ import {
 	isTextFile,
 	type ListsInput,
 	recentOutputs,
+	SCOUT_COMMAND_TIMEOUT_SECONDS,
 	writtenFiles,
 } from "./lists.ts";
 import { namedPaths, pathKind, RECENT_OUTPUTS } from "./menu.ts";
@@ -58,8 +59,8 @@ export function peekKind(path: string): PeekKind | undefined {
 	return undefined;
 }
 
-function probe(command: string, description: string): Built {
-	return { call: { name: "bash", arguments: { command, timeout: PROBE_TIMEOUT_SECONDS } }, description };
+function probe(command: string, description: string, timeout: number = PROBE_TIMEOUT_SECONDS): Built {
+	return { call: { name: "bash", arguments: { command, timeout } }, description };
 }
 
 /** One Data peek option per data file: those named in recent outputs and the task, then regular files directly in
@@ -490,6 +491,124 @@ export function docsOptions(input: ListsInput): Built[] {
 	}
 	for (const program of docProgramNames(input)) {
 		options.push(probe(`${program} --help 2>&1 | head -n 40`, `Show the help of ${program}`));
+	}
+	return options;
+}
+
+/** The apt package for a program, when it differs from the program's own name. */
+const APT_PACKAGE: Record<string, string> = {
+	oligotm: "primer3",
+	primer3_core: "primer3",
+	pdftotext: "poppler-utils",
+	tesseract: "tesseract-ocr",
+	xxd: "xxd",
+	file: "file",
+	ps: "procps",
+	pgrep: "procps",
+	ss: "iproute2",
+	python3: "python3",
+	pip3: "python3-pip",
+	node: "nodejs",
+	npm: "npm",
+	java: "default-jdk",
+	strings: "binutils",
+	objdump: "binutils",
+	cobc: "gnucobol",
+	arq: "jena",
+};
+
+/** The pip package for a Python module, the inverse of PIP_TO_MODULE. */
+const MODULE_TO_PIP: Record<string, string> = Object.fromEntries(
+	Object.entries(PIP_TO_MODULE).map(([pkg, module]) => [module, pkg]),
+);
+
+const MISSING_LINE = /^([\w.+-]+): MISSING$/gm;
+
+/** The outputs of the scout's own bash steps, most recent first, within the usual recent-steps window. */
+function recentScoutOutputs(input: ListsInput): string[] {
+	return input.steps
+		.slice(-RECENT_OUTPUTS)
+		.reverse()
+		.filter((step) => step.byScout && step.call.name === "bash")
+		.flatMap((step) => (step.output === null ? [] : [step.output]));
+}
+
+/** Whether a name the scout's own Toolchain check reported MISSING was checked as a program (one of the names the
+ * composite probe always checks, or a known tool), rather than as a Python module. */
+function isProgramName(name: string): boolean {
+	return CORE_PROGRAMS.includes(name) || KNOWN_TOOLS.includes(name);
+}
+
+/** Program names reported as missing: "command not found" in recent outputs, and names the scout's own Toolchain
+ * check reported MISSING that are also named as a whole word in the task (so a MISSING core program the task never
+ * mentions is not offered for install). */
+function missingPrograms(input: ListsInput): string[] {
+	const names: string[] = [];
+	const push = (name: string) => {
+		if (!names.includes(name)) names.push(name);
+	};
+	for (const output of recentOutputs(input)) {
+		for (const match of output.matchAll(COMMAND_NOT_FOUND)) push(match[1]);
+	}
+	for (const output of recentScoutOutputs(input)) {
+		for (const match of output.matchAll(MISSING_LINE)) {
+			if (isProgramName(match[1]) && wholeWordIn(input.task, match[1])) push(match[1]);
+		}
+	}
+	return names;
+}
+
+/** Python module names reported as missing: "No module named" in recent outputs, and names the scout's own
+ * Toolchain check reported MISSING that are also named as a whole word in the task. */
+function missingModules(input: ListsInput): string[] {
+	const names: string[] = [];
+	const push = (name: string) => {
+		if (!names.includes(name)) names.push(name);
+	};
+	for (const output of recentOutputs(input)) {
+		for (const match of output.matchAll(NO_MODULE_NAMED)) push(match[1].split(".")[0]);
+	}
+	for (const output of recentScoutOutputs(input)) {
+		for (const match of output.matchAll(MISSING_LINE)) {
+			if (!isProgramName(match[1]) && wholeWordIn(input.task, match[1])) push(match[1]);
+		}
+	}
+	return names;
+}
+
+/** The coding model's own bash commands, over its whole history (not just the recent window), so Install under
+ * approval "seen" recognises an installer the model used earlier in the task. */
+function modelBashCommands(input: ListsInput): string[] {
+	return input.steps
+		.filter((step) => !step.byScout && step.call.name === "bash" && typeof step.call.arguments.command === "string")
+		.map((step) => step.call.arguments.command as string);
+}
+
+function hasUsedInstaller(input: ListsInput, phrases: string[]): boolean {
+	return modelBashCommands(input).some((command) => phrases.some((phrase) => command.includes(phrase)));
+}
+
+/** One apt-install option per missing program, one pip-install option per missing module, gated by the
+ * run-approval setting exactly like Run: "never" offers nothing, "seen" offers only the installer (apt or pip) the
+ * coding model has itself run, "all" offers both. */
+export function installOptions(input: ListsInput): Built[] {
+	if (input.runApproval === "never") return [];
+	const aptAllowed = input.runApproval === "all" || hasUsedInstaller(input, ["apt-get install", "apt install"]);
+	const pipAllowed = input.runApproval === "all" || hasUsedInstaller(input, ["pip install", "pip3 install"]);
+	const options: Built[] = [];
+	if (aptAllowed) {
+		for (const program of missingPrograms(input)) {
+			const pkg = APT_PACKAGE[program] ?? program;
+			const command = `(apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ${shellQuote(pkg)}) 2>&1 | tail -n 15; command -v ${shellQuote(program)} || echo ${shellQuote(`${program}: still MISSING`)}`;
+			options.push(probe(command, `Install ${program} with apt (package ${pkg})`, SCOUT_COMMAND_TIMEOUT_SECONDS));
+		}
+	}
+	if (pipAllowed) {
+		for (const module of missingModules(input)) {
+			const pkg = MODULE_TO_PIP[module] ?? module;
+			const command = `python3 -m pip install -q ${shellQuote(pkg)} 2>&1 | tail -n 15; python3 -c ${shellQuote(`import ${module}`)} && echo ${shellQuote(`${module}: installed`)} || echo ${shellQuote(`${module}: still MISSING`)}`;
+			options.push(probe(command, `Install the Python package ${pkg} with pip`, SCOUT_COMMAND_TIMEOUT_SECONDS));
+		}
 	}
 	return options;
 }
