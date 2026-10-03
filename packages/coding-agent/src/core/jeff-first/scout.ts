@@ -26,6 +26,14 @@ export const JEFF_MODEL_ID = "scout";
 /** Scout steps allowed between two large-model turns. */
 export const STEP_CAP = 8;
 
+/**
+ * Shown as the opening text of a scout step taken before the coding model (Qwen) has taken its
+ * first turn in the session. Without this, Qwen later reads these early scout tool calls as its
+ * own earlier turns and can mistake them for a plan it made, forgetting the actual task.
+ */
+export const BEFORE_FIRST_MODEL_TURN_NOTICE =
+	"Before starting on the task stated above, this step gathers information for it automatically.";
+
 export interface ScoutOptions {
 	inner: StreamFn;
 	cwd: string;
@@ -50,12 +58,18 @@ export function stepsSinceModel(messages: Message[]): number {
 	return count;
 }
 
-function scoutMessage(model: Model<Api>, call: MenuToolCall): AssistantMessage {
+/** True until the coding model has taken its first turn in this session (an assistant message not from the scout). */
+function beforeFirstModelTurn(messages: Message[]): boolean {
+	return !messages.some((message) => message.role === "assistant" && message.provider !== JEFF_PROVIDER);
+}
+
+function scoutMessage(model: Model<Api>, call: MenuToolCall, beforeFirstModelTurn: boolean): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [
+			...(beforeFirstModelTurn ? [{ type: "text" as const, text: BEFORE_FIRST_MODEL_TURN_NOTICE }] : []),
 			{
-				type: "toolCall",
+				type: "toolCall" as const,
 				id: `jeff_${randomUUID().replaceAll("-", "")}`,
 				name: call.name,
 				arguments: structuredClone(call.arguments),
@@ -211,7 +225,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 			);
 		}
 
-		if (call) return messageStream(scoutMessage(model, call));
+		if (call) return messageStream(scoutMessage(model, call, beforeFirstModelTurn(context.messages)));
 
 		turn++;
 		const thisTurn = turn;

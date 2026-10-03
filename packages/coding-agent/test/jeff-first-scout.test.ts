@@ -13,7 +13,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Choice, Chooser } from "../src/core/jeff-first/chooser.ts";
 import { JEFF_PROVIDER } from "../src/core/jeff-first/provider.ts";
-import { createScoutStreamFn, STEP_CAP, stepsSinceModel } from "../src/core/jeff-first/scout.ts";
+import {
+	BEFORE_FIRST_MODEL_TURN_NOTICE,
+	createScoutStreamFn,
+	STEP_CAP,
+	stepsSinceModel,
+} from "../src/core/jeff-first/scout.ts";
 import type { Level } from "../src/core/jeff-first/teacher-prompt.ts";
 import { TraceWriter } from "../src/core/jeff-first/trace.ts";
 
@@ -146,7 +151,8 @@ describe("createScoutStreamFn", () => {
 		expect(calls.count).toBe(0);
 		expect(message.provider).toBe(JEFF_PROVIDER);
 		expect(message.stopReason).toBe("toolUse");
-		expect(message.content[0]).toMatchObject({
+		const toolCall = message.content.find((part) => part.type === "toolCall");
+		expect(toolCall).toMatchObject({
 			type: "toolCall",
 			name: "read",
 			arguments: { path: join(cwd, "README.md") },
@@ -165,6 +171,36 @@ describe("createScoutStreamFn", () => {
 				{ level: "argument", page: 1, tool: "read" },
 			],
 		});
+	});
+
+	it("starts the step's message with a notice when the coding model has not taken a turn yet", async () => {
+		const { inner } = fakeModel(assistant("local", [{ type: "text", text: "hi" }], "stop"));
+		const stream = await scout(scripted(["read"]), inner)(model, context(start), { sessionId: "s1" });
+		const message = await stream.result();
+		expect(message.content).toEqual([
+			{ type: "text", text: BEFORE_FIRST_MODEL_TURN_NOTICE },
+			{
+				type: "toolCall",
+				id: expect.any(String),
+				name: "read",
+				arguments: { path: join(cwd, "README.md") },
+			},
+		]);
+	});
+
+	it("omits the notice once the coding model has already taken a turn", async () => {
+		const { inner } = fakeModel(assistant("local", [{ type: "text", text: "hi" }], "stop"));
+		const messages = [...start, assistant("local", [{ type: "text", text: "first turn" }], "stop")];
+		const stream = await scout(scripted(["read"]), inner)(model, context(messages), { sessionId: "s1" });
+		const message = await stream.result();
+		expect(message.content).toEqual([
+			{
+				type: "toolCall",
+				id: expect.any(String),
+				name: "read",
+				arguments: { path: join(cwd, "README.md") },
+			},
+		]);
 	});
 
 	it("hands over when the teacher chooses to, and logs the model's turn", async () => {
@@ -237,7 +273,10 @@ describe("createScoutStreamFn", () => {
 		expect(chooser.asked.map((l) => `${l.level}:${l.page}`)).toEqual(["tool:1", "tool:2", "argument:2"]);
 		expect(chooser.asked[2].options.map((o) => o.id)).toContain("read-11");
 		expect(chooser.asked[2].options.map((o) => o.id)).not.toContain("read-1");
-		expect(message.content[0]).toMatchObject({ type: "toolCall", name: "read" });
+		expect(message.content.find((part) => part.type === "toolCall")).toMatchObject({
+			type: "toolCall",
+			name: "read",
+		});
 		expect(lines()[0].levels.map((l: { page: number }) => l.page)).toEqual([1, 2, 2]);
 	});
 });
