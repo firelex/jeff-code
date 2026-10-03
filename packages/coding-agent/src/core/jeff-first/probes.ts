@@ -100,7 +100,11 @@ else:
 
 const SQLITE_SCRIPT = `import sqlite3, sys
 db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
-for (name, sql) in db.execute("select name, sql from sqlite_master where type='table'"):
+tables = db.execute("select name, sql from sqlite_master where type='table'")
+for index, (name, sql) in enumerate(tables):
+    if index == 40:
+        print("...")
+        break
     count = db.execute(f'select count(*) from "{name}"').fetchone()[0]
     print(f"{sql}\\n-- {count} rows")`;
 

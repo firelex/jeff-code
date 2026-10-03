@@ -78,6 +78,25 @@ describe("probes", () => {
 		expect(out).toMatch(/: data$/m);
 	});
 
+	it("caps the SQLite peek at 40 tables and adds a ... line", () => {
+		const path = join(dir, "many.sqlite");
+		execFileSync("python3", [
+			"-c",
+			"import sqlite3, sys\n" +
+				"db = sqlite3.connect(sys.argv[1])\n" +
+				"for i in range(45):\n" +
+				"    db.execute(f'create table t{i} (id integer)')\n" +
+				"db.commit()\n" +
+				"db.close()\n",
+			path,
+		]);
+		const out = bash(peekProbe(path, "sqlite"));
+		const createCount = (out.match(/create table/gi) ?? []).length;
+		expect(createCount).toBe(40);
+		expect(out).toContain("...");
+		expect(out).toMatch(/-- 0 rows/);
+	});
+
 	it("filters installed packages by the given names", () => {
 		expect(installedPackagesProbe(["torch", "numpy"])).toContain("torch|numpy");
 	});
