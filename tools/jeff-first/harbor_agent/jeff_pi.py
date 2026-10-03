@@ -8,7 +8,7 @@ Usage: harbor run ... -a harbor_agent.jeff_pi:JeffPi --ak tarball=/path/to/earen
 """
 
 from pathlib import Path
-from typing import Annotated, override
+from typing import Annotated, Any, override
 
 from harbor.agents.installed.node_install import nvm_node_install_snippet
 from harbor.agents.installed.pi import Pi, PiOptions
@@ -25,6 +25,13 @@ class JeffPiOptions(PiOptions):
         default=None,
         description="Comma-separated tools pi offers the model; unset keeps pi's default (read, bash, edit, write).",
     )
+    thinking_format: str | None = Field(
+        default=None,
+        description=(
+            "How pi switches the model's thinking on (pi's compat.thinkingFormat), e.g. qwen-chat-template. Required "
+            "when thinking is on: Harbor's model entry does not say the model can reason, so pi would send no switch."
+        ),
+    )
 
 
 class JeffPi(Pi):
@@ -35,6 +42,27 @@ class JeffPi(Pi):
     @override
     def name() -> str:
         return "jeff-pi"
+
+    @override
+    def _build_custom_models_json(self, access, model_id: str) -> dict[str, Any] | None:
+        models_json = super()._build_custom_models_json(access, model_id)
+        thinking = self.options.thinking
+        if thinking is None or thinking == "off":
+            if self.options.thinking_format is not None:
+                raise ValueError("thinking_format is set but thinking is off; set thinking to a level such as medium")
+            return models_json
+        if self.options.thinking_format is None:
+            raise ValueError(
+                f"thinking is {thinking}, but pi is not told how to switch the model's thinking on; "
+                "set the agent option thinking_format, e.g. qwen-chat-template"
+            )
+        if models_json is None:
+            raise ValueError("thinking_format needs a custom model endpoint (a configured base URL)")
+        for provider in models_json["providers"].values():
+            for model in provider["models"]:
+                model["reasoning"] = True
+                model["compat"] = {"thinkingFormat": self.options.thinking_format}
+        return models_json
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:

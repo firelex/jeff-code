@@ -9,11 +9,16 @@
 #   TARBALL      the packed fork (npm pack in packages/coding-agent)
 #   BASE_URL     the OpenAI-compatible endpoint as the task containers reach it, without /v1: for Qwen the sparkgate
 #                proxy, e.g. http://192.168.0.79:8899; for GLM the GLM proxy (glm_proxy.py)
-#   THINKING     pi's thinking level for the model: off, minimal, low, medium or high
+#   THINKING     pi's thinking level for the model: off, minimal, low, medium or high; when not off, the environment
+#                variable JEFF_RUN_THINKING_FORMAT must be set to how pi switches the model's thinking on (pi's
+#                compat.thinkingFormat), e.g. qwen-chat-template, since Harbor's model entry does not say the model
+#                can reason
 #   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write)
 #   MODEL        the model id at BASE_URL, e.g. qwen3.8-flash-next or scissero-glm-5.3
 #   MODE         shadow (log what the model does) or teacher (the teacher model scouts before every model turn;
-#                needs JEFF_FIRST_TEACHER_URL, the GLM proxy as containers reach it, and JEFF_FIRST_TEACHER_MODEL)
+#                needs JEFF_FIRST_TEACHER_URL, the GLM proxy as containers reach it, JEFF_FIRST_TEACHER_MODEL,
+#                JEFF_FIRST_RUN_APPROVAL (all, seen or never) and JEFF_FIRST_DRIVER_BUILD, e.g.
+#                qwen3.8-27b-nvfp4@spark-head)
 #   TIMEOUT_MULTIPLIER  positive number that multiplies each task's agent time limit (Harbor's
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
 #                the teacher's (GLM's) latency never decides a task through the time limit
@@ -28,7 +33,7 @@ set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
 if [ $# -lt 10 ]; then
-  sed -n '5,24p' "$0" >&2
+  sed -n '5,30p' "$0" >&2
   exit 2
 fi
 tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9 timeout_multiplier=${10}
@@ -39,6 +44,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 [ -f "$tasks_json" ] || { echo "no tasks file at $tasks_json" >&2; exit 1; }
 [ -f "$tarball" ] || { echo "no fork tarball at $tarball; build it with npm pack" >&2; exit 1; }
 case "$thinking" in off|minimal|low|medium|high) ;; *) echo "THINKING must be off, minimal, low, medium or high" >&2; exit 2 ;; esac
+if [ "$thinking" != off ]; then
+  [ -n "${JEFF_RUN_THINKING_FORMAT:-}" ] || { echo "THINKING $thinking needs JEFF_RUN_THINKING_FORMAT (how pi switches thinking on, e.g. qwen-chat-template)" >&2; exit 2; }
+fi
 case "$concurrency" in ''|*[!0-9]*) echo "CONCURRENCY must be a whole number" >&2; exit 2 ;; esac
 [[ "$timeout_multiplier" =~ ^[0-9]*\.?[0-9]+$ && "$timeout_multiplier" =~ [1-9] ]] \
   || { echo "TIMEOUT_MULTIPLIER must be a positive number, e.g. 3 or 2.5 (got \"$timeout_multiplier\")" >&2; exit 2; }
@@ -47,10 +55,13 @@ case "$mode" in
   teacher)
     [ -n "${JEFF_FIRST_TEACHER_URL:-}" ] || { echo "MODE teacher needs JEFF_FIRST_TEACHER_URL (the GLM proxy)" >&2; exit 2; }
     [ -n "${JEFF_FIRST_TEACHER_MODEL:-}" ] || { echo "MODE teacher needs JEFF_FIRST_TEACHER_MODEL" >&2; exit 2; }
+    case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE teacher needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
+    [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE teacher needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     ;;
   *) echo "MODE must be shadow or teacher" >&2; exit 2 ;;
 esac
 export JEFF_FIRST_TEACHER_URL="${JEFF_FIRST_TEACHER_URL:-}" JEFF_FIRST_TEACHER_MODEL="${JEFF_FIRST_TEACHER_MODEL:-}"
+export JEFF_RUN_THINKING_FORMAT="${JEFF_RUN_THINKING_FORMAT:-}" JEFF_FIRST_RUN_APPROVAL="${JEFF_FIRST_RUN_APPROVAL:-}" JEFF_FIRST_DRIVER_BUILD="${JEFF_FIRST_DRIVER_BUILD:-}"
 
 if [ $# -gt 0 ]; then
   tasks=("$@")
@@ -75,6 +86,7 @@ run_one() {
     --agent-timeout-multiplier "$timeout_multiplier"
   )
   if [ "$tools" != default ]; then command+=(--ak "tools=$tools"); fi
+  if [ "$thinking" != off ]; then command+=(--ak "thinking_format=$JEFF_RUN_THINKING_FORMAT"); fi
   command+=(
     --ae "JEFF_FIRST_MODE=$mode"
     --ae "JEFF_FIRST_TASK_ID=$task"
@@ -82,7 +94,10 @@ run_one() {
     -o "$jobs" --job-name "$job_name"
   )
   if [ "$mode" = teacher ]; then
-    command+=(--ae "JEFF_FIRST_TEACHER_URL=$JEFF_FIRST_TEACHER_URL" --ae "JEFF_FIRST_TEACHER_MODEL=$JEFF_FIRST_TEACHER_MODEL")
+    command+=(
+      --ae "JEFF_FIRST_TEACHER_URL=$JEFF_FIRST_TEACHER_URL" --ae "JEFF_FIRST_TEACHER_MODEL=$JEFF_FIRST_TEACHER_MODEL"
+      --ae "JEFF_FIRST_RUN_APPROVAL=$JEFF_FIRST_RUN_APPROVAL" --ae "JEFF_FIRST_DRIVER_BUILD=$JEFF_FIRST_DRIVER_BUILD"
+    )
   fi
   if [ "$dry_run" = 1 ]; then
     printf '%q ' "${command[@]}"; echo
@@ -92,7 +107,7 @@ run_one() {
   # Harbor exits 0 even when a trial failed, so check_trial.py inspects the job's results afterwards.
   local status=0
   (cd "$here" && PYTHONPATH="$here" OPENAI_BASE_URL="$base_url/v1" OPENAI_API_KEY="$JEFF_RUN_API_KEY" "${command[@]}") > "$jobs/logs/$task.log" 2>&1 \
-    && (cd "$here" && uv run --project "$here" python check_trial.py "$jobs/$job_name") >> "$jobs/logs/$task.log" 2>&1 \
+    && (cd "$here" && uv run --project "$here" python check_trial.py "$jobs/$job_name" $( [ "$thinking" != off ] && echo --expect-thinking )) >> "$jobs/logs/$task.log" 2>&1 \
     || status=$?
   if [ "$status" = 0 ]; then
     echo "$(date -Is) done  $task ($(tail -1 "$jobs/logs/$task.log"))"
@@ -102,7 +117,8 @@ run_one() {
   fi
 }
 export -f run_one
-export here tarball base_url jobs thinking tools model mode timeout_multiplier dry_run JEFF_RUN_API_KEY
+export here tarball base_url jobs thinking tools model mode timeout_multiplier dry_run JEFF_RUN_API_KEY \
+  JEFF_RUN_THINKING_FORMAT JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
 if ! printf '%s\n' "${tasks[@]}" | xargs -P "$concurrency" -I{} bash -c 'run_one "$1"' _ {}; then

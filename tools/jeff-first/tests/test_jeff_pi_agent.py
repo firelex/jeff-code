@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
 
 import pytest
+from harbor.agents.installed.pi import Pi
 
 from harbor_agent.jeff_pi import REMOTE_TARBALL, JeffPi
 
@@ -74,3 +76,30 @@ def test_passes_the_tool_list_to_pi(tmp_path):
 def test_leaves_pi_default_tools_when_no_list_is_given(tmp_path):
     agent = make_agent(tmp_path, tarball="x.tgz")
     assert "--tools" not in agent.build_cli_flags()
+
+
+SAMPLE = {"providers": {"harbor-endpoint": {"baseUrl": "http://x/v1", "apiKey": "$K", "api": "openai-completions", "models": [{"id": "qwen3.8-27b"}]}}}
+
+
+def fake_models_json(monkeypatch):
+    monkeypatch.setattr(Pi, "_build_custom_models_json", lambda self, access, model_id: json.loads(json.dumps(SAMPLE)))
+
+
+def test_marks_the_model_as_reasoning_with_its_thinking_switch_when_thinking_is_on(tmp_path, monkeypatch):
+    fake_models_json(monkeypatch)
+    agent = make_agent(tmp_path, tarball="x.tgz", thinking="medium", thinking_format="qwen-chat-template")
+    model = agent._build_custom_models_json(None, "qwen3.8-27b")["providers"]["harbor-endpoint"]["models"][0]
+    assert model == {"id": "qwen3.8-27b", "reasoning": True, "compat": {"thinkingFormat": "qwen-chat-template"}}
+
+
+def test_refuses_thinking_without_a_thinking_switch(tmp_path, monkeypatch):
+    fake_models_json(monkeypatch)
+    agent = make_agent(tmp_path, tarball="x.tgz", thinking="medium")
+    with pytest.raises(ValueError, match="thinking_format"):
+        agent._build_custom_models_json(None, "qwen3.8-27b")
+
+
+def test_leaves_the_model_alone_when_thinking_is_off(tmp_path, monkeypatch):
+    fake_models_json(monkeypatch)
+    agent = make_agent(tmp_path, tarball="x.tgz", thinking="off")
+    assert agent._build_custom_models_json(None, "qwen3.8-27b") == SAMPLE

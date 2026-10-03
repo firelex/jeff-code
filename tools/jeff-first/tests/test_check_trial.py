@@ -23,31 +23,40 @@ def make_trial(job, name, exception=None, trace_lines=1, exception_type="Runtime
         (trial / "agent" / "jeff-first-trace.jsonl").write_text("{}\n" * trace_lines)
 
 
+def write_session(trial, thinking):
+    content = [{"type": "thinking", "thinking": "let me check"}] if thinking else []
+    content.append({"type": "toolCall", "id": "c1", "name": "bash", "arguments": {"command": "ls"}})
+    message = {"role": "assistant", "provider": "harbor-endpoint", "content": content}
+    sessions = trial / "agent" / "pi" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "s.jsonl").write_text(json.dumps({"type": "message", "message": message}) + "\n")
+
+
 def test_accepts_a_trial_without_exception_and_with_a_trace(tmp_path):
     make_trial(tmp_path, "x__1")
-    assert check_job(tmp_path) == "x__1: ok, 1 trace lines"
+    assert check_job(tmp_path, expect_thinking=False) == "x__1: ok, 1 trace lines"
 
 
 def test_rejects_a_trial_with_an_exception(tmp_path):
     make_trial(tmp_path, "x__1", exception="Docker compose command failed")
     with pytest.raises(RuntimeError, match="x__1 raised RuntimeError: Docker compose command failed"):
-        check_job(tmp_path)
+        check_job(tmp_path, expect_thinking=False)
 
 
 def test_rejects_a_trial_without_a_trace(tmp_path):
     make_trial(tmp_path, "x__1", trace_lines=0)
     with pytest.raises(RuntimeError, match="x__1 wrote no jeff-first-trace.jsonl"):
-        check_job(tmp_path)
+        check_job(tmp_path, expect_thinking=False)
 
 
 def test_rejects_a_job_without_trials(tmp_path):
     with pytest.raises(RuntimeError, match="no trial results"):
-        check_job(tmp_path)
+        check_job(tmp_path, expect_thinking=False)
 
 
 def test_accepts_an_agent_timeout_as_a_task_result(tmp_path):
     make_trial(tmp_path, "x__1", exception="Agent execution timed out after 900.0 seconds", exception_type="AgentTimeoutError")
-    assert check_job(tmp_path) == "x__1: ok (agent timed out), 1 trace lines"
+    assert check_job(tmp_path, expect_thinking=False) == "x__1: ok (agent timed out), 1 trace lines"
 
 
 def test_rejects_a_trial_ended_by_a_jeff_first_error(tmp_path):
@@ -62,23 +71,36 @@ def test_rejects_a_trial_ended_by_a_jeff_first_error(tmp_path):
         ],
     )
     with pytest.raises(RuntimeError, match="x__1 ended with a JeffFirst error: JeffFirst: the teacher at http://teacher/v1"):
-        check_job(tmp_path)
+        check_job(tmp_path, expect_thinking=False)
 
 
 def test_accepts_a_trial_whose_only_error_is_not_from_jeff_first(tmp_path):
     make_trial(tmp_path, "x__1", pi_lines=[assistant_end("429 rate limited")])
-    assert check_job(tmp_path) == "x__1: ok, 1 trace lines"
+    assert check_job(tmp_path, expect_thinking=False) == "x__1: ok, 1 trace lines"
 
 
 def test_rejects_a_trial_without_pi_output(tmp_path):
     make_trial(tmp_path, "x__1")
     (tmp_path / "x__1" / "agent" / "pi.txt").unlink()
     with pytest.raises(FileNotFoundError, match="x__1 has no agent/pi.txt"):
-        check_job(tmp_path)
+        check_job(tmp_path, expect_thinking=False)
 
 
 def test_reports_a_setup_failure_with_its_reason_even_without_pi_output(tmp_path):
     make_trial(tmp_path, "x__1", exception="Docker compose command failed", trace_lines=0)
     (tmp_path / "x__1" / "agent" / "pi.txt").unlink()
     with pytest.raises(RuntimeError, match="x__1 raised RuntimeError: Docker compose command failed"):
-        check_job(tmp_path)
+        check_job(tmp_path, expect_thinking=False)
+
+
+def test_expect_thinking_fails_when_no_model_turn_holds_thinking(tmp_path):
+    make_trial(tmp_path, "x__1")
+    write_session(tmp_path / "x__1", thinking=False)
+    with pytest.raises(RuntimeError, match="none of the model's 1 turns holds thinking"):
+        check_job(tmp_path, expect_thinking=True)
+
+
+def test_expect_thinking_passes_when_a_model_turn_holds_thinking(tmp_path):
+    make_trial(tmp_path, "x__1")
+    write_session(tmp_path / "x__1", thinking=True)
+    assert check_job(tmp_path, expect_thinking=True) == "x__1: ok, 1 trace lines"
