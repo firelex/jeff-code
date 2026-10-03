@@ -76,7 +76,12 @@ function scripted(answers: { tool: string; argument?: string } | Error): Chooser
 			asked.push(level);
 			if (answers instanceof Error) throw answers;
 			const optionId = level.level === "tool" ? answers.tool : (answers.argument ?? level.options[0].id);
-			return { optionId, shares: { [optionId]: 1 }, picks: [{ optionId, reason: "scripted" }] };
+			return {
+				optionId,
+				shares: { [optionId]: 1 },
+				picks: [{ optionId, reason: "scripted", failedAttempts: [] }],
+				wordJoinersInserted: 0,
+			};
 		},
 	};
 }

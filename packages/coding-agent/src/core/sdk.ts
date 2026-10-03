@@ -15,7 +15,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { CacheWarmer } from "./cache-warmer.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
-import { GlmTeacher } from "./jeff-first/chooser.ts";
+import { GlmTeacher, TEACHER_RETRY_POLICY } from "./jeff-first/chooser.ts";
 import { readJeffFirstConfig } from "./jeff-first/config.ts";
 import { createScoutStreamFn } from "./jeff-first/scout.ts";
 import { createShadowStreamFn } from "./jeff-first/stream.ts";
@@ -426,7 +426,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 						cwd,
 						taskId: jeffFirst.taskId,
 						trace: new TraceWriter(jeffFirst.traceFile),
-						chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel),
+						chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel, TEACHER_RETRY_POLICY),
 						isSessionTurn,
 					});
 

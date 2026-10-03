@@ -37,6 +37,8 @@ export interface LevelRecord {
 	shares: Record<string, number>;
 	picks: Pick[];
 	chosen: string;
+	/** Word joiners put into the teacher's text to get past the GLM endpoint's firewall (see chooser.ts). */
+	word_joiners_inserted: number;
 }
 
 /** One line per decision in teacher mode: Jeff's place, taken by the teacher. */

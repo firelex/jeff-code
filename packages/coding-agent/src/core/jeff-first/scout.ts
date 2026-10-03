@@ -73,7 +73,14 @@ function messageStream(message: AssistantMessage): AssistantMessageEventStream {
 }
 
 function levelRecord(options: LevelRecord["options"], choice: Choice, chooser: string): LevelRecord {
-	return { options, chooser, shares: choice.shares, picks: choice.picks, chosen: choice.optionId };
+	return {
+		options,
+		chooser,
+		shares: choice.shares,
+		picks: choice.picks,
+		chosen: choice.optionId,
+		word_joiners_inserted: choice.wordJoinersInserted,
+	};
 }
 
 export function createScoutStreamFn(options: ScoutOptions): StreamFn {

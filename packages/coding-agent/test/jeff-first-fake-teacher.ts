@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 export interface FakeTeacher {
@@ -9,7 +9,8 @@ export interface FakeTeacher {
 
 /**
  * An OpenAI-style chat server whose answer is `pick(options, prompt)`. A pick of "!500" answers with status 500; a
- * pick starting with "!raw:" answers status 200 with the rest of the pick as the whole response body.
+ * pick starting with "!raw:" answers status 200 with the rest of the pick as the whole response body; "!status:N:body"
+ * answers status N with that body; "!sleep:MS:rest" waits MS milliseconds, then answers as `rest` would.
  */
 export async function startFakeTeacher(
 	pick: (options: Array<{ code: string; description: string }>, prompt: string) => string,
@@ -25,21 +26,34 @@ export async function startFakeTeacher(
 			requests.push({ ...parsed, path: request.url, authorization: request.headers.authorization });
 			const prompt = parsed.messages.at(-1)?.content ?? "";
 			const options = [...prompt.matchAll(/^([A-Z]): (.*)$/gm)].map((m) => ({ code: m[1], description: m[2] }));
-			const content = pick(options, prompt);
-			if (content === "!500") {
-				response.writeHead(500, { "content-type": "application/json" });
-				response.end('{"error":"overloaded"}');
-				return;
-			}
-			if (content.startsWith("!raw:")) {
-				response.writeHead(200, { "content-type": "application/json" });
-				response.end(content.slice("!raw:".length));
-				return;
-			}
-			response.writeHead(200, { "content-type": "application/json" });
-			response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }));
+			respond(response, pick(options, prompt));
 		});
 	});
+	const respond = (response: ServerResponse, content: string): void => {
+		const sleep = /^!sleep:(\d+):([\s\S]*)$/.exec(content);
+		if (sleep) {
+			setTimeout(() => respond(response, sleep[2]), Number(sleep[1]));
+			return;
+		}
+		const status = /^!status:(\d+):([\s\S]*)$/.exec(content);
+		if (status) {
+			response.writeHead(Number(status[1]), { "content-type": "text/html" });
+			response.end(status[2]);
+			return;
+		}
+		if (content === "!500") {
+			response.writeHead(500, { "content-type": "application/json" });
+			response.end('{"error":"overloaded"}');
+			return;
+		}
+		if (content.startsWith("!raw:")) {
+			response.writeHead(200, { "content-type": "application/json" });
+			response.end(content.slice("!raw:".length));
+			return;
+		}
+		response.writeHead(200, { "content-type": "application/json" });
+		response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }));
+	};
 	await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
 	const { port } = server.address() as AddressInfo;
 	return {
