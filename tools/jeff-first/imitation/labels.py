@@ -296,9 +296,10 @@ def _find(word: str, args: list[str], part: Part) -> PartResult:
         if program is not None and _basename(program[0]) in GREP_LIKE:
             return _search(word, _basename(program[0]), program[1:])
     start = _find_start(word, args, part)
-    for flag in ("-name", "-iname", "-path", "-ipath"):
-        if flag in args and args.index(flag) + 1 < len(args):
-            return Intent("find", args[args.index(flag) + 1], word=word, start=start)
+    # The first name or path filter that selects files; an excluding one (`-not -path '*/venv/*'`) only narrows a listing.
+    for i, arg in enumerate(args[:-1]):
+        if arg in ("-name", "-iname", "-path", "-ipath") and (i == 0 or args[i - 1] not in ("-not", "!")):
+            return Intent("find", args[i + 1], word=word, start=start)
     return Intent("find", "", word=word, start=start)
 
 
@@ -684,8 +685,9 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
         if kind == "find" and target.form == "find":
             return bool(intent.target) and _glob_core(intent.target) == _glob_core(target.value)
         if kind == "find" and target.form == "path":
-            # "Find the files under FOLDER": any find of the coding model that starts in that folder, whatever its filters.
-            return _same_path(intent.start, target.value, cwd)
+            # "Find the files under FOLDER" shows the first 50 files there: it matches a find that starts in that folder
+            # and does not look for particular names or paths.
+            return not intent.target and _same_path(intent.start, target.value, cwd)
         return kind == "toolchain" and target.form == "name" and intent.target.strip("*") == target.value
     if intent.kind == "toolchain":
         return kind == "toolchain" and target.form == "markers"

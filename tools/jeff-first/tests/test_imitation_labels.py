@@ -456,8 +456,13 @@ FIND_MENU = make_menu(
     ("command", "cwd", "expected"),
     [
         ("find /app -type f", "/", "find-2"),
-        ("find . -name '*.py' -not -path '*/venv/*' 2>/dev/null | head -50", "/app", "find-2"),
+        ("find . -type f -not -path '*/venv/*' 2>/dev/null | head -50", "/app", "find-2"),
         ("find -maxdepth 2 -type d", "/app", "find-2"),
+        # A find that filters by name or path looks for particular files; the first 50 files under the folder may not
+        # include them, so it never matches "Find the files under".
+        ("find . -name '*.py' -not -path '*/venv/*' 2>/dev/null | head -50", "/app", None),
+        ("find /app -name Program.cs", "/", None),
+        ("find /app -ipath '*test*'", "/", None),
         ("find /app/ -name '*.csv'", "/", "find-1"),
         ("cd /output && find . -type f", "/app", "find-3"),
         ("find / -name '*.py' 2>/dev/null", "/app", None),
