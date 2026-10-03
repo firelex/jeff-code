@@ -86,9 +86,44 @@ def test_record_rows_label_each_logged_turn(tmp_path):
     assert {(r.source, r.stage, r.quality, r.task, r.session) for r in rows} == {("jeff-pi-record", 3, "exact", "fix-bug", "sess-1")}
     assert rows[2].state == (
         "Task:\nFix the bug in /app/main.py.\n\nSteps so far, oldest first:\n\n"
-        "Step 1 (by you, the scout):\n$ ls -la /app\nmain.py\n\n"
+        "Step 1 (by the coding model):\n$ ls -la /app\nmain.py\n\n"
         "Step 2 (by the coding model):\n$ cat /app/main.py\nprint(1/0)"
     )
+
+
+def test_record_rows_show_every_earlier_step_as_the_coding_models_in_later_turns(tmp_path):
+    # Review of waves 2-3, finding 1: in record mode the scout never acts. A command labelled in turn 1 stays "by the
+    # coding model" in the states of turns 2 and 3, as the live state the menu was built from showed it.
+    entries = [
+        assistant(bash("c1", "ls -la /app")),
+        result("c1", "main.py"),
+        assistant(bash("c2", "cat /app/main.py")),
+        result("c2", "print(1/0)"),
+        assistant(bash("c3", "cat > /app/main.py <<'EOF'\nprint(1)\nEOF")),
+        result("c3", ""),
+    ]
+    folder = write_session(tmp_path, entries)
+    logged = lambda *commands: [new_shape(c, o) for c, o in commands]  # noqa: E731
+    trace = [
+        record(1, [call("ls -la /app")]),
+        record(2, [call("cat /app/main.py")], recent=logged(("ls -la /app", "main.py"))),
+        record(3, [call("cat > /app/main.py <<'EOF'\nprint(1)\nEOF")], recent=logged(("ls -la /app", "main.py"), ("cat /app/main.py", "print(1/0)"))),
+    ]
+    rows, notes = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
+    assert notes == []
+    assert [(r.turn, r.level, r.label) for r in rows] == [
+        (1, "tool", "list"),
+        (1, "argument", "list-1"),
+        (2, "tool", "read"),
+        (2, "argument", "read-1"),
+        (3, "tool", "hand_over"),
+    ]
+    assert rows[4].state == (
+        "Task:\nFix the bug in /app/main.py.\n\nSteps so far, oldest first:\n\n"
+        "Step 1 (by the coding model):\n$ ls -la /app\nmain.py\n\n"
+        "Step 2 (by the coding model):\n$ cat /app/main.py\nprint(1/0)"
+    )
+    assert all("by you, the scout" not in row.state for row in rows)
 
 
 @pytest.mark.parametrize("stop_reason", ["error", "aborted"])
@@ -287,8 +322,8 @@ def test_after_a_compaction_the_state_holds_only_the_steps_pi_kept(tmp_path):
     third = [r for r in rows if r.turn == 3]
     assert third and all(r.state == (
         "Task:\nFix the bug in /app/main.py.\n\nSteps so far, oldest first:\n\n"
-        "Step 1 (by you, the scout):\n$ cat /app/main.py\nx"
-    ) for r in third)  # turn 2's read matched the menu, so the scout is shown as having taken it
+        "Step 1 (by the coding model):\n$ cat /app/main.py\nx"
+    ) for r in third)  # turn 2's read matched the menu, but in record mode the coding model ran it
 
 
 def test_a_compaction_keeping_an_unknown_entry_is_an_error(tmp_path):

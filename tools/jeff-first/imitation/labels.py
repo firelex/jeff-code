@@ -920,6 +920,10 @@ class SessionLabeler:
 
     def _take(self, index: int, choice: Choice, menu: Menu) -> None:
         self.decisions.append(Decision(self._turn + 1, self.next_point() or [], menu, choice))
+        if not self.follow_stints:
+            # Record mode: the scout never acted, so the labelled command stays the coding model's step.
+            self._finish_turn()
+            return
         command = self.turns[self._turn].commands[index]
         self._stint.append(ShellStep(command.text, command.output, command.is_error, by_scout=True))
         self._scout.add(index)
@@ -927,7 +931,7 @@ class SessionLabeler:
         commands = self.turns[self._turn].commands
         while following < len(commands) and command_is_neutral(commands[following].text):
             following += 1
-        if self.follow_stints and following < len(commands):
+        if following < len(commands):
             self._next = following
         else:
             self._finish_turn()

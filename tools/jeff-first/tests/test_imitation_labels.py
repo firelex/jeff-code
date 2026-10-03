@@ -337,7 +337,25 @@ def test_without_stints_only_the_first_match_of_a_turn_is_labelled():
     labeler = SessionLabeler(labelled(turns), follow_stints=False, drop_unmatched_information=False)
     drive(labeler, [MENU, MENU])
     assert [(d.turn, d.choice) for d in labeler.decisions] == [(1, Choice.step("read", "read-1")), (2, Choice.hand_over())]
-    assert labeler.decisions[1].history == [step("cat main.py", "A", by_scout=True), step("cat util.py", "B")]
+    # Record mode: the scout never acted, so every step of the history is the coding model's (review of waves 2-3,
+    # finding 1).
+    assert labeler.decisions[1].history == [step("cat main.py", "A"), step("cat util.py", "B")]
+
+
+def test_without_stints_later_turns_never_show_a_labelled_command_as_the_scouts():
+    turns = [
+        [TurnCommand("cat main.py", "A", False)],
+        [TurnCommand("ls -la /app", "main.py", False)],
+        [TurnCommand("cat > /app/new.py <<'EOF'\nx\nEOF", "", False)],
+    ]
+    labeler = SessionLabeler(labelled(turns), follow_stints=False, drop_unmatched_information=False)
+    points = drive(labeler, [MENU, MENU, MENU])
+    assert [(d.turn, d.choice) for d in labeler.decisions] == [
+        (1, Choice.step("read", "read-1")),
+        (2, Choice.step("list", "list-1")),
+        (3, Choice.hand_over()),
+    ]
+    assert points[2] == [step("cat main.py", "A"), step("ls -la /app", "main.py")]
 
 
 def test_an_unlabelled_turn_asks_for_no_menu_but_joins_the_history():
