@@ -55,8 +55,8 @@ SESSION = trajectory(
 )
 
 
-def option(kind: str, number: int, description: str) -> dict:
-    return {"id": f"{kind}-{number}", "description": description, "toolCall": {"name": "bash", "arguments": {"command": "x"}}}
+def option(kind: str, number: int, description: str, command: str) -> dict:
+    return {"id": f"{kind}-{number}", "description": description, "toolCall": {"name": "bash", "arguments": {"command": command}}}
 
 
 MENU = {
@@ -66,8 +66,8 @@ MENU = {
         {"id": "hand_over", "description": "Hand over to the coding model"},
     ],
     "arguments_by_tool": {
-        "read": [option("read", 1, "Read the file /app/main.py")],
-        "list": [option("list", 1, "List the folder /app")],
+        "read": [option("read", 1, "Read the file /app/main.py", "cat '/app/main.py'")],
+        "list": [option("list", 1, "List the folder /app", "ls -la '/app'")],
     },
 }
 
@@ -149,7 +149,8 @@ def test_menus_are_built_in_the_container_before_each_point_and_commands_replaye
         "run python3 main.py",
         "menu",
     ]
-    assert container.menu_points[1] == ("Fix the bug in /app/main.py.", ["ls"], "/app")
+    # A step credited to the scout shows the scout option's own command (with the coding model's real output).
+    assert container.menu_points[1] == ("Fix the bug in /app/main.py.", ["ls -la '/app'"], "/app")
     labels = [(row.decision, row.turn, row.level, row.label) for row in replay.rows]
     assert labels == [
         (0, 1, "tool", "list"),
