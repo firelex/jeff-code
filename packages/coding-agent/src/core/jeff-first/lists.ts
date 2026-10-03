@@ -13,7 +13,7 @@ import {
 	pathKind,
 	RECENT_OUTPUTS,
 } from "./menu.ts";
-import { peekOptions, toolchainOptions } from "./qwen-tools.ts";
+import { docsOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
 export const ARGUMENT_LIMIT = 30;
@@ -35,7 +35,18 @@ export interface ListsInput extends MenuInput {
 	runApproval: RunApproval;
 }
 
-export type ToolKind = "read" | "peek" | "list" | "search" | "find" | "toolchain" | "check" | "run" | "repeat";
+export type ToolKind =
+	| "read"
+	| "peek"
+	| "list"
+	| "search"
+	| "find"
+	| "toolchain"
+	| "service"
+	| "docs"
+	| "check"
+	| "run"
+	| "repeat";
 
 export interface ToolOption {
 	id: ToolKind | "hand_over";
@@ -59,7 +70,19 @@ export interface Lists {
 	argumentsByTool: Partial<Record<ToolKind, ArgumentOption[]>>;
 }
 
-const TOOL_ORDER: ToolKind[] = ["read", "peek", "list", "search", "find", "toolchain", "check", "run", "repeat"];
+const TOOL_ORDER: ToolKind[] = [
+	"read",
+	"peek",
+	"list",
+	"search",
+	"find",
+	"toolchain",
+	"service",
+	"docs",
+	"check",
+	"run",
+	"repeat",
+];
 
 /** The pi tool each kind needs; a kind is offered only when that tool is active. */
 const PI_TOOL: Record<ToolKind, string> = {
@@ -69,6 +92,8 @@ const PI_TOOL: Record<ToolKind, string> = {
 	search: "grep",
 	find: "find",
 	toolchain: "bash",
+	service: "bash",
+	docs: "bash",
 	check: "bash",
 	run: "bash",
 	repeat: "bash",
@@ -81,6 +106,8 @@ const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 	search: "Search the project's files for a name or a piece of error text",
 	find: "Find files by name",
 	toolchain: "Check which tools, languages and Python packages are installed",
+	service: "Check a running service, its port or its log",
+	docs: "Look up how to use a package or program",
 	check: "Run the project's tests or build, or one failing test",
 	run: "Run a script the coding model wrote or changed",
 	repeat: "Run the coding model's last shell command again",
@@ -326,7 +353,7 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 	return calls;
 }
 
-function describe(kind: Exclude<ToolKind, "peek" | "toolchain">, call: MenuToolCall): string {
+function describe(kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs">, call: MenuToolCall): string {
 	const args = call.arguments;
 	switch (kind) {
 		case "read":
@@ -349,7 +376,7 @@ function describe(kind: Exclude<ToolKind, "peek" | "toolchain">, call: MenuToolC
 }
 
 function builtFrom(
-	kind: Exclude<ToolKind, "peek" | "toolchain">,
+	kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs">,
 	options: (input: ListsInput) => MenuToolCall[],
 ): (input: ListsInput) => Built[] {
 	return (input) => options(input).map((call) => ({ call, description: describe(kind, call) }));
@@ -362,6 +389,8 @@ const BUILDERS: Record<ToolKind, (input: ListsInput) => Built[]> = {
 	search: builtFrom("search", searchOptions),
 	find: builtFrom("find", findOptions),
 	toolchain: toolchainOptions,
+	service: serviceOptions,
+	docs: docsOptions,
 	check: builtFrom("check", checkOptions),
 	run: builtFrom("run", runOptions),
 	repeat: builtFrom("repeat", repeatOptions),
