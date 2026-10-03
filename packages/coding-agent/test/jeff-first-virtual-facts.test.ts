@@ -86,6 +86,12 @@ describe("virtualFacts", () => {
 		expect(facts.size("/app/a.txt")).toBe(500);
 		expect(facts.readText("/app/a.txt")).toBeUndefined();
 		expect(facts.lineCount("/app/a.txt")).toBeUndefined();
+		// The text was shown inexactly, but it was text.
+		const odd = virtualFacts([
+			{ type: "read", path: "/app/a.weird", content: "one\n" },
+			{ type: "listing", folder: "/app", entries: [{ name: "a.weird", kind: "file", size: 500 }] },
+		]);
+		expect(odd.isText("/app/a.weird")).toBe(true);
 	});
 
 	it("tells text from binary by content, else by extension, else unknown", () => {

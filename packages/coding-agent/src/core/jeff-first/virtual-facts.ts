@@ -166,6 +166,8 @@ export function virtualFacts(events: FactEvent[]): FileFacts {
 							throw new Error(`${describeEvent(index, event)} has an entry size that is not a number of bytes`);
 						}
 						if (child.content !== undefined && Buffer.byteLength(child.content) !== item.size) {
+							// The text was shown inexactly (tabs as spaces, a cut line), but it was text.
+							if (!child.content.includes("\u0000")) child.shownText = true;
 							child.content = undefined;
 						}
 						child.size = item.size;
