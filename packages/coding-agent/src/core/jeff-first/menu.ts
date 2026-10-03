@@ -43,7 +43,7 @@ export function pathKind(path: string): "file" | "folder" | undefined {
 	return stats.isDirectory() ? "folder" : stats.isFile() ? "file" : undefined;
 }
 
-function candidates(text: string): string[] {
+export function candidates(text: string): string[] {
 	return text
 		.split(TOKEN_SPLIT)
 		.map((token) => token.replace(/\.$/, ""))

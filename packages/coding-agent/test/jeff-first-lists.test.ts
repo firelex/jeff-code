@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildLists } from "../src/core/jeff-first/lists.ts";
+import { ARGUMENT_LIMIT, buildLists, isTextFile } from "../src/core/jeff-first/lists.ts";
 import type { MenuInput } from "../src/core/jeff-first/menu.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
@@ -126,10 +126,48 @@ describe("buildLists", () => {
 		expect(buildLists(input).tools.map((t) => t.id)).toEqual(["read", "check", "repeat", "hand_over"]);
 	});
 
-	it("caps every argument list at 25 options", () => {
+	it("caps every argument list at 30 options, three pages of ten", () => {
 		for (let i = 0; i < 40; i++) writeFileSync(join(cwd, `f${i}.txt`), "x");
 		input.task = Array.from({ length: 40 }, (_, i) => `f${i}.txt`).join(" ");
-		expect(buildLists(input).argumentsByTool.read?.length).toBe(25);
+		expect(buildLists(input).argumentsByTool.read?.length).toBe(30);
+		expect(ARGUMENT_LIMIT).toBe(30);
+	});
+
+	it("offers files the coding model wrote or named in its commands, those it changed since the scout read them first", () => {
+		writeFileSync(join(cwd, "src", "tool.cpp"), "int main() {}\n");
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(
+			step("write", { path: join(cwd, "src", "tool.cpp"), content: "int main() {}\n" }, "ok"),
+			step("bash", { command: "cd /app && g++ -o tool src/tool.cpp" }, "error: x"),
+			step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF\necho written" }, "written"),
+		);
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		expect(paths.slice(0, 2)).toEqual([join(cwd, "scan.py"), join(cwd, "src", "tool.cpp")]);
+	});
+
+	it("puts a written file back among the others once the scout has read it since", () => {
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(
+			step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF" }, ""),
+			step("read", { path: join(cwd, "scan.py") }, "print(1)", false, true),
+		);
+		const read = buildLists(input).argumentsByTool.read ?? [];
+		expect(read[0].toolCall.arguments).toEqual({ path: join(cwd, "src", "app.py"), offset: 90, limit: 60 });
+		expect(read.map((o) => o.toolCall.arguments.path)).toContain(join(cwd, "scan.py"));
+	});
+
+	it("never offers a binary file for reading", () => {
+		writeFileSync(join(cwd, "tool"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x00, 0x01]));
+		input.task = "Build `tool` from src/app.py.";
+		input.steps.push(step("bash", { command: "./tool" }, "tool: exit 1"));
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		expect(paths).not.toContain(join(cwd, "tool"));
+		expect(isTextFile(join(cwd, "src", "app.py"))).toBe(true);
+		expect(isTextFile(join(cwd, "tool"))).toBe(false);
+	});
+
+	it("names the file when a file cannot be read for the binary check", () => {
+		expect(() => isTextFile(join(cwd, "src"))).toThrow(/src/);
 	});
 
 	it("gives every option a unique id", () => {
