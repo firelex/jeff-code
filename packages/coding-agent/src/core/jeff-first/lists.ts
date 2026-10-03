@@ -18,7 +18,8 @@ export const ARGUMENT_LIMIT = 30;
 /** How many of the coding model's most recent calls name files for Read. */
 export const MODEL_CALLS = 10;
 const BINARY_SNIFF_BYTES = 8000;
-const WRITE_IN_BASH = /(?:\bcat\s*>>?|\btee\s+(?:-a\s+)?)\s*['"]?([^\s'";&|<>]+)/g;
+const WRITE_IN_BASH =
+	/(?:\bcat\s*>>?|\btee\s+(?:-a\s+)?)\s*['"]?([^\s'";&|<>]+)|\bcat\s*<<-?\s*['"]?\w+['"]?\s*>>?\s*['"]?([^\s'";&|<>]+)/g;
 /** A scout bash step (Check or Repeat) never runs longer than this: the teacher chose Repeat on a hung test script once and it ran for ~40 minutes with no timeout. */
 export const SCOUT_COMMAND_TIMEOUT_SECONDS = 300;
 export const READ_SLICE_LINES = 60;
@@ -137,8 +138,11 @@ export function writtenFiles(input: MenuInput): Array<{ path: string; index: num
 			found.push({ path: resolve(input.cwd, args.path), index });
 		}
 		if (step.call.name === "bash" && typeof args.command === "string") {
-			for (const match of args.command.matchAll(WRITE_IN_BASH))
-				found.push({ path: resolve(input.cwd, match[1]), index });
+			for (const match of args.command.matchAll(WRITE_IN_BASH)) {
+				const path = match[1] ?? match[2];
+				if (path === undefined) throw new Error(`WRITE_IN_BASH matched but captured no path in: ${args.command}`);
+				found.push({ path: resolve(input.cwd, path), index });
+			}
 		}
 	});
 	return found.reverse();
@@ -291,7 +295,7 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 		const interpreter = INTERPRETERS[path.slice(path.lastIndexOf("."))];
 		if (!interpreter || pathKind(path) !== "file" || !isTextFile(path)) continue;
 		const ran = lastRun(input, path);
-		if (ran > index) continue;
+		if (ran >= index) continue;
 		if (input.runApproval === "seen" && ran < 0) continue;
 		const command = `cd ${dirname(path)} && ${interpreter} ${basename(path)}`;
 		calls.push({ name: "bash", arguments: { command, timeout: SCOUT_COMMAND_TIMEOUT_SECONDS } });

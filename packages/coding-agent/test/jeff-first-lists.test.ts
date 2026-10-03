@@ -183,6 +183,27 @@ describe("buildLists", () => {
 		expect(ARGUMENT_LIMIT).toBe(30);
 	});
 
+	it.each([
+		["cat << 'EOF' > scan.py\nprint(1)\nEOF"],
+		["cat <<EOF > scan.py\nprint(1)\nEOF"],
+		["cat <<-EOF >> scan.py\nprint(1)\nEOF"],
+	])("recognises %s as writing a file (redirect after the heredoc marker)", (command) => {
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(step("bash", { command }, "written"));
+		const run = buildLists(input).argumentsByTool.run ?? [];
+		expect(run.map((o) => o.toolCall)).toEqual([
+			{ name: "bash", arguments: { command: `cd ${cwd} && python3 scan.py`, timeout: 300 } },
+		]);
+		const read = buildLists(input).argumentsByTool.read ?? [];
+		expect(read[0].toolCall.arguments.path).toBe(join(cwd, "scan.py"));
+	});
+
+	it("does not offer Run for a script written and run in the same bash step", () => {
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF\npython3 scan.py" }, "1"));
+		expect(buildLists(input).argumentsByTool.run).toBeUndefined();
+	});
+
 	it("offers files the coding model wrote or named in its commands, those it changed since the scout read them first", () => {
 		writeFileSync(join(cwd, "src", "tool.cpp"), "int main() {}\n");
 		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
