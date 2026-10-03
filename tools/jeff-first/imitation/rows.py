@@ -16,6 +16,10 @@ three pages; "Show more options" moves to the next page. This module writes one 
 - options: the options shown on this page, each {id, description}, exactly as the scout would show them.
 - label: the id of the option the coding model's own next action corresponds to ("hand_over", "show_more", a tool
   kind such as "read", or an argument option id such as "read-3").
+- tool_description: on an argument row, the chosen tool's own short description from the menu (`tools`, e.g. "Read
+  part or all of a file"), which teacher-prompt.ts puts in the argument question ("You have decided that the next step
+  is: <it>."); the tool page shows a longer text with the options written out, so it cannot be read back from there.
+  None on a tool row.
 
 The terminal view of a step is "$ <command>" followed by the end of its output: the last 40 lines, each cut to 200
 characters, with a first line "[N earlier lines not shown]" when lines were cut; a long command shows its first 40
@@ -203,15 +207,19 @@ class Level:
     page: int
     options: list[ShownOption]
     label: str
+    tool_description: str | None
 
 
 def decision_rows(menu: Menu, choice: Choice) -> list[Level]:
     """The questions Jeff is asked at one decision, each with the label the coding model's action gives it."""
     if choice.kind is None:
-        return [Level("tool", 1, tool_page(menu, 1), "hand_over")]
+        return [Level("tool", 1, tool_page(menu, 1), "hand_over", None)]
     options = menu["arguments_by_tool"].get(choice.kind)
     if options is None:
         raise ValueError(f"the tool {choice.kind} is not on the menu")
+    tools = [tool for tool in menu["tools"] if tool["id"] == choice.kind]
+    if len(tools) != 1:
+        raise ValueError(f"the tool list names the tool {choice.kind} {len(tools)} times, not once")
     ids = [option["id"] for option in options]
     if choice.option_id not in ids:
         raise ValueError(f"the option {choice.option_id} is not among the {choice.kind} options {ids}")
@@ -223,12 +231,12 @@ def decision_rows(menu: Menu, choice: Choice) -> list[Level]:
         shown = tool_page(menu, earlier)
         if SHOW_MORE["id"] not in [o["id"] for o in shown]:
             raise ValueError(f"tool page {earlier} offers no Show more options, yet {choice.option_id} is on page {page}")
-        levels.append(Level("tool", earlier, shown, SHOW_MORE["id"]))
+        levels.append(Level("tool", earlier, shown, SHOW_MORE["id"], None))
     shown = tool_page(menu, page)
     if choice.kind not in [o["id"] for o in shown]:
         raise ValueError(f"tool page {page} does not show the tool {choice.kind}")
-    levels.append(Level("tool", page, shown, choice.kind))
-    levels.append(Level("argument", page, argument_page(options, page), choice.option_id))
+    levels.append(Level("tool", page, shown, choice.kind, None))
+    levels.append(Level("argument", page, argument_page(options, page), choice.option_id, tools[0]["description"]))
     return levels
 
 
@@ -248,6 +256,7 @@ class Row:
     state: str
     options: list[ShownOption]
     label: str
+    tool_description: str | None
 
     def __post_init__(self) -> None:
         if self.quality not in QUALITIES:
@@ -258,6 +267,10 @@ class Row:
             raise ValueError(f"row level must be 'tool' or 'argument', not {self.level!r}")
         if self.label not in [option["id"] for option in self.options]:
             raise ValueError(f"row label {self.label!r} is not among its options")
+        if self.level == "argument" and not self.tool_description:
+            raise ValueError("an argument row needs the chosen tool's description (tool description)")
+        if self.level == "tool" and self.tool_description is not None:
+            raise ValueError(f"a tool row has no tool description, not {self.tool_description!r}")
 
     def to_json(self) -> str:
         # ASCII escapes (the default) so that a lone surrogate - left by the TypeScript side cutting a line in the
@@ -291,6 +304,7 @@ def rows_for_decision(meta: RowSource, decision: int, turn: int, state: str, men
             state=state,
             options=level.options,
             label=level.label,
+            tool_description=level.tool_description,
         )
         for level in decision_rows(menu, choice)
     ]

@@ -64,7 +64,7 @@ def test_lengths_and_cuts_count_utf16_units_like_javascript():
     assert cut == "a" * 199 + "\ud83d"
     row_text = Row(
         source="s", stage=3, quality="exact", task="t", session="x", decision=0, turn=1, level="tool", page=1,
-        state=cut, options=[{"id": "hand_over", "description": "Hand over"}], label="hand_over",
+        state=cut, options=[{"id": "hand_over", "description": "Hand over"}], label="hand_over", tool_description=None,
     ).to_json()
     assert "\\ud83d" in row_text
 
@@ -147,7 +147,29 @@ def test_row_serialises_to_json():
         state="Task:\nt",
         options=[{"id": "hand_over", "description": "Hand over"}],
         label="hand_over",
+        tool_description=None,
     )
     assert json.loads(row.to_json())["label"] == "hand_over"
     with pytest.raises(ValueError, match="quality"):
         Row(**{**row.__dict__, "quality": "good"})
+
+
+def test_an_argument_level_carries_the_chosen_tools_own_description():
+    # teacher-prompt.ts asks "You have decided that the next step is: <tool.description>." with the tool's own short
+    # description from the menu, not the tool page's longer text with the options written out.
+    levels = decision_rows(menu_with(12), Choice.step("read", "read-11"))
+    assert [level.tool_description for level in levels] == [None, None, "Read a file"]
+    assert decision_rows(menu_with(2), Choice.hand_over())[0].tool_description is None
+
+
+def test_a_row_needs_a_tool_description_exactly_when_it_is_an_argument_row():
+    base = dict(source="s", stage=3, quality="exact", task="t", session="x", decision=0, turn=1, page=1, state="Task:\nt")
+    argument = dict(base, level="argument", options=[{"id": "read-1", "description": "Read the file /a"}], label="read-1")
+    tool = dict(base, level="tool", options=[{"id": "hand_over", "description": "Hand over"}], label="hand_over")
+    assert json.loads(Row(**argument, tool_description="Read a file").to_json())["tool_description"] == "Read a file"
+    with pytest.raises(ValueError, match="tool description"):
+        Row(**argument, tool_description=None)
+    with pytest.raises(ValueError, match="tool description"):
+        Row(**argument, tool_description="")
+    with pytest.raises(ValueError, match="tool description"):
+        Row(**tool, tool_description="Read a file")
