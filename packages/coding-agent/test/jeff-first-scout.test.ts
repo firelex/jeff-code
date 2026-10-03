@@ -154,8 +154,8 @@ describe("createScoutStreamFn", () => {
 		const toolCall = message.content.find((part) => part.type === "toolCall");
 		expect(toolCall).toMatchObject({
 			type: "toolCall",
-			name: "read",
-			arguments: { path: join(cwd, "README.md") },
+			name: "bash",
+			arguments: { command: `cat '${join(cwd, "README.md")}'`, timeout: 60 },
 		});
 		expect(lines()[0]).toMatchObject({
 			schema: "jeff-first-trace/3",
@@ -182,8 +182,8 @@ describe("createScoutStreamFn", () => {
 			{
 				type: "toolCall",
 				id: expect.any(String),
-				name: "read",
-				arguments: { path: join(cwd, "README.md") },
+				name: "bash",
+				arguments: { command: `cat '${join(cwd, "README.md")}'`, timeout: 60 },
 			},
 		]);
 	});
@@ -197,8 +197,8 @@ describe("createScoutStreamFn", () => {
 			{
 				type: "toolCall",
 				id: expect.any(String),
-				name: "read",
-				arguments: { path: join(cwd, "README.md") },
+				name: "bash",
+				arguments: { command: `cat '${join(cwd, "README.md")}'`, timeout: 60 },
 			},
 		]);
 	});
@@ -275,7 +275,8 @@ describe("createScoutStreamFn", () => {
 		expect(chooser.asked[2].options.map((o) => o.id)).not.toContain("read-1");
 		expect(message.content.find((part) => part.type === "toolCall")).toMatchObject({
 			type: "toolCall",
-			name: "read",
+			name: "bash",
+			arguments: { command: `cat '${join(cwd, "f10.txt")}'` },
 		});
 		expect(lines()[0].levels.map((l: { page: number }) => l.page)).toEqual([1, 2, 2]);
 	});

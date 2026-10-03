@@ -4,11 +4,11 @@ import { join } from "node:path";
 import type { ToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type FileFacts, liveFacts } from "../src/core/jeff-first/facts.ts";
-import { ARGUMENT_LIMIT, buildLists, type ListsInput } from "../src/core/jeff-first/lists.ts";
+import { ARGUMENT_LIMIT, type ArgumentOption, buildLists, type ListsInput } from "../src/core/jeff-first/lists.ts";
+import { shellQuote } from "../src/core/jeff-first/probes.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 const ALL_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
-const DEFAULT_TOOLS = new Set(["read", "bash", "edit", "write"]);
 
 function step(
 	name: string,
@@ -18,6 +18,20 @@ function step(
 	byScout = false,
 ): Step {
 	return { call: { type: "toolCall", id: `c${Math.random()}`, name, arguments: args }, output, isError, byScout };
+}
+
+/** The file or folder an option's bash command names: its last single-quoted argument. */
+function target(option: ArgumentOption): string {
+	const match = /'((?:[^']|'\\'')*)'$/.exec(String(option.toolCall.arguments.command));
+	if (!match) throw new Error(`no quoted path at the end of: ${String(option.toolCall.arguments.command)}`);
+	return match[1].replaceAll("'\\''", "'");
+}
+
+/** The text a Search option searches for, or the name pattern a Find option looks for, from its description. */
+function searched(option: ArgumentOption): string {
+	const match = /^Search the project for the text "(.*)"$|^Find files matching (.*)$/.exec(option.description);
+	if (!match) throw new Error(`not a Search or Find option: ${option.description}`);
+	return match[1] ?? match[2];
 }
 
 describe("buildLists", () => {
@@ -135,30 +149,39 @@ describe("buildLists", () => {
 	it("reads a 60-line slice around each traceback place, then whole named files", () => {
 		const read = buildLists(input).argumentsByTool.read ?? [];
 		expect(read[0].toolCall).toEqual({
-			name: "read",
-			arguments: { path: join(cwd, "src", "app.py"), offset: 90, limit: 60 },
+			name: "bash",
+			arguments: { command: `sed -n '90,149p' '${join(cwd, "src", "app.py")}'`, timeout: 60 },
 		});
-		expect(read.map((o) => o.toolCall.arguments.path)).toContain(join(cwd, "README.md"));
+		expect(read[0].description).toBe(`Read lines 90 to 149 of ${join(cwd, "src", "app.py")}`);
+		expect(read.map(target)).toContain(join(cwd, "README.md"));
 	});
 
 	it("leaves out places whose file does not exist or whose line is 0", () => {
 		const read = buildLists(input).argumentsByTool.read ?? [];
-		const paths = read.map((o) => o.toolCall.arguments.path);
-		expect(paths).not.toContain(join(cwd, "src", "missing.py"));
-		expect(read.filter((o) => o.toolCall.arguments.offset !== undefined)).toHaveLength(1);
+		expect(read.map(target)).not.toContain(join(cwd, "src", "missing.py"));
+		expect(read.filter((o) => String(o.toolCall.arguments.command).startsWith("sed -n"))).toHaveLength(1);
 	});
 
 	it("never starts a read slice before line 1", () => {
 		input.steps = [step("bash", { command: "python3 run.py" }, "src/app.py:12: warning", false)];
 		const read = buildLists(input).argumentsByTool.read ?? [];
-		expect(read[0].toolCall.arguments).toEqual({ path: join(cwd, "src", "app.py"), offset: 1, limit: 60 });
+		expect(read[0].toolCall.arguments).toEqual({
+			command: `sed -n '1,60p' '${join(cwd, "src", "app.py")}'`,
+			timeout: 60,
+		});
 	});
 
 	it("searches for names from the task and for missing symbols in outputs", () => {
-		const patterns = (buildLists(input).argumentsByTool.search ?? []).map((o) => o.toolCall.arguments.pattern);
+		const patterns = (buildLists(input).argumentsByTool.search ?? []).map(searched);
 		expect(patterns).toEqual(expect.arrayContaining(["parse_config", "load_rows", "invalid header row"]));
 		const first = buildLists(input).argumentsByTool.search?.[0];
-		expect(first?.toolCall).toMatchObject({ name: "grep", arguments: { path: cwd, literal: true, limit: 50 } });
+		expect(first?.toolCall).toEqual({
+			name: "bash",
+			arguments: {
+				command: `grep -rn --fixed-strings -- '${String(first && searched(first))}' '${cwd}' | head -n 50`,
+				timeout: 60,
+			},
+		});
 	});
 
 	it("searches for symbols from compiler errors and functions in the file just read", () => {
@@ -172,7 +195,7 @@ describe("buildLists", () => {
 				true,
 			),
 		);
-		const patterns = (buildLists(input).argumentsByTool.search ?? []).map((o) => o.toolCall.arguments.pattern);
+		const patterns = (buildLists(input).argumentsByTool.search ?? []).map(searched);
 		expect(patterns).toEqual(expect.arrayContaining(["load_tensor", "parse_rows", "Loader"]));
 	});
 
@@ -187,14 +210,22 @@ describe("buildLists", () => {
 				true,
 			),
 		];
-		const patterns = (buildLists(input).argumentsByTool.search ?? []).map((o) => o.toolCall.arguments.pattern);
+		const patterns = (buildLists(input).argumentsByTool.search ?? []).map(searched);
 		expect(patterns).toEqual(["Loader", "parse_rows", "helper"]);
 	});
 
 	it("finds files the task or an error names but that are not where they were named", () => {
-		const patterns = (buildLists(input).argumentsByTool.find ?? []).map((o) => o.toolCall.arguments.pattern);
+		const find = buildLists(input).argumentsByTool.find ?? [];
+		const patterns = find.map(searched);
 		expect(patterns).toEqual(expect.arrayContaining(["**/config.yaml", "**/input.csv"]));
 		expect(patterns).not.toContain("**/README.md");
+		expect(find.find((o) => searched(o) === "**/config.yaml")?.toolCall).toEqual({
+			name: "bash",
+			arguments: {
+				command: `find '${cwd}' -name 'config.yaml' -not -path '*/node_modules/*' 2>/dev/null | head -n 50`,
+				timeout: 60,
+			},
+		});
 	});
 
 	it("offers the check command and each failing pytest test", () => {
@@ -214,9 +245,42 @@ describe("buildLists", () => {
 		]);
 	});
 
-	it("leaves out List, Search and Find when pi runs with its default tools", () => {
-		input.activeTools = DEFAULT_TOOLS;
-		expect(buildLists(input).tools.map((t) => t.id)).toEqual(["read", "toolchain", "check", "repeat", "hand_over"]);
+	it("offers every kind as a bash command when bash is the only tool, and nothing but Hand over without bash", () => {
+		input.activeTools = new Set(["bash"]);
+		expect(buildLists(input).tools.map((t) => t.id)).toEqual([
+			"read",
+			"list",
+			"search",
+			"find",
+			"toolchain",
+			"check",
+			"repeat",
+			"hand_over",
+		]);
+		for (const options of Object.values(buildLists(input).argumentsByTool)) {
+			for (const option of options) expect(option.toolCall.name).toBe("bash");
+		}
+		input.activeTools = new Set(["read", "edit", "write", "grep", "find", "ls"]);
+		expect(buildLists(input).tools.map((t) => t.id)).toEqual(["hand_over"]);
+	});
+
+	it("makes Read and List bash commands with quoted paths and a 60-second timeout", () => {
+		mkdirSync(join(cwd, "it's here"));
+		writeFileSync(join(cwd, "it's here", "a b.py"), "print(1)\n");
+		const file = join(cwd, "it's here", "a b.py");
+		input.steps = [step("write", { path: file, content: "print(1)\n" }, "ok")];
+		const lists = buildLists(input);
+		expect(lists.argumentsByTool.read).toContainEqual({
+			id: expect.any(String),
+			description: `Read the file ${file}`,
+			toolCall: { name: "bash", arguments: { command: `cat ${shellQuote(file)}`, timeout: 60 } },
+		});
+		expect(shellQuote(file)).toBe(`'${join(cwd, "it")}'\\''s here/a b.py'`);
+		expect(lists.argumentsByTool.list?.[0]).toEqual({
+			id: "list-1",
+			description: `List the folder ${cwd}`,
+			toolCall: { name: "bash", arguments: { command: `ls -la '${cwd}'`, timeout: 60 } },
+		});
 	});
 
 	it("caps every argument list at 30 options, three pages of ten", () => {
@@ -238,7 +302,7 @@ describe("buildLists", () => {
 			{ name: "bash", arguments: { command: `cd '${cwd}' && python3 'scan.py'`, timeout: 300 } },
 		]);
 		const read = buildLists(input).argumentsByTool.read ?? [];
-		expect(read[0].toolCall.arguments.path).toBe(join(cwd, "scan.py"));
+		expect(target(read[0])).toBe(join(cwd, "scan.py"));
 	});
 
 	it("does not offer Run for a script written and run in the same bash step", () => {
@@ -255,7 +319,7 @@ describe("buildLists", () => {
 			step("bash", { command: "cd /app && g++ -o tool src/tool.cpp" }, "error: x"),
 			step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF\necho written" }, "written"),
 		);
-		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map(target);
 		expect(paths.slice(0, 2)).toEqual([join(cwd, "scan.py"), join(cwd, "src", "tool.cpp")]);
 	});
 
@@ -263,18 +327,18 @@ describe("buildLists", () => {
 		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
 		input.steps.push(
 			step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF" }, ""),
-			step("read", { path: join(cwd, "scan.py") }, "print(1)", false, true),
+			step("bash", { command: `cat '${join(cwd, "scan.py")}'`, timeout: 60 }, "print(1)", false, true),
 		);
 		const read = buildLists(input).argumentsByTool.read ?? [];
-		expect(read[0].toolCall.arguments).toEqual({ path: join(cwd, "src", "app.py"), offset: 90, limit: 60 });
-		expect(read.map((o) => o.toolCall.arguments.path)).toContain(join(cwd, "scan.py"));
+		expect(read[0].toolCall.arguments.command).toBe(`sed -n '90,149p' '${join(cwd, "src", "app.py")}'`);
+		expect(read.map(target)).toContain(join(cwd, "scan.py"));
 	});
 
 	it("never offers a binary file for reading", () => {
 		writeFileSync(join(cwd, "tool"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x00, 0x01]));
 		input.task = "Build `tool` from src/app.py.";
 		input.steps.push(step("bash", { command: "./tool" }, "tool: exit 1"));
-		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map(target);
 		expect(paths).not.toContain(join(cwd, "tool"));
 		expect(liveFacts().isText(join(cwd, "src", "app.py"))).toBe(true);
 		expect(liveFacts().isText(join(cwd, "tool"))).toBe(false);
@@ -318,7 +382,7 @@ describe("buildLists", () => {
 		writeFileSync(join(cwd, "huge.json"), `[${"1,".repeat(40000)}1]`);
 		input.task = "Read huge.json and README.md.";
 		const lists = buildLists(input);
-		const reads = (lists.argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		const reads = (lists.argumentsByTool.read ?? []).map(target);
 		expect(reads).not.toContain(join(cwd, "huge.json"));
 		expect(reads).toContain(join(cwd, "README.md"));
 		expect((lists.argumentsByTool.peek ?? []).map((o) => o.description)).toContain(
@@ -329,7 +393,7 @@ describe("buildLists", () => {
 	it("does not throw when an output names a path with a segment over 255 bytes", () => {
 		input.steps.push(step("bash", { command: "find / -name '*.pkl'" }, `${"A".repeat(300)}/cd\nsrc/app.py`));
 		expect(() => buildLists(input)).not.toThrow();
-		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map(target);
 		expect(paths).toContain(join(cwd, "src", "app.py"));
 	});
 
@@ -342,7 +406,7 @@ describe("buildLists", () => {
 			),
 		);
 		expect(() => buildLists(input)).not.toThrow();
-		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map(target);
 		expect(paths.some((p) => typeof p === "string" && p.includes("\u0000"))).toBe(false);
 		expect(paths).toContain(join(cwd, "src", "app.py"));
 	});
@@ -366,7 +430,7 @@ describe("buildLists", () => {
 		expect(lists.argumentsByTool.read).toBeUndefined();
 		expect(lists.argumentsByTool.peek).toBeUndefined();
 		expect(lists.argumentsByTool.run).toBeUndefined();
-		expect((lists.argumentsByTool.list ?? []).map((o) => o.toolCall.arguments.path)).toEqual([cwd]);
+		expect((lists.argumentsByTool.list ?? []).map(target)).toEqual([cwd]);
 		const tools = lists.tools.map((t) => t.id);
 		expect(tools).toContain("toolchain");
 		expect(tools.at(-1)).toBe("hand_over");

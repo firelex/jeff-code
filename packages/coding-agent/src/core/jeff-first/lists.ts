@@ -12,7 +12,7 @@ import {
 	namedPaths,
 	RECENT_OUTPUTS,
 } from "./menu.ts";
-import { shellQuote } from "./probes.ts";
+import { PROBE_TIMEOUT_SECONDS, shellQuote } from "./probes.ts";
 import { docsOptions, installOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
@@ -85,13 +85,14 @@ const TOOL_ORDER: ToolKind[] = [
 	"repeat",
 ];
 
-/** The pi tool each kind needs; a kind is offered only when that tool is active. */
+/** The pi tool each kind needs; a kind is offered only when that tool is active. Every option is a bash command,
+ * so the coding model, which works with bash alone, sees the scout's steps as commands it could have run itself. */
 const PI_TOOL: Record<ToolKind, string> = {
-	read: "read",
+	read: "bash",
 	peek: "bash",
-	list: "ls",
-	search: "grep",
-	find: "find",
+	list: "bash",
+	search: "bash",
+	find: "bash",
 	toolchain: "bash",
 	service: "bash",
 	docs: "bash",
@@ -148,6 +149,24 @@ const COMPILE_ERROR_SYMBOL = [
 const READ_IDENTIFIER = /\b(?:def|class|function) (\w+)/g;
 const READ_IDENTIFIER_LIMIT = 5;
 const FAILED_PYTEST = /^FAILED (\S+::\S+)/gm;
+/** A bash command that only shows a file's text: cat, head, tail or sed -n, with no pipe, redirect or second command. */
+const READ_COMMAND = /^(?:cat|head|tail|sed -n)\s[^|;&<>]*$/;
+
+/** Whether a step shows a file's text: pi's read tool, or a bash command that only prints a file. */
+function isReadStep(step: MenuInput["steps"][number]): boolean {
+	if (step.call.name === "read") return true;
+	const command = step.call.arguments.command;
+	return step.call.name === "bash" && typeof command === "string" && READ_COMMAND.test(command.trim());
+}
+
+/** A probe-timed bash call: the scout's read-only steps all stop after PROBE_TIMEOUT_SECONDS. */
+function bashProbe(command: string): MenuToolCall {
+	return { name: "bash", arguments: { command, timeout: PROBE_TIMEOUT_SECONDS } };
+}
+
+function readWhole(path: string): Built {
+	return { call: bashProbe(`cat ${shellQuote(path)}`), description: `Read the file ${path}` };
+}
 
 export function recentOutputs(input: MenuInput): string[] {
 	return input.steps
@@ -198,11 +217,17 @@ export function writtenFiles(input: MenuInput): Array<{ path: string; index: num
 	return found.reverse();
 }
 
-/** The step index at which the scout last read this file, or -1. */
+/** The step index at which the scout last read this file (whole or a slice, as its own Read options do), or -1. */
 function lastScoutRead(input: MenuInput, path: string): number {
+	const quoted = ` ${shellQuote(path)}`;
 	for (let index = input.steps.length - 1; index >= 0; index--) {
 		const step = input.steps[index];
-		if (step.byScout && step.call.name === "read" && step.call.arguments.path === path) return index;
+		if (!step.byScout) continue;
+		if (step.call.name === "read" && step.call.arguments.path === path) return index;
+		const command = step.call.arguments.command;
+		if (step.call.name === "bash" && typeof command === "string" && isReadStep(step) && command.endsWith(quoted)) {
+			return index;
+		}
 	}
 	return -1;
 }
@@ -229,13 +254,13 @@ function modelCallFiles(input: MenuInput): string[] {
 /** Order: (1) files the coding model changed since the scout last read them, newest first; (2) place slices from
  * tracebacks; (3) files from the coding model's recent calls; (4) files named in outputs and the task. Every
  * candidate must be a readable text file. */
-function readOptions(input: ListsInput): MenuToolCall[] {
-	const calls: MenuToolCall[] = [];
+function readOptions(input: ListsInput): Built[] {
+	const calls: Built[] = [];
 	const { facts } = input;
 	const readable = (path: string) => facts.kind(path) === "file" && facts.isText(path) === true;
 	const wholeFileReadable = (path: string) => facts.kind(path) === "file" && fitsReadLimit(facts, path);
 	const changed = writtenFiles(input).filter(({ path, index }) => index > lastScoutRead(input, path));
-	for (const { path } of changed) if (wholeFileReadable(path)) calls.push({ name: "read", arguments: { path } });
+	for (const { path } of changed) if (wholeFileReadable(path)) calls.push(readWhole(path));
 	const seen = new Set<string>();
 	for (const output of recentOutputs(input)) {
 		for (const pattern of [PYTHON_PLACE, PLACE]) {
@@ -245,21 +270,26 @@ function readOptions(input: ListsInput): MenuToolCall[] {
 				const key = `${path}:${line}`;
 				if (line < 1 || seen.has(key) || !readable(path)) continue;
 				seen.add(key);
-				const offset = Math.max(1, line - READ_SLICE_BEFORE);
-				calls.push({ name: "read", arguments: { path, offset, limit: READ_SLICE_LINES } });
+				const first = Math.max(1, line - READ_SLICE_BEFORE);
+				const last = first + READ_SLICE_LINES - 1;
+				calls.push({
+					call: bashProbe(`sed -n '${first},${last}p' ${shellQuote(path)}`),
+					description: `Read lines ${first} to ${last} of ${path}`,
+				});
 			}
 		}
 	}
-	for (const path of modelCallFiles(input))
-		if (wholeFileReadable(path)) calls.push({ name: "read", arguments: { path } });
-	for (const file of namedPaths(input).files)
-		if (fitsReadLimit(facts, file)) calls.push({ name: "read", arguments: { path: file } });
+	for (const path of modelCallFiles(input)) if (wholeFileReadable(path)) calls.push(readWhole(path));
+	for (const file of namedPaths(input).files) if (fitsReadLimit(facts, file)) calls.push(readWhole(file));
 	return calls;
 }
 
-function listOptions(input: ListsInput): MenuToolCall[] {
+function listOptions(input: ListsInput): Built[] {
 	const folders = [input.cwd, ...namedPaths(input).folders.slice(0, LOOK_FOLDER_LIMIT)];
-	return folders.map((path) => ({ name: "ls", arguments: { path } }));
+	return folders.map((path) => ({
+		call: bashProbe(`ls -la ${shellQuote(path)}`),
+		description: `List the folder ${path}`,
+	}));
 }
 
 /** At most READ_IDENTIFIER_LIMIT function, class or method names defined in the output of the last read step
@@ -267,7 +297,7 @@ function listOptions(input: ListsInput): MenuToolCall[] {
 function lastReadIdentifiers(input: ListsInput): string[] {
 	let lastRead: (typeof input.steps)[number] | undefined;
 	for (let index = input.steps.length - 1; index >= 0; index--) {
-		if (input.steps[index].call.name === "read") {
+		if (isReadStep(input.steps[index])) {
 			lastRead = input.steps[index];
 			break;
 		}
@@ -281,7 +311,7 @@ function lastReadIdentifiers(input: ListsInput): string[] {
 	return names;
 }
 
-function searchOptions(input: ListsInput): MenuToolCall[] {
+function searchOptions(input: ListsInput): Built[] {
 	const names: string[] = [];
 	for (const match of input.task.matchAll(TASK_NAME)) {
 		if (!FILE_NAME.test(match[1])) names.push(match[1]);
@@ -301,12 +331,14 @@ function searchOptions(input: ListsInput): MenuToolCall[] {
 	return unique(names)
 		.slice(0, SEARCH_LIMIT)
 		.map((pattern) => ({
-			name: "grep",
-			arguments: { pattern, path: input.cwd, literal: true, limit: SEARCH_RESULT_LIMIT },
+			call: bashProbe(
+				`grep -rn --fixed-strings -- ${shellQuote(pattern)} ${shellQuote(input.cwd)} | head -n ${SEARCH_RESULT_LIMIT}`,
+			),
+			description: `Search the project for the text "${pattern}"`,
 		}));
 }
 
-function findOptions(input: ListsInput): MenuToolCall[] {
+function findOptions(input: ListsInput): Built[] {
 	const named: string[] = [];
 	for (const match of input.task.matchAll(/[\w*.\-/]+/g)) named.push(match[0]);
 	for (const output of recentOutputs(input)) {
@@ -314,15 +346,20 @@ function findOptions(input: ListsInput): MenuToolCall[] {
 			for (const match of output.matchAll(pattern)) named.push(match[1]);
 		}
 	}
-	const patterns: string[] = [];
+	const names: string[] = [];
 	for (const token of named) {
 		const name = basename(token.replace(/\.$/, ""));
 		if (!FILE_NAME.test(name) || input.facts.kind(resolve(input.cwd, token)) !== undefined) continue;
-		patterns.push(`**/${name}`);
+		names.push(name);
 	}
-	return unique(patterns)
+	return unique(names)
 		.slice(0, FIND_LIMIT)
-		.map((pattern) => ({ name: "find", arguments: { pattern, path: input.cwd, limit: SEARCH_RESULT_LIMIT } }));
+		.map((name) => ({
+			call: bashProbe(
+				`find ${shellQuote(input.cwd)} -name ${shellQuote(name)} -not -path '*/node_modules/*' 2>/dev/null | head -n ${SEARCH_RESULT_LIMIT}`,
+			),
+			description: `Find files matching **/${name}`,
+		}));
 }
 
 function checkOptions(input: ListsInput): MenuToolCall[] {
@@ -381,22 +418,9 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 	return calls;
 }
 
-function describe(
-	kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs" | "install">,
-	call: MenuToolCall,
-): string {
+function describe(kind: "check" | "run" | "repeat", call: MenuToolCall): string {
 	const args = call.arguments;
 	switch (kind) {
-		case "read":
-			return args.offset === undefined
-				? `Read the file ${String(args.path)}`
-				: `Read lines ${String(args.offset)} to ${Number(args.offset) + READ_SLICE_LINES - 1} of ${String(args.path)}`;
-		case "list":
-			return `List the folder ${String(args.path)}`;
-		case "search":
-			return `Search the project for the text "${String(args.pattern)}"`;
-		case "find":
-			return `Find files matching ${String(args.pattern)}`;
 		case "check":
 			return `Run: ${String(args.command)}`;
 		case "run":
@@ -407,18 +431,18 @@ function describe(
 }
 
 function builtFrom(
-	kind: Exclude<ToolKind, "peek" | "toolchain" | "service" | "docs" | "install">,
+	kind: "check" | "run" | "repeat",
 	options: (input: ListsInput) => MenuToolCall[],
 ): (input: ListsInput) => Built[] {
 	return (input) => options(input).map((call) => ({ call, description: describe(kind, call) }));
 }
 
 const BUILDERS: Record<ToolKind, (input: ListsInput) => Built[]> = {
-	read: builtFrom("read", readOptions),
+	read: readOptions,
 	peek: peekOptions,
-	list: builtFrom("list", listOptions),
-	search: builtFrom("search", searchOptions),
-	find: builtFrom("find", findOptions),
+	list: listOptions,
+	search: searchOptions,
+	find: findOptions,
 	toolchain: toolchainOptions,
 	service: serviceOptions,
 	docs: docsOptions,

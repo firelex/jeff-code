@@ -72,7 +72,7 @@ describe("createRecordStreamFn", () => {
 		{
 			role: "system",
 			content: "pi",
-			toolsAdded: [{ name: "read", description: "", parameters: {} as never }],
+			toolsAdded: [{ name: "bash", description: "", parameters: {} as never }],
 			timestamp: 0,
 		},
 		{ role: "user", content: "Fix README.md", timestamp: 0 },
@@ -143,14 +143,14 @@ describe("createRecordStreamFn", () => {
 		const readOptions = line.lists.arguments_by_tool.read as Array<{
 			id: string;
 			description: string;
-			toolCall: { name: string; arguments: { path: string } };
+			toolCall: { name: string; arguments: { command: string } };
 		}>;
 		expect(readOptions).toBeDefined();
-		const readme = readOptions.find((option) => option.toolCall.arguments.path.endsWith("README.md"));
+		const readme = readOptions.find((option) => option.toolCall.arguments.command.endsWith("README.md'"));
 		expect(readme).toMatchObject({
 			id: expect.any(String),
 			description: expect.any(String),
-			toolCall: { name: "read", arguments: { path: expect.stringContaining("README.md") } },
+			toolCall: { name: "bash", arguments: { command: `cat '${join(dir, "README.md")}'` } },
 		});
 	});
 

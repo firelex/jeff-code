@@ -15,7 +15,8 @@
 #                can reason; also when not off, the environment variable JEFF_RUN_MAX_OUTPUT_TOKENS must be set to
 #                the most tokens the model may write in one turn, thinking included, as a positive whole number,
 #                e.g. 65536, since pi's default of 16,384 tokens is too small for a thinking model
-#   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write)
+#   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write);
+#                use bash for imitation runs (the coding model works with bash alone, and every scout option is bash)
 #   MODEL        the model id at BASE_URL, e.g. qwen3.8-flash-next or scissero-glm-5.3
 #   MODE         shadow (log what the model does), teacher (the teacher model scouts before every model turn;
 #                needs JEFF_FIRST_TEACHER_URL, the GLM proxy as containers reach it, JEFF_FIRST_TEACHER_MODEL,
@@ -37,7 +38,7 @@ set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
 if [ $# -lt 10 ]; then
-  sed -n '5,32p' "$0" >&2
+  sed -n '5,33p' "$0" >&2
   exit 2
 fi
 tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9 timeout_multiplier=${10}

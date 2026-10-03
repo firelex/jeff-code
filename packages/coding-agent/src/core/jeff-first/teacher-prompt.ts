@@ -46,10 +46,10 @@ export function renderState(state: JeffState): string {
 				: "Steps so far, oldest first:";
 		parts.push(header);
 		state.recentSteps.forEach((step, index) => {
-			const label = step.isError ? "Output (it reported an error):" : "Output:";
-			const output = step.output ?? "(no output was recorded)";
 			const who = step.byScout ? "by you, the scout" : "by the coding model";
-			parts.push(`Step ${index + 1} (${who}): ${step.tool} ${JSON.stringify(step.arguments)}\n${label}\n${output}`);
+			const error = step.isError ? "; the command reported an error" : "";
+			const output = step.output ?? "(no output was recorded)";
+			parts.push(`Step ${index + 1} (${who}${error}):\n$ ${step.command}\n${output}`);
 		});
 	}
 	return parts.join("\n\n");

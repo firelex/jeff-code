@@ -228,6 +228,21 @@ describe("matchToolCall with folder listings through bash", () => {
 		});
 	});
 
+	it("treats a single-quoted folder, as the scout's List options write it, like the bare folder", () => {
+		const quoted: MenuOption[] = [
+			{
+				id: "o1",
+				kind: "look",
+				description: "",
+				toolCall: { name: "bash", arguments: { command: "ls -la '/app/it'\\''s'" } },
+			},
+		];
+		expect(matchToolCall(quoted, { name: "bash", arguments: { command: "ls -la /app/it's" } }, cwd)).toEqual({
+			kind: "exact",
+			optionId: "o1",
+		});
+	});
+
 	it("does not treat other ls commands as folder listings", () => {
 		expect(matchToolCall(options, { name: "bash", arguments: { command: "ls -la | head" } }, cwd)).toEqual({
 			kind: "none",

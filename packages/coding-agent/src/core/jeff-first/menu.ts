@@ -31,8 +31,16 @@ export interface MenuInput {
 export type MenuMatch = { kind: "exact" | "near"; optionId: string } | { kind: "none" };
 
 const TOKEN_SPLIT = /[\s`'"()[\]{}<>,;:]+/;
-/** A bash command that only lists one folder: `ls`, optional flags, optional folder. */
-const LS_LISTING = /^ls((?:\s+-\S+)*)(?:\s+(\S+))?$/;
+/** A bash command that only lists one folder: `ls`, optional flags, optional folder (bare, or in single quotes as
+ * the scout's own List options write it). */
+const LS_LISTING = /^ls((?:\s+-\S+)*)(?:\s+('(?:[^']|'\\'')*'|[^\s']\S*))?$/;
+
+/** A folder argument of LS_LISTING without its single quotes (the reverse of shellQuote in probes.ts). */
+function unquote(argument: string): string {
+	return argument.length >= 2 && argument.startsWith("'") && argument.endsWith("'")
+		? argument.slice(1, -1).replaceAll("'\\''", "'")
+		: argument;
+}
 
 /** A control character (U+0000-U+001F or U+007F): never part of a real file name, only junk from binary output. */
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
@@ -53,7 +61,7 @@ function listedFolder(step: Step, cwd: string): string | undefined {
 	}
 	if (step.call.name === "bash" && typeof step.call.arguments.command === "string") {
 		const match = LS_LISTING.exec(step.call.arguments.command.replace(/\s+/g, " ").trim());
-		return match ? resolve(cwd, match[2] ?? ".") : undefined;
+		return match ? resolve(cwd, unquote(match[2] ?? ".")) : undefined;
 	}
 	return undefined;
 }
@@ -129,7 +137,7 @@ function normalise(call: MenuToolCall, cwd: string): { main: string; rest: strin
 		if (listing) {
 			const flags = listing[1].trim();
 			return {
-				main: `bash ls ${resolve(cwd, listing[2] ?? ".")}`,
+				main: `bash ls ${resolve(cwd, unquote(listing[2] ?? "."))}`,
 				rest: sortedJson({ path: path ?? null, flags, ...rest }),
 			};
 		}
