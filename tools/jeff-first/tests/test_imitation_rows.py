@@ -1,0 +1,153 @@
+import json
+
+import pytest
+
+from imitation.rows import (
+    Choice,
+    Row,
+    ShellStep,
+    decision_rows,
+    render_state,
+    terminal_command,
+    terminal_view,
+    tool_page,
+)
+
+
+def option(kind: str, number: int, description: str) -> dict:
+    return {"id": f"{kind}-{number}", "description": description, "toolCall": {"name": "bash", "arguments": {"command": "x"}}}
+
+
+def menu_with(read_count: int) -> dict:
+    return {
+        "tools": [
+            {"id": "read", "description": "Read a file"},
+            {"id": "list", "description": "List a folder"},
+            {"id": "hand_over", "description": "Hand over to the coding model"},
+        ],
+        "arguments_by_tool": {
+            "read": [option("read", n, f"Read the file /app/f{n}.py") for n in range(1, read_count + 1)],
+            "list": [option("list", 1, "List the folder /app")],
+        },
+    }
+
+
+def test_terminal_view_keeps_the_last_40_lines_cut_to_200_characters():
+    output = "\n".join(f"line {n}" for n in range(1, 101))
+    view = terminal_view(output)
+    lines = view.split("\n")
+    assert lines[0] == "[60 earlier lines not shown]"
+    assert lines[1] == "line 61"
+    assert lines[-1] == "line 100"
+    assert len(lines) == 41
+    assert terminal_view("x" * 500) == "x" * 200
+
+
+def test_terminal_view_of_a_short_output_has_no_note():
+    # Like state.ts, a final newline is a last (empty) line and is kept.
+    assert terminal_view("a\nb\n") == "a\nb\n"
+    assert terminal_view("a\nb") == "a\nb"
+    assert terminal_view("") == ""
+
+
+def test_terminal_command_keeps_the_first_40_lines():
+    command = "cat > x <<'EOF'\n" + "\n".join(f"row {n}" for n in range(60)) + "\nEOF"
+    view = terminal_command(command)
+    lines = view.split("\n")
+    assert lines[0] == "cat > x <<'EOF'" and lines[39] == "row 38"
+    assert lines[40] == "[22 more lines of this command not shown]"
+
+
+def test_lengths_and_cuts_count_utf16_units_like_javascript():
+    line = "a" * 199 + "\U0001F600" + "b"  # the emoji is two UTF-16 units: the cut at 200 splits it
+    cut = terminal_view(line)
+    assert cut == "a" * 199 + "\ud83d"
+    row_text = Row(
+        source="s", stage=3, quality="exact", task="t", session="x", decision=0, turn=1, level="tool", page=1,
+        state=cut, options=[{"id": "hand_over", "description": "Hand over"}], label="hand_over",
+    ).to_json()
+    assert "\\ud83d" in row_text
+
+
+def test_render_state_shows_steps_as_a_terminal():
+    steps = [
+        ShellStep(command="ls -la /app", output="total 0\nmain.py", is_error=False, by_scout=False),
+        ShellStep(command="cat /app/main.py", output="print(1)", is_error=False, by_scout=True),
+    ]
+    assert render_state("Fix the bug.", steps) == (
+        "Task:\nFix the bug.\n\n"
+        "Steps so far, oldest first:\n\n"
+        "Step 1 (by the coding model):\n$ ls -la /app\ntotal 0\nmain.py\n\n"
+        "Step 2 (by you, the scout):\n$ cat /app/main.py\nprint(1)"
+    )
+
+
+def test_render_state_without_steps_and_with_missing_output_and_errors():
+    assert render_state("T", []) == "Task:\nT\n\nNo steps have been taken yet."
+    text = render_state("T", [ShellStep(command="make", output=None, is_error=True, by_scout=False)])
+    assert "Step 1 (by the coding model; the command reported an error):\n$ make\n(no output was recorded)" in text
+
+
+def test_render_state_keeps_the_most_recent_steps_within_the_budget():
+    big = "\n".join("y" * 199 for _ in range(39))  # 7,799 characters: one step fits the 8,000 budget, two do not
+    steps = [ShellStep(command=f"cat f{n}", output=big, is_error=False, by_scout=False) for n in range(3)]
+    text = render_state("T", steps)
+    assert "(2 earlier steps are not shown)" in text
+    assert "$ cat f2" in text and "$ cat f1" not in text
+
+
+def test_tool_page_matches_pages_ts():
+    menu = menu_with(12)
+    page1 = tool_page(menu, 1)
+    assert [o["id"] for o in page1] == ["read", "list", "hand_over", "show_more"]
+    assert page1[0]["description"].startswith("Read a file: Read the file /app/f1.py; Read the file /app/f2.py;")
+    assert page1[0]["description"].endswith("(12 options)")
+    assert page1[1]["description"] == "List a folder: List the folder /app (1 option)"
+    page2 = tool_page(menu, 2)
+    assert [o["id"] for o in page2] == ["read", "hand_over"]
+
+
+def test_hand_over_is_one_row_on_tool_page_one():
+    levels = decision_rows(menu_with(2), Choice.hand_over())
+    assert [(level.level, level.page, level.label) for level in levels] == [("tool", 1, "hand_over")]
+
+
+def test_a_choice_on_page_one_gives_a_tool_row_and_an_argument_row():
+    levels = decision_rows(menu_with(2), Choice.step("read", "read-2"))
+    assert [(level.level, level.page, level.label) for level in levels] == [("tool", 1, "read"), ("argument", 1, "read-2")]
+    assert [o["id"] for o in levels[1].options] == ["read-1", "read-2", "none_of_these"]
+
+
+def test_a_choice_on_page_two_is_preceded_by_show_more():
+    levels = decision_rows(menu_with(12), Choice.step("read", "read-11"))
+    assert [(level.level, level.page, level.label) for level in levels] == [
+        ("tool", 1, "show_more"),
+        ("tool", 2, "read"),
+        ("argument", 2, "read-11"),
+    ]
+    assert [o["id"] for o in levels[2].options] == ["read-11", "read-12", "none_of_these"]
+
+
+def test_a_choice_not_on_the_menu_is_an_error():
+    with pytest.raises(ValueError, match="read-9"):
+        decision_rows(menu_with(2), Choice.step("read", "read-9"))
+
+
+def test_row_serialises_to_json():
+    row = Row(
+        source="ukisai/Qwen3.8-27B-multi-turn-agent-sft",
+        stage=1,
+        quality="approximate",
+        task="t",
+        session="s",
+        decision=0,
+        turn=1,
+        level="tool",
+        page=1,
+        state="Task:\nt",
+        options=[{"id": "hand_over", "description": "Hand over"}],
+        label="hand_over",
+    )
+    assert json.loads(row.to_json())["label"] == "hand_over"
+    with pytest.raises(ValueError, match="quality"):
+        Row(**{**row.__dict__, "quality": "good"})
