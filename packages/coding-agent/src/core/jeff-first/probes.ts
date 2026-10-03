@@ -68,14 +68,20 @@ for name in sys.argv[1:]:
     except Exception as error:
         print(f"{name}: installed, but importing it failed: {type(error).__name__}: {error}")`;
 
+/** Printed before the program loop and the Python module check in a Toolchain check's output, so a reader (the
+ * teacher model, or code parsing the output back apart) can tell which section a "NAME: MISSING" line came from. */
+export const PROGRAMS_HEADER = "--- programs ---";
+export const MODULES_HEADER = "--- Python modules ---";
+
 export function toolchainProbe(programs: string[], modules: string[]): string {
 	const lines = ["head -n 2 /etc/os-release 2>/dev/null || echo 'os-release: MISSING'"];
 	if (programs.length > 0) {
 		lines.push(
+			`echo '${PROGRAMS_HEADER}'`,
 			`for c in ${programs.map(shellQuote).join(" ")}; do p=$(command -v "$c") && echo "$c: $p" || echo "$c: MISSING"; done`,
 		);
 	}
-	if (modules.length > 0) lines.push(python(MODULES_SCRIPT, modules));
+	if (modules.length > 0) lines.push(`echo '${MODULES_HEADER}'`, python(MODULES_SCRIPT, modules));
 	return lines.join("\n");
 }
 

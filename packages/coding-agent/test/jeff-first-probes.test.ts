@@ -7,6 +7,8 @@ import {
 	CORE_PROGRAMS,
 	folderTypesProbe,
 	installedPackagesProbe,
+	MODULES_HEADER,
+	PROGRAMS_HEADER,
 	peekProbe,
 	shellQuote,
 	toolchainProbe,
@@ -27,17 +29,29 @@ describe("probes", () => {
 		expect(bash(`printf '%s' ${shellQuote("a b'c$(x)")}`)).toBe("a b'c$(x)");
 	});
 
-	it("reports each program as found or MISSING", () => {
+	it("reports each program as found or MISSING, after a header naming the section", () => {
 		const out = bash(toolchainProbe(["bash", "surely-not-a-program-xyz"], []));
 		expect(out).toMatch(/^bash: \/\S+$/m);
 		expect(out).toContain("surely-not-a-program-xyz: MISSING");
 		expect(CORE_PROGRAMS).toContain("python3");
+		const lines = out.trim().split("\n");
+		expect(lines.indexOf(PROGRAMS_HEADER)).toBeLessThan(lines.findIndex((line) => line.startsWith("bash:")));
 	});
 
-	it("reports Python modules as found with a version, or MISSING", () => {
+	it("reports Python modules as found with a version, or MISSING, after a header naming the section", () => {
 		const out = bash(toolchainProbe([], ["json", "surely_not_a_module_xyz"]));
 		expect(out).toMatch(/^json: /m);
 		expect(out).toContain("surely_not_a_module_xyz: MISSING");
+		const lines = out.trim().split("\n");
+		expect(lines.indexOf(MODULES_HEADER)).toBeLessThan(lines.findIndex((line) => line.startsWith("json:")));
+	});
+
+	it("prints a header for each section when both programs and modules are checked", () => {
+		const out = bash(toolchainProbe(["bash"], ["json"]));
+		const lines = out.trim().split("\n");
+		expect(lines).toContain(PROGRAMS_HEADER);
+		expect(lines).toContain(MODULES_HEADER);
+		expect(lines.indexOf(PROGRAMS_HEADER)).toBeLessThan(lines.indexOf(MODULES_HEADER));
 	});
 
 	it("keeps checking later modules after a bad module name raises instead of returning None", () => {

@@ -1,11 +1,13 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ListsInput } from "../src/core/jeff-first/lists.ts";
+import { CORE_PROGRAMS, MODULES_HEADER, PROGRAMS_HEADER } from "../src/core/jeff-first/probes.ts";
 import {
 	docsOptions,
 	installOptions,
+	isExecutableOnPath,
 	peekKind,
 	peekOptions,
 	serviceOptions,
@@ -146,7 +148,7 @@ describe("Toolchain check", () => {
 		expect(toolchainOptions(input).map((o) => o.description)).toHaveLength(1);
 	});
 
-	it("offers a filesystem search for a program reported as not found", () => {
+	it("offers a filesystem search for a program reported as not found, limited to the local filesystem", () => {
 		input.steps = [
 			{
 				call: { type: "toolCall", id: "a", name: "bash", arguments: { command: "oligotm" } },
@@ -155,9 +157,23 @@ describe("Toolchain check", () => {
 				byScout: false,
 			},
 		];
-		expect(toolchainOptions(input).map((o) => o.description)).toContain(
-			"Search the whole filesystem for a program named oligotm",
+		const options = toolchainOptions(input);
+		expect(options.map((o) => o.description)).toContain("Search the whole filesystem for a program named oligotm");
+		const search = options.find((o) => o.description.startsWith("Search the whole filesystem"));
+		expect(String(search?.call.arguments.command)).toContain("find / -xdev ");
+	});
+
+	it("lists task-specific names before the core programs in the check's description", () => {
+		input.task = "Design primers with oligotm.";
+		const [core] = toolchainOptions(input);
+		expect(core.description).toBe(
+			`Check which tools and languages are installed: oligotm, ${CORE_PROGRAMS.slice(0, 11).join(", ")}, ...`,
 		);
+	});
+
+	it("does not treat common English words that happen to be program names as task-specific", () => {
+		input.task = "Please go convert the tar archive quickly.";
+		expect(toolchainOptions(input)).toHaveLength(1);
 	});
 
 	it("strips sentence punctuation from a task word before taking its extension", () => {
@@ -230,6 +246,50 @@ describe("Toolchain check", () => {
 	});
 });
 
+describe("isExecutableOnPath", () => {
+	let dir: string;
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "jeff-first-path-"));
+	});
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("throws naming PATH when it is unset, rather than silently reporting nothing found", () => {
+		const original = process.env.PATH;
+		delete process.env.PATH;
+		try {
+			expect(() => isExecutableOnPath("ls")).toThrow(/PATH/);
+		} finally {
+			process.env.PATH = original;
+		}
+	});
+
+	it("skips a PATH entry that does not exist as a folder, and finds the program in a later one", () => {
+		const exe = join(dir, "myprobe9000");
+		writeFileSync(exe, "#!/bin/sh\necho hi\n");
+		chmodSync(exe, 0o755);
+		const original = process.env.PATH;
+		process.env.PATH = `${join(dir, "does-not-exist")}:${dir}`;
+		try {
+			expect(isExecutableOnPath("myprobe9000")).toBe(true);
+		} finally {
+			process.env.PATH = original;
+		}
+	});
+
+	it("returns false for a name on PATH with no executable bit set", () => {
+		writeFileSync(join(dir, "notexec"), "x");
+		const original = process.env.PATH;
+		process.env.PATH = dir;
+		try {
+			expect(isExecutableOnPath("notexec")).toBe(false);
+		} finally {
+			process.env.PATH = original;
+		}
+	});
+});
+
 describe("Service check", () => {
 	let cwd: string;
 	let input: ListsInput;
@@ -280,6 +340,23 @@ describe("Service check", () => {
 		input.task = "Use port 99999.";
 		expect(serviceOptions(input)).toEqual([]);
 	});
+
+	it("pipes the curl request, the process/port listing, and the log tail through cut -c1-300", () => {
+		const log = join(cwd, "access.log");
+		writeFileSync(log, "GET /\n");
+		input.task = `Serve the site on port 9090. Its log is ${log}.`;
+		const options = serviceOptions(input);
+		const byDescription = (text: string) => options.find((o) => o.description === text);
+		expect(String(byDescription("Request http://localhost:9090/ once")?.call.arguments.command)).toContain(
+			"| cut -c1-300",
+		);
+		expect(String(byDescription("Show running processes and listening ports")?.call.arguments.command)).toContain(
+			"| cut -c1-300",
+		);
+		expect(String(byDescription(`Show the last 20 lines of ${log}`)?.call.arguments.command)).toContain(
+			"| cut -c1-300",
+		);
+	});
 });
 
 describe("Package docs", () => {
@@ -319,6 +396,21 @@ describe("Package docs", () => {
 			"Show the README of the npm package sparqlee",
 			"List what the npm package sparqlee exports",
 			"List what the Python module rdflib provides",
+		]);
+	});
+
+	it("stops the package list at the end of the line instead of reading into the next command", () => {
+		input.steps = [
+			{
+				call: { type: "toolCall", id: "n", name: "bash", arguments: { command: "npm install express\ncd web" } },
+				output: "",
+				isError: false,
+				byScout: false,
+			},
+		];
+		expect(docsOptions(input).map((o) => o.description)).toEqual([
+			"Show the README of the npm package express",
+			"List what the npm package express exports",
 		]);
 	});
 });
@@ -373,5 +465,39 @@ describe("Install", () => {
 			byScout: false,
 		});
 		expect(installOptions(input).map((o) => o.description)).toEqual(["Install the Python package pyyaml with pip"]);
+	});
+
+	const scoutProbe = (output: string) => ({
+		call: { type: "toolCall" as const, id: `s${Math.random()}`, name: "bash", arguments: { command: "probe" } },
+		output,
+		isError: false,
+		byScout: true,
+	});
+
+	it("classifies a MISSING name by the probe section it was printed in, not by name-list membership", () => {
+		input.task = "Design primers with primer3.";
+		input.steps = [scoutProbe(`${PROGRAMS_HEADER}\nprimer3: MISSING\n${MODULES_HEADER}\n`)];
+		expect(installOptions(input).map((o) => o.description)).toEqual(["Install primer3 with apt (package primer3)"]);
+	});
+
+	it("classifies a module-section MISSING name as a pip install, even when its name matches a known program", () => {
+		input.task = "Use ss to list sockets.";
+		input.steps = [scoutProbe(`${PROGRAMS_HEADER}\n${MODULES_HEADER}\nss: MISSING\n`)];
+		expect(installOptions(input).map((o) => o.description)).toEqual(["Install the Python package ss with pip"]);
+	});
+
+	it("does not offer an install for a common English word, even when the probe reports it MISSING", () => {
+		input.task = "Make sure the file exists.";
+		input.steps = [scoutProbe(`${PROGRAMS_HEADER}\nmake: MISSING\nfile: MISSING\n`)];
+		expect(installOptions(input)).toEqual([]);
+	});
+
+	it("maps newly added program names to their apt package", () => {
+		// recentOutputs() reads newest-first, so the later failure is reported first.
+		input.steps = [failed("bash: rustc: command not found"), failed("bash: Rscript: command not found")];
+		expect(installOptions(input).map((o) => o.description)).toEqual([
+			"Install Rscript with apt (package r-base)",
+			"Install rustc with apt (package rustc)",
+		]);
 	});
 });

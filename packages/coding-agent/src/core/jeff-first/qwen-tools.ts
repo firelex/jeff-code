@@ -15,8 +15,10 @@ import {
 	CORE_PROGRAMS,
 	folderTypesProbe,
 	installedPackagesProbe,
+	MODULES_HEADER,
 	type PeekKind,
 	PROBE_TIMEOUT_SECONDS,
+	PROGRAMS_HEADER,
 	peekProbe,
 	shellQuote,
 	toolchainProbe,
@@ -185,6 +187,18 @@ function wholeWordIn(text: string, word: string): boolean {
 	return new RegExp(`\\b${escapeRegExp(word)}\\b`).test(text);
 }
 
+/** Ordinary English words that happen to also be the name of a program: mentioning one in a task's prose (e.g.
+ * "make sure the file exists") is not a sign the task needs that program, so these never count as task-specific,
+ * even though they stay in CORE_PROGRAMS (checked unconditionally) or KNOWN_TOOLS (checked from errors) where
+ * relevant. */
+const COMMON_WORD_NAMES = new Set(["make", "go", "convert", "file", "bc", "nm", "R", "sed", "awk", "tar", "zip", "cc"]);
+
+/** Whether `name` is mentioned in the task's own prose as a program or module the task specifically needs, not
+ * just as an ordinary English word that happens to share its spelling. */
+function isTaskSpecificName(task: string, name: string): boolean {
+	return !COMMON_WORD_NAMES.has(name) && wholeWordIn(task, name);
+}
+
 /** A name of a program or an installable package: no spaces, slashes or quoting characters. */
 const PACKAGE_NAME = /^[A-Za-z0-9][\w.+-]*$/;
 /** A Python module name: one or more dotted identifiers. */
@@ -283,7 +297,7 @@ export function toolchainOptions(input: ListsInput): Built[] {
 		added.push(name);
 	};
 
-	for (const tool of KNOWN_TOOLS) if (wholeWordIn(input.task, tool)) addProgram(tool);
+	for (const tool of KNOWN_TOOLS) if (isTaskSpecificName(input.task, tool)) addProgram(tool);
 
 	for (const extension of fileTypeExtensions(input)) {
 		const rule = FILE_TYPE_RULES[extension];
@@ -308,7 +322,10 @@ export function toolchainOptions(input: ListsInput): Built[] {
 	const options: Built[] = [
 		probe(
 			toolchainProbe(programs, modules),
-			`Check which tools and languages are installed: ${firstNames([...programs, ...modules])}`,
+			// Task-specific names first, so they are among the first 12 firstNames() shows: with CORE_PROGRAMS
+			// alone already over 12 entries, listing it first would always hide what makes this task's check
+			// different.
+			`Check which tools and languages are installed: ${firstNames([...added, ...CORE_PROGRAMS])}`,
 		),
 	];
 	if (added.length > 0) {
@@ -321,7 +338,7 @@ export function toolchainOptions(input: ListsInput): Built[] {
 			searchedFor.push(match[1]);
 			options.push(
 				probe(
-					`find / -name ${shellQuote(`${match[1]}*`)} -not -path '/proc/*' -not -path '/sys/*' 2>/dev/null | head -n 20`,
+					`find / -xdev -name ${shellQuote(`${match[1]}*`)} -not -path '/proc/*' -not -path '/sys/*' 2>/dev/null | head -n 20`,
 					`Search the whole filesystem for a program named ${match[1]}`,
 				),
 			);
@@ -343,7 +360,7 @@ const PORT_IN_TASK = /(?:port|localhost:|127\.0\.0\.1:|0\.0\.0\.0:)\s*(\d{2,5})\
 const PORT_IN_SOURCE = [/\blisten\s+(\d{2,5})\b/g, /http\.server\s+(\d{2,5})\b/g, /--port[ =](\d{2,5})\b/g];
 const LOG_IN_TASK = /\/[\w./-]+\.log\b/g;
 const LOG_IN_SOURCE = /(?:access_log|error_log)\s+([^\s;]+)/g;
-const NPM_INSTALL = /\bnpm (?:install|i)\s+((?:[@\w/.-]+\s*)+)/g;
+const NPM_INSTALL = /\bnpm (?:install|i)[ \t]+((?:[@\w/.-]+[ \t]*)+)/g;
 const MODULE_HAS_NO_ATTRIBUTE = /module '([\w.]+)' has no attribute/g;
 
 /** A valid port number (a whole number from 1 to 65535), or undefined when the matched text is out of range. */
@@ -405,7 +422,7 @@ export function serviceOptions(input: ListsInput): Built[] {
 	for (const port of ports) {
 		options.push(
 			probe(
-				`command -v curl >/dev/null 2>&1 && curl -s -i --max-time 3 http://localhost:${port}/ | head -n 20 || echo 'curl: MISSING'`,
+				`command -v curl >/dev/null 2>&1 && curl -s -i --max-time 3 http://localhost:${port}/ | head -n 20 | cut -c1-300 || echo 'curl: MISSING'`,
 				`Request http://localhost:${port}/ once`,
 			),
 		);
@@ -416,13 +433,13 @@ export function serviceOptions(input: ListsInput): Built[] {
 	if (ports.length > 0 || services.length > 0) {
 		options.push(
 			probe(
-				"ps aux | head -n 40; (ss -ltnp 2>/dev/null || echo 'ss: MISSING') | head -n 30",
+				"ps aux | head -n 40 | cut -c1-300; (ss -ltnp 2>/dev/null || echo 'ss: MISSING') | head -n 30 | cut -c1-300",
 				"Show running processes and listening ports",
 			),
 		);
 	}
 	for (const log of logs) {
-		options.push(probe(`tail -n 20 ${shellQuote(log)}`, `Show the last 20 lines of ${log}`));
+		options.push(probe(`tail -n 20 ${shellQuote(log)} | cut -c1-300`, `Show the last 20 lines of ${log}`));
 	}
 	return options;
 }
@@ -458,19 +475,26 @@ function docPythonModules(input: ListsInput): string[] {
 	return names;
 }
 
-/** Whether `name` is a file on PATH with an executable bit set for someone (owner, group or other). */
-function isExecutableOnPath(name: string): boolean {
-	for (const dir of (process.env.PATH ?? "").split(":")) {
-		if (!dir) continue;
-		const stats = statSync(join(dir, name), { throwIfNoEntry: false });
-		if (stats?.isFile() && (stats.mode & 0o111) !== 0) return true;
+/** Whether `name` is a file on PATH with an executable bit set for someone (owner, group or other). PATH itself
+ * missing is a broken environment, not a reason to say no silently, so that throws; a PATH entry that does not
+ * exist as a folder is simply skipped, and the candidate file is checked with pathKind (so an overly long name
+ * cannot throw ENAMETOOLONG here either) rather than a try/catch around statSync. */
+export function isExecutableOnPath(name: string): boolean {
+	const path = process.env.PATH;
+	if (path === undefined) throw new Error("process.env.PATH is not set, so programs on PATH cannot be found");
+	for (const dir of path.split(":")) {
+		if (pathKind(dir) !== "folder") continue;
+		const candidate = join(dir, name);
+		if (pathKind(candidate) !== "file") continue;
+		const stats = statSync(candidate);
+		if ((stats.mode & 0o111) !== 0) return true;
 	}
 	return false;
 }
 
 /** Known tools, named as a whole word in the task, that are actually executable on PATH. */
 function docProgramNames(input: ListsInput): string[] {
-	return KNOWN_TOOLS.filter((tool) => wholeWordIn(input.task, tool) && isExecutableOnPath(tool));
+	return KNOWN_TOOLS.filter((tool) => isTaskSpecificName(input.task, tool) && isExecutableOnPath(tool));
 }
 
 /** For each npm package the model installed: its README, then what it exports. For each Python module named by an
@@ -520,7 +544,9 @@ const APT_PACKAGE: Record<string, string> = {
 	pgrep: "procps",
 	ss: "iproute2",
 	python3: "python3",
+	python: "python-is-python3",
 	pip3: "python3-pip",
+	pip: "python3-pip",
 	node: "nodejs",
 	npm: "npm",
 	java: "default-jdk",
@@ -528,6 +554,17 @@ const APT_PACKAGE: Record<string, string> = {
 	objdump: "binutils",
 	cobc: "gnucobol",
 	arq: "jena",
+	convert: "imagemagick",
+	go: "golang-go",
+	rustc: "rustc",
+	cargo: "cargo",
+	ruby: "ruby",
+	php: "php-cli",
+	jq: "jq",
+	ffmpeg: "ffmpeg",
+	gdb: "gdb",
+	valgrind: "valgrind",
+	Rscript: "r-base",
 };
 
 /** The pip package for a Python module, the inverse of PIP_TO_MODULE. */
@@ -535,7 +572,7 @@ const MODULE_TO_PIP: Record<string, string> = Object.fromEntries(
 	Object.entries(PIP_TO_MODULE).map(([pkg, module]) => [module, pkg]),
 );
 
-const MISSING_LINE = /^([\w.+-]+): MISSING$/gm;
+const MISSING_LINE = /^([\w.+-]+): MISSING$/;
 
 /** The outputs of the scout's own bash steps, most recent first, within the usual recent-steps window. */
 function recentScoutOutputs(input: ListsInput): string[] {
@@ -546,15 +583,36 @@ function recentScoutOutputs(input: ListsInput): string[] {
 		.flatMap((step) => (step.output === null ? [] : [step.output]));
 }
 
-/** Whether a name the scout's own Toolchain check reported MISSING was checked as a program (one of the names the
- * composite probe always checks, or a known tool), rather than as a Python module. */
-function isProgramName(name: string): boolean {
-	return CORE_PROGRAMS.includes(name) || KNOWN_TOOLS.includes(name);
+/** Names the scout's own Toolchain check reported MISSING, split by which probe section printed them: the
+ * "--- programs ---" or "--- Python modules ---" header toolchainProbe (probes.ts) prints right before each list.
+ * A program named in an apt install, or a module reported missing by a pip install, can be anything (primer3
+ * became a pip-installed "primer3" one run), so a name's own spelling never decides this - only where the probe
+ * actually printed it. */
+function missingBySection(input: ListsInput): { programs: string[]; modules: string[] } {
+	const programs: string[] = [];
+	const modules: string[] = [];
+	for (const output of recentScoutOutputs(input)) {
+		let section: "programs" | "modules" | undefined;
+		for (const line of output.split("\n")) {
+			if (line === PROGRAMS_HEADER) {
+				section = "programs";
+				continue;
+			}
+			if (line === MODULES_HEADER) {
+				section = "modules";
+				continue;
+			}
+			const match = MISSING_LINE.exec(line);
+			if (!match || section === undefined) continue;
+			(section === "programs" ? programs : modules).push(match[1]);
+		}
+	}
+	return { programs, modules };
 }
 
 /** Program names reported as missing: "command not found" in recent outputs, and names the scout's own Toolchain
- * check reported MISSING that are also named as a whole word in the task (so a MISSING core program the task never
- * mentions is not offered for install). */
+ * check reported MISSING in its programs section that are also named as a whole word in the task (so a MISSING
+ * core program the task never mentions is not offered for install). */
 function missingPrograms(input: ListsInput): string[] {
 	const names: string[] = [];
 	const push = (name: string) => {
@@ -563,16 +621,13 @@ function missingPrograms(input: ListsInput): string[] {
 	for (const output of recentOutputs(input)) {
 		for (const match of output.matchAll(COMMAND_NOT_FOUND)) push(match[1]);
 	}
-	for (const output of recentScoutOutputs(input)) {
-		for (const match of output.matchAll(MISSING_LINE)) {
-			if (isProgramName(match[1]) && wholeWordIn(input.task, match[1])) push(match[1]);
-		}
-	}
+	for (const name of missingBySection(input).programs) if (isTaskSpecificName(input.task, name)) push(name);
 	return names;
 }
 
 /** Python module names reported as missing: "No module named" in recent outputs, and names the scout's own
- * Toolchain check reported MISSING that are also named as a whole word in the task. */
+ * Toolchain check reported MISSING in its Python modules section that are also named as a whole word in the
+ * task. */
 function missingModules(input: ListsInput): string[] {
 	const names: string[] = [];
 	const push = (name: string) => {
@@ -581,11 +636,7 @@ function missingModules(input: ListsInput): string[] {
 	for (const output of recentOutputs(input)) {
 		for (const match of output.matchAll(NO_MODULE_NAMED)) push(match[1].split(".")[0]);
 	}
-	for (const output of recentScoutOutputs(input)) {
-		for (const match of output.matchAll(MISSING_LINE)) {
-			if (!isProgramName(match[1]) && wholeWordIn(input.task, match[1])) push(match[1]);
-		}
-	}
+	for (const name of missingBySection(input).modules) if (isTaskSpecificName(input.task, name)) push(name);
 	return names;
 }
 

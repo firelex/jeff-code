@@ -13,6 +13,7 @@ import {
 	pathKind,
 	RECENT_OUTPUTS,
 } from "./menu.ts";
+import { shellQuote } from "./probes.ts";
 import { docsOptions, installOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
@@ -144,8 +145,9 @@ const COMPILE_ERROR_SYMBOL = [
 	/error: ['‘]?(\w{3,})['’]? (?:was not declared|undeclared|has no member)/g,
 	/undefined reference to `?(\w{3,})/g,
 ];
-/** A function, class or method defined in a file the scout or the coding model just read. */
-const READ_IDENTIFIER = [/\bdef (\w+)/g, /\bclass (\w+)/g, /\bfunction (\w+)/g];
+/** A function, class or method defined in a file the scout or the coding model just read: one combined pattern,
+ * so matches come out in the order they appear in the file rather than all of one kind before the next. */
+const READ_IDENTIFIER = /\b(?:def|class|function) (\w+)/g;
 const READ_IDENTIFIER_LIMIT = 5;
 const FAILED_PYTEST = /^FAILED (\S+::\S+)/gm;
 
@@ -283,11 +285,9 @@ function lastReadIdentifiers(input: ListsInput): string[] {
 	}
 	if (!lastRead || lastRead.output === null) return [];
 	const names: string[] = [];
-	for (const pattern of READ_IDENTIFIER) {
-		for (const match of lastRead.output.matchAll(pattern)) {
-			if (names.length === READ_IDENTIFIER_LIMIT) return names;
-			names.push(match[1]);
-		}
+	for (const match of lastRead.output.matchAll(READ_IDENTIFIER)) {
+		if (names.length === READ_IDENTIFIER_LIMIT) break;
+		names.push(match[1]);
 	}
 	return names;
 }
@@ -386,7 +386,7 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 		const ran = lastRun(input, path);
 		if (ran >= index) continue;
 		if (input.runApproval === "seen" && ran < 0) continue;
-		const command = `cd ${dirname(path)} && ${interpreter} ${basename(path)}`;
+		const command = `cd ${shellQuote(dirname(path))} && ${interpreter} ${shellQuote(basename(path))}`;
 		calls.push({ name: "bash", arguments: { command, timeout: SCOUT_COMMAND_TIMEOUT_SECONDS } });
 	}
 	return calls;

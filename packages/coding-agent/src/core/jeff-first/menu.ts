@@ -35,9 +35,22 @@ const LS_LISTING = /^ls((?:\s+-\S+)*)(?:\s+(\S+))?$/;
 /** A control character (U+0000-U+001F or U+007F): never part of a real file name, only junk from binary output. */
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 
+/** Linux refuses any path longer than this, in bytes. */
+const PATH_MAX_BYTES = 4095;
+/** Linux refuses any single path segment (the text between two "/") longer than this, in bytes. */
+const PATH_SEGMENT_MAX_BYTES = 255;
+
 export function pathKind(path: string): "file" | "folder" | undefined {
 	// No file can be named with a null byte, so that is "not a file", not a fallback.
 	if (path.includes("\u0000")) return undefined;
+	// No file can have a path over 4095 bytes, or a segment (the text between two "/") over 255 bytes: statSync
+	// would throw ENAMETOOLONG for one, so this is "not a file", not a fallback, by the same reasoning as above.
+	if (
+		Buffer.byteLength(path) > PATH_MAX_BYTES ||
+		path.split("/").some((segment) => Buffer.byteLength(segment) > PATH_SEGMENT_MAX_BYTES)
+	) {
+		return undefined;
+	}
 	const stats = statSync(path, { throwIfNoEntry: false });
 	if (stats === undefined) return undefined;
 	return stats.isDirectory() ? "folder" : stats.isFile() ? "file" : undefined;

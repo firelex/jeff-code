@@ -138,6 +138,17 @@ describe("pathKind", () => {
 	it("treats a path containing a null byte as not a file, rather than throwing", () => {
 		expect(pathKind("/app/\u0000x")).toBeUndefined();
 	});
+
+	it("treats a path with a segment over 255 bytes as not a file, rather than throwing ENAMETOOLONG", () => {
+		expect(() => pathKind(`/${"A".repeat(300)}/cd`)).not.toThrow();
+		expect(pathKind(`/${"A".repeat(300)}/cd`)).toBeUndefined();
+	});
+
+	it("treats a path over 4095 bytes as not a file, rather than throwing ENAMETOOLONG", () => {
+		const long = `/${"a/".repeat(2048)}`;
+		expect(() => pathKind(long)).not.toThrow();
+		expect(pathKind(long)).toBeUndefined();
+	});
 });
 
 describe("matchToolCall", () => {

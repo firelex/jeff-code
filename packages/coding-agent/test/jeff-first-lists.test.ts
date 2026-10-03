@@ -75,10 +75,20 @@ describe("buildLists", () => {
 		input.steps.push(step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF\necho written" }, "written"));
 		const run = buildLists(input).argumentsByTool.run ?? [];
 		expect(run.map((o) => o.toolCall)).toEqual([
-			{ name: "bash", arguments: { command: `cd ${cwd} && python3 scan.py`, timeout: 300 } },
+			{ name: "bash", arguments: { command: `cd '${cwd}' && python3 'scan.py'`, timeout: 300 } },
 		]);
-		expect(run[0].description).toBe(`Run: cd ${cwd} && python3 scan.py`);
+		expect(run[0].description).toBe(`Run: cd '${cwd}' && python3 'scan.py'`);
 		expect(buildLists(input).tools.map((t) => t.id)).toContain("run");
+	});
+
+	it("quotes a folder or file name containing a space for Run", () => {
+		mkdirSync(join(cwd, "my dir"));
+		writeFileSync(join(cwd, "my dir", "sc an.py"), "print(1)\n");
+		input.steps.push(step("write", { path: join(cwd, "my dir", "sc an.py"), content: "print(1)\n" }, "ok"));
+		const run = buildLists(input).argumentsByTool.run ?? [];
+		expect(run.map((o) => o.toolCall.arguments.command)).toEqual([
+			`cd '${join(cwd, "my dir")}' && python3 'sc an.py'`,
+		]);
 	});
 
 	it("does not offer to run a script again until it changes", () => {
@@ -117,7 +127,7 @@ describe("buildLists", () => {
 			input.steps.push(step("write", { path: join(cwd, name), content: "x\n" }, "ok"));
 		}
 		const commands = (buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command);
-		expect(commands).toEqual([`cd ${cwd} && node go.js`, `cd ${cwd} && bash go.sh`]);
+		expect(commands).toEqual([`cd '${cwd}' && node 'go.js'`, `cd '${cwd}' && bash 'go.sh'`]);
 	});
 
 	it("reads a 60-line slice around each traceback place, then whole named files", () => {
@@ -164,6 +174,21 @@ describe("buildLists", () => {
 		expect(patterns).toEqual(expect.arrayContaining(["load_tensor", "parse_rows", "Loader"]));
 	});
 
+	it("collects def/class/function names from the last read step in the order they appear, not grouped by kind", () => {
+		input.task = "Refactor.";
+		input.steps = [
+			step(
+				"read",
+				{ path: join(cwd, "src", "app.py") },
+				"class Loader:\n    def parse_rows(x):\n        pass\nfunction helper() {}\n",
+				false,
+				true,
+			),
+		];
+		const patterns = (buildLists(input).argumentsByTool.search ?? []).map((o) => o.toolCall.arguments.pattern);
+		expect(patterns).toEqual(["Loader", "parse_rows", "helper"]);
+	});
+
 	it("finds files the task or an error names but that are not where they were named", () => {
 		const patterns = (buildLists(input).argumentsByTool.find ?? []).map((o) => o.toolCall.arguments.pattern);
 		expect(patterns).toEqual(expect.arrayContaining(["**/config.yaml", "**/input.csv"]));
@@ -208,7 +233,7 @@ describe("buildLists", () => {
 		input.steps.push(step("bash", { command }, "written"));
 		const run = buildLists(input).argumentsByTool.run ?? [];
 		expect(run.map((o) => o.toolCall)).toEqual([
-			{ name: "bash", arguments: { command: `cd ${cwd} && python3 scan.py`, timeout: 300 } },
+			{ name: "bash", arguments: { command: `cd '${cwd}' && python3 'scan.py'`, timeout: 300 } },
 		]);
 		const read = buildLists(input).argumentsByTool.read ?? [];
 		expect(read[0].toolCall.arguments.path).toBe(join(cwd, "scan.py"));
@@ -297,6 +322,13 @@ describe("buildLists", () => {
 		expect((lists.argumentsByTool.peek ?? []).map((o) => o.description)).toContain(
 			`Look at the data in ${join(cwd, "huge.json")}`,
 		);
+	});
+
+	it("does not throw when an output names a path with a segment over 255 bytes", () => {
+		input.steps.push(step("bash", { command: "find / -name '*.pkl'" }, `${"A".repeat(300)}/cd\nsrc/app.py`));
+		expect(() => buildLists(input)).not.toThrow();
+		const paths = (buildLists(input).argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		expect(paths).toContain(join(cwd, "src", "app.py"));
 	});
 
 	it("does not throw on binary junk with null bytes and control characters, and still offers a real file named in the same output", () => {
