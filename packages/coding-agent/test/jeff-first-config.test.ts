@@ -111,4 +111,32 @@ describe("readJeffFirstConfig", () => {
 		const { JEFF_FIRST_DRIVER_BUILD: _, ...env } = teacherEnv;
 		expect(() => readJeffFirstConfig({ ...env, JEFF_FIRST_RUN_APPROVAL: "all" })).toThrow(/JEFF_FIRST_DRIVER_BUILD/);
 	});
+
+	const recordEnv = {
+		JEFF_FIRST_MODE: "record",
+		JEFF_FIRST_TRACE_FILE: "/tmp/t.jsonl",
+		JEFF_FIRST_TASK_ID: "fix-git",
+		JEFF_FIRST_RUN_APPROVAL: "all",
+		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
+	};
+
+	it("reads a full record config", () => {
+		expect(readJeffFirstConfig(recordEnv)).toEqual({
+			mode: "record",
+			traceFile: "/tmp/t.jsonl",
+			taskId: "fix-git",
+			runApproval: "all",
+			driverBuild: "qwen3.8-27b-nvfp4@spark-head",
+		});
+	});
+
+	it("rejects record mode without a run-approval setting", () => {
+		const { JEFF_FIRST_RUN_APPROVAL: _, ...env } = recordEnv;
+		expect(() => readJeffFirstConfig(env)).toThrow(/JEFF_FIRST_RUN_APPROVAL.*all, seen or never/);
+	});
+
+	it("rejects record mode without the driver's build", () => {
+		const { JEFF_FIRST_DRIVER_BUILD: _, ...env } = recordEnv;
+		expect(() => readJeffFirstConfig(env)).toThrow(/JEFF_FIRST_DRIVER_BUILD/);
+	});
 });

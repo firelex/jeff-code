@@ -122,6 +122,31 @@ describe("JeffFirst through createAgentSession", () => {
 		expect(lines[1].state.recentSteps[0].output).toContain("The bug is in main.py.");
 	});
 
+	it("logs one line per model turn in record mode, with the lists built and the model's tool calls", async () => {
+		vi.stubEnv("JEFF_FIRST_MODE", "record");
+		vi.stubEnv("JEFF_FIRST_TRACE_FILE", join(traceDir, "trace.jsonl"));
+		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
+		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
+		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
+		const { session } = await startSession();
+		await session.prompt("Read README.md and fix the bug.");
+		session.dispose();
+		const lines = readFileSync(join(traceDir, "trace.jsonl"), "utf8")
+			.trimEnd()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(lines.map((l) => l.turn)).toEqual([1, 2]);
+		expect(lines[0]).toMatchObject({
+			schema: "jeff-first-trace/4",
+			kind: "record",
+			mode: "record",
+			driver_build: "test-build",
+			run_approval: "all",
+		});
+		expect(lines[0].action.tool_calls[0]).toMatchObject({ name: "read" });
+		expect(lines[0].lists.arguments_by_tool.read).toBeDefined();
+	});
+
 	it("refuses to create a session with an unknown mode", async () => {
 		vi.stubEnv("JEFF_FIRST_MODE", "routing");
 		await expect(startSession()).rejects.toThrow(/must be off, shadow or teacher/);

@@ -17,6 +17,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { GlmTeacher, TEACHER_RETRY_POLICY } from "./jeff-first/chooser.ts";
 import { readJeffFirstConfig } from "./jeff-first/config.ts";
+import { createRecordStreamFn } from "./jeff-first/record.ts";
 import { createScoutStreamFn } from "./jeff-first/scout.ts";
 import { createShadowStreamFn } from "./jeff-first/stream.ts";
 import { TraceWriter } from "./jeff-first/trace.ts";
@@ -408,7 +409,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		}
 		return modelRuntime.streamSimple(model, context, requestOptions);
 	};
-	// JeffFirst fork: shadow mode logs the menu at every model turn; teacher mode lets the teacher model scout first.
+	// JeffFirst fork: shadow mode logs the menu at every model turn; record mode logs the scout's full option lists
+	// at every model turn without acting on them; teacher mode lets the teacher model scout first.
 	const isSessionTurn = (sessionId: string | undefined) => sessionId === sessionManager.getSessionId();
 	const streamFn: StreamFn =
 		jeffFirst.mode === "off"
@@ -421,16 +423,26 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 						trace: new TraceWriter(jeffFirst.traceFile),
 						isSessionTurn,
 					})
-				: createScoutStreamFn({
-						inner: sessionStreamFn,
-						cwd,
-						taskId: jeffFirst.taskId,
-						trace: new TraceWriter(jeffFirst.traceFile),
-						chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel, TEACHER_RETRY_POLICY),
-						isSessionTurn,
-						runApproval: jeffFirst.runApproval,
-						driverBuild: jeffFirst.driverBuild,
-					});
+				: jeffFirst.mode === "record"
+					? createRecordStreamFn({
+							inner: sessionStreamFn,
+							cwd,
+							taskId: jeffFirst.taskId,
+							trace: new TraceWriter(jeffFirst.traceFile),
+							isSessionTurn,
+							runApproval: jeffFirst.runApproval,
+							driverBuild: jeffFirst.driverBuild,
+						})
+					: createScoutStreamFn({
+							inner: sessionStreamFn,
+							cwd,
+							taskId: jeffFirst.taskId,
+							trace: new TraceWriter(jeffFirst.traceFile),
+							chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel, TEACHER_RETRY_POLICY),
+							isSessionTurn,
+							runApproval: jeffFirst.runApproval,
+							driverBuild: jeffFirst.driverBuild,
+						});
 
 	const agent = new Agent({
 		initialState: {

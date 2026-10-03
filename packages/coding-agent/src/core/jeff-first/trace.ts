@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import type { JsonObject, StopReason } from "@earendil-works/pi-ai";
 import type { Pick } from "./chooser.ts";
 import type { RunApproval } from "./config.ts";
-import type { ArgumentOption } from "./lists.ts";
+import type { ArgumentOption, ToolKind, ToolOption } from "./lists.ts";
 import type { MenuMatch, MenuOption, MenuToolCall } from "./menu.ts";
 import type { JeffState } from "./state.ts";
 import type { ShownOption } from "./teacher-prompt.ts";
@@ -89,7 +89,36 @@ export interface ModelTurnRecord {
 	timings_ms: { model: number };
 }
 
-export type TraceRecord = ShadowRecord | DecisionRecord | ModelTurnRecord;
+/**
+ * One line per turn of plain Qwen in record mode: the scout's full option lists at that moment (built by code, no
+ * scout step taken), so a converter can later label the point with Qwen's actual next action, or "hand over".
+ */
+export interface RecordRecord {
+	schema: "jeff-first-trace/4";
+	kind: "record";
+	task_id: string;
+	session_id: string;
+	turn: number;
+	mode: "record";
+	/** The large model driving the session (its model id). */
+	driver: string;
+	driver_build: string;
+	run_approval: RunApproval;
+	time: string;
+	state: JeffState;
+	check_command_notes: string[];
+	lists: { tools: ToolOption[]; arguments_by_tool: Partial<Record<ToolKind, ArgumentOption[]>> };
+	action: {
+		stop_reason: StopReason;
+		error_message: string | null;
+		text_chars: number;
+		tool_calls: Array<{ name: string; arguments: JsonObject }>;
+	};
+	model_usage: { input: number; output: number; cache_read: number; cache_write: number };
+	timings_ms: { lists: number; model: number };
+}
+
+export type TraceRecord = ShadowRecord | DecisionRecord | ModelTurnRecord | RecordRecord;
 
 export class TraceWriter {
 	private readonly path: string;
