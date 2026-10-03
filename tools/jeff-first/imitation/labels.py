@@ -299,7 +299,7 @@ def _peek_first_file(word: str, args: list[str], part: Part) -> PartResult:
     if not plain:
         return OTHER
     if word == "file":
-        return Intent("peek", plain[0], aspect="type", word=word)
+        return Intent("peek", plain[0], targets=tuple(plain), aspect="type", word=word)
     starts = not HEX_SKIP_FLAGS.intersection(args) and _from_the_start(part)
     return Intent("peek", plain[0], aspect="bytes" if word in HEX_VIEWERS and starts else "", word=word)
 
@@ -902,8 +902,12 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
             return False
         if target.form == "folder-types":
             # `file FOLDER/*` shows the type of each file directly in FOLDER.
-            return intent.aspect == "type" and posixpath.dirname(_resolve(intent.target, cwd)) == _resolve(target.value, cwd)
-        # Only a view of the file its probe also shows; an analysis of the file is another step.
+            folder = _resolve(target.value, cwd)
+            return intent.aspect == "type" and all(posixpath.dirname(_resolve(path, cwd)) == folder for path in intent.targets or (intent.target,))
+        # Only a view of the file its probe also shows; an analysis of the file is another step, and one file's
+        # probe shows nothing of the others a command names.
+        if len(intent.targets) > 1:
+            return False
         return bool(intent.aspect) and intent.aspect in PEEK_VIEWS.get(target.view, set()) and _same_path(intent.target, target.value, cwd)
     if intent.kind == "list":
         return kind == "list" and target.form == "path" and _same_path(intent.target, target.value, cwd)

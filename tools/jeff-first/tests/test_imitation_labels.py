@@ -637,6 +637,10 @@ PEEK_MENU = make_menu(
         ("file /app/big.txt", ("peek", "peek-7")),
         ("file /app/sub/x.db", None),
         ("file /app/sub/*", None),
+        # Several files: the folder's types show them only when all are directly in the folder; one file's probe
+        # never shows another's.
+        ("file /app/data.bin /app/orig", ("peek", "peek-7")),
+        ("file /app/data.bin /app/sub/x.db", None),
     ],
 )
 def test_peek_matches_only_commands_that_print_a_slice_of_the_file(command, expected):
