@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
 import { type FileFacts, stringsIn } from "./facts.ts";
@@ -68,7 +68,18 @@ function listedFolder(step: Step, cwd: string): string | undefined {
 
 type Source = { text: string; bases: string[] };
 
-/** Existing files and folders named in the sources, in order: each token is resolved against each of its bases. */
+/** The folders a path lies in, nearest first, up to but not including the working folder or the root folder: a
+ * named `/output/result.txt` reveals `/output` too, whether or not the file itself exists. */
+function enclosingFolders(path: string, cwd: string): string[] {
+	const found: string[] = [];
+	for (let folder = dirname(path); folder !== cwd && folder !== dirname(folder); folder = dirname(folder)) {
+		found.push(folder);
+	}
+	return found;
+}
+
+/** Existing files and folders named in the sources, in order: each token is resolved against each of its bases,
+ * and each folder it lies in (enclosingFolders) follows it. Whether each is a file or a folder comes from the facts. */
 function pathsIn(input: MenuInput, sources: Source[]): { files: string[]; folders: string[] } {
 	const files: string[] = [];
 	const folders: string[] = [];
@@ -79,6 +90,9 @@ function pathsIn(input: MenuInput, sources: Source[]): { files: string[]; folder
 				const kind = input.facts.kind(path);
 				if (kind === "file" && !files.includes(path)) files.push(path);
 				if (kind === "folder" && path !== input.cwd && !folders.includes(path)) folders.push(path);
+				for (const folder of enclosingFolders(path, input.cwd)) {
+					if (!folders.includes(folder) && input.facts.kind(folder) === "folder") folders.push(folder);
+				}
 			}
 		}
 	}

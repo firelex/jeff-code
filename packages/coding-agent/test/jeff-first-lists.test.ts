@@ -215,7 +215,9 @@ describe("buildLists", () => {
 	});
 
 	it("finds files the task or an error names but that are not where they were named", () => {
-		const find = buildLists(input).argumentsByTool.find ?? [];
+		const find = (buildLists(input).argumentsByTool.find ?? []).filter((o) =>
+			o.description.startsWith("Find files matching "),
+		);
 		const patterns = find.map(searched);
 		expect(patterns).toEqual(expect.arrayContaining(["**/config.yaml", "**/input.csv"]));
 		expect(patterns).not.toContain("**/README.md");
@@ -226,6 +228,42 @@ describe("buildLists", () => {
 				timeout: 60,
 			},
 		});
+	});
+
+	it("lists the folders a named path lies in, nearest first, even when the path itself does not exist", () => {
+		mkdirSync(join(cwd, "out", "deep"), { recursive: true });
+		input.steps = [];
+		input.task = `Write the result to ${join(cwd, "out", "deep", "result.txt")}.`;
+		const listed = (buildLists(input).argumentsByTool.list ?? []).map(target);
+		expect(listed).toEqual([cwd, join(cwd, "out", "deep"), join(cwd, "out")]);
+	});
+
+	it("never offers the root folder only because a named path lies under it", () => {
+		input.steps = [];
+		input.task = `Write the result to /nonexistent-${Date.now()}/result.txt.`;
+		const listed = (buildLists(input).argumentsByTool.list ?? []).map(target);
+		expect(listed).toEqual([cwd]);
+	});
+
+	it("finds the files under each listed folder, after the Find-by-name options, never under the root folder", () => {
+		mkdirSync(join(cwd, "out"));
+		input.task = `See \`README.md\`. Also \`config.yaml\`. Write ${join(cwd, "out", "result.txt")}.`;
+		const find = buildLists(input).argumentsByTool.find ?? [];
+		const listed = (buildLists(input).argumentsByTool.list ?? []).map(target);
+		const under = find.filter((o) => o.description.startsWith("Find the files under "));
+		expect(find.slice(0, find.length - under.length).map(searched)).toContain("**/config.yaml");
+		expect(under.map((o) => o.description)).toEqual(listed.map((folder) => `Find the files under ${folder}`));
+		expect(under[0].toolCall).toEqual({
+			name: "bash",
+			arguments: {
+				command: `find '${cwd}' -type f -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n 50`,
+				timeout: 60,
+			},
+		});
+		input.cwd = "/";
+		expect(
+			(buildLists(input).argumentsByTool.find ?? []).filter((o) => o.description === "Find the files under /"),
+		).toEqual([]);
 	});
 
 	it("offers the check command and each failing pytest test", () => {
@@ -417,7 +455,7 @@ describe("buildLists", () => {
 		expect(paths).toContain(join(cwd, "src", "app.py"));
 	});
 
-	it("offers no file options when every file fact is unknown, but still the Toolchain check and Hand over", () => {
+	it("offers no file options when every file fact is unknown, but still the working folder, the Toolchain check and Hand over", () => {
 		const unknown: FileFacts = {
 			kind: () => undefined,
 			size: () => undefined,
@@ -436,7 +474,7 @@ describe("buildLists", () => {
 		expect(lists.argumentsByTool.read).toBeUndefined();
 		expect(lists.argumentsByTool.peek).toBeUndefined();
 		expect(lists.argumentsByTool.run).toBeUndefined();
-		expect(lists.argumentsByTool.find).toBeUndefined();
+		expect((lists.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([`Find the files under ${cwd}`]);
 		expect((lists.argumentsByTool.list ?? []).map(target)).toEqual([cwd]);
 		const tools = lists.tools.map((t) => t.id);
 		expect(tools).toContain("toolchain");

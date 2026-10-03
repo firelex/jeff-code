@@ -107,7 +107,7 @@ const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 	peek: "Look at what a data file contains",
 	list: "List the contents of a folder",
 	search: "Search the project's files for a name or a piece of error text",
-	find: "Find files by name",
+	find: "Find files by name, or every file under a folder",
 	toolchain: "Check which tools, languages and Python packages are installed",
 	service: "Check a running service, its port or its log",
 	docs: "Look up how to use a package or program",
@@ -287,9 +287,13 @@ function readOptions(input: ListsInput): Built[] {
 	return calls;
 }
 
+/** The folders List offers: the working folder, then the folders recent outputs and the task name or lie under. */
+function listedFolders(input: ListsInput): string[] {
+	return [input.cwd, ...namedPaths(input).folders.slice(0, LOOK_FOLDER_LIMIT)];
+}
+
 function listOptions(input: ListsInput): Built[] {
-	const folders = [input.cwd, ...namedPaths(input).folders.slice(0, LOOK_FOLDER_LIMIT)];
-	return folders.map((path) => ({
+	return listedFolders(input).map((path) => ({
 		call: bashProbe(`ls -la ${shellQuote(path)}`),
 		description: `List the folder ${path}`,
 	}));
@@ -358,7 +362,7 @@ function findOptions(input: ListsInput): Built[] {
 		if (!FILE_NAME.test(name) || input.facts.kind(resolve(input.cwd, path)) !== "missing") continue;
 		names.push(name);
 	}
-	return unique(names)
+	const byName = unique(names)
 		.slice(0, FIND_LIMIT)
 		.map((name) => ({
 			call: bashProbe(
@@ -366,6 +370,16 @@ function findOptions(input: ListsInput): Built[] {
 			),
 			description: `Find files matching **/${name}`,
 		}));
+	// Every file under a folder List offers, in List's order; never under the root folder (the whole machine).
+	const underFolders = listedFolders(input)
+		.filter((folder) => folder !== "/")
+		.map((folder) => ({
+			call: bashProbe(
+				`find ${shellQuote(folder)} -type f -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n ${SEARCH_RESULT_LIMIT}`,
+			),
+			description: `Find the files under ${folder}`,
+		}));
+	return [...byName, ...underFolders];
 }
 
 function checkOptions(input: ListsInput): MenuToolCall[] {

@@ -101,6 +101,32 @@ describe("virtualFacts", () => {
 		expect(facts.isText("/app/thing")).toBeUndefined();
 	});
 
+	it.each(["cs", "csproj", "desktop", "list", "awk", "jmx", "mol", "smi", "asc", "pub", "info"])(
+		"takes a .%s file as text",
+		(extension) => {
+			expect(virtualFacts([{ type: "read", path: `/app/f.${extension}` }]).isText(`/app/f.${extension}`)).toBe(true);
+		},
+	);
+
+	it("takes a file whose text was shown as text whatever its extension, until it is replaced", () => {
+		const shown: FactEvent = { type: "read", path: "/app/notes.weird", shownText: true };
+		expect(virtualFacts([shown]).isText("/app/notes.weird")).toBe(true);
+		expect(
+			virtualFacts([{ type: "read", path: "/app/notes.weird", shownText: false }]).isText("/app/notes.weird"),
+		).toBe(undefined);
+		const moved = virtualFacts([shown, { type: "moved", from: "/app/notes.weird", to: "/app/n.weird" }]);
+		expect(moved.isText("/app/n.weird")).toBe(true);
+		const replaced = virtualFacts([
+			shown,
+			{ type: "deleted", path: "/app/notes.weird" },
+			{ type: "read", path: "/app/notes.weird" },
+		]);
+		expect(replaced.isText("/app/notes.weird")).toBeUndefined();
+		expect(() => virtualFacts([{ type: "read", path: "/app/x", shownText: "yes" } as unknown as FactEvent])).toThrow(
+			/event 0.*shownText/,
+		);
+	});
+
 	it("marks missing, deleted and moved-away paths (and what was inside them) as missing", () => {
 		const facts = virtualFacts([
 			{ type: "missing", path: "/app/gone.py" },
@@ -162,11 +188,31 @@ describe("buildLists with virtual facts", () => {
 
 	it("offers Find only for a named path known to be missing, never for an unknown one", () => {
 		const unknown = buildLists(input([], [], "Fix config.yaml."));
-		expect(unknown.argumentsByTool.find).toBeUndefined();
+		expect((unknown.argumentsByTool.find ?? []).map((o) => o.description)).toEqual(["Find the files under /app"]);
 		expect(unknown.argumentsByTool.read).toBeUndefined();
 		const missing = buildLists(input([], [{ type: "missing", path: "/app/config.yaml" }], "Fix config.yaml."));
 		expect((missing.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([
 			"Find files matching **/config.yaml",
+			"Find the files under /app",
+		]);
+	});
+
+	it("proves the folders a known file lies in, and lists and finds under them once a path names the file", () => {
+		const facts = virtualFacts([{ type: "read", path: "/output/logs/run.txt" }]);
+		expect(facts.kind("/output/logs")).toBe("folder");
+		expect(facts.kind("/output")).toBe("folder");
+		const lists = buildLists(
+			input([], [{ type: "read", path: "/output/logs/run.txt" }], "Save it to /output/logs/run.txt."),
+		);
+		expect((lists.argumentsByTool.list ?? []).map((o) => o.description)).toEqual([
+			"List the folder /app",
+			"List the folder /output/logs",
+			"List the folder /output",
+		]);
+		expect((lists.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([
+			"Find the files under /app",
+			"Find the files under /output/logs",
+			"Find the files under /output",
 		]);
 	});
 });

@@ -9,7 +9,9 @@ import type { FileFacts } from "./facts.ts";
  * - listing: the folder was listed and these were its entries. Each entry may say whether it is a file or a folder
  *   and its size in bytes, as `ls -l` shows. A name the listing lacks is known not to exist, except names starting
  *   with "." when the listing did not show hidden files (`ls` without -a).
- * - read: the file was shown (by cat, head and the like); `content` is its whole text when the output showed all of it.
+ * - read: the file exists (it was shown by cat, head and the like, or a find listed it); `content` is its whole text
+ *   when the output showed all of it; `shownText` is true when the output showed some of it as readable text (the
+ *   file is then text whatever its extension).
  * - written: the file was written with exactly this text (cat > file, a here-document, tee).
  * - missing: an error said there is no such file or folder.
  * - deleted: the file or folder was removed (rm), with everything inside it.
@@ -24,7 +26,7 @@ export type FactEvent =
 			/** True when the listing showed names starting with "." (ls -a or -A). */
 			showsHidden?: boolean;
 	  }
-	| { type: "read"; path: string; content?: string }
+	| { type: "read"; path: string; content?: string; shownText?: boolean }
 	| { type: "written"; path: string; content: string }
 	| { type: "missing"; path: string }
 	| { type: "deleted"; path: string }
@@ -36,16 +38,21 @@ interface Known {
 	kind?: "file" | "folder";
 	size?: number;
 	content?: string;
+	/** True when some of the file's text was shown as readable text. */
+	shownText?: boolean;
 	/** For a folder that was listed: the names in it now (kept up to date by later writes, deletions and moves). */
 	children?: Set<string>;
 	/** For a listed folder: whether names starting with "." that are not in `children` are known to be missing. */
 	hiddenKnown?: boolean;
 }
 
-/** Extensions of files that are text. */
+/** Extensions of files that are text. The second line holds those found 20 times or more among the files the coding
+ * model read with cat, head or sed -n in the stage-1 imitation data (C#, its project files, desktop entries, apt and
+ * mime lists, awk scripts, JMeter plans, molecule files, ASCII-armoured keys, public keys, info files). */
 const TEXT_EXTENSIONS = new Set(
 	[
 		"py js mjs cjs ts tsx jsx json jsonl txt md rst csv tsv c h cc cpp hpp cxx rs go java kt rb php pl lua r jl sh",
+		"cs csproj desktop list awk jmx mol smi asc pub info",
 		"bash zsh yaml yml toml ini cfg conf html htm css scss xml sql log tex ttl cbl cob f f90 asm s mk cmake",
 		"gradle properties env lock patch diff svg ipynb fasta fa",
 	]
@@ -175,8 +182,13 @@ export function virtualFacts(events: FactEvent[]): FileFacts {
 				if (event.content !== undefined && typeof event.content !== "string") {
 					throw new Error(`${describeEvent(index, event)} has content that is not text`);
 				}
+				const shownText = event.type === "read" ? event.shownText : undefined;
+				if (shownText !== undefined && typeof shownText !== "boolean") {
+					throw new Error(`${describeEvent(index, event)} has a shownText that is not true or false`);
+				}
 				const file = exists(path);
 				file.kind = "file";
+				if (shownText === true) file.shownText = true;
 				if (event.content !== undefined) {
 					file.content = event.content;
 					file.size = Buffer.byteLength(event.content);
@@ -235,6 +247,7 @@ export function virtualFacts(events: FactEvent[]): FileFacts {
 			const found = file(path);
 			if (found === undefined) return undefined;
 			if (found.content !== undefined) return !found.content.includes("\u0000");
+			if (found.shownText === true) return true;
 			const extension = extname(path).toLowerCase();
 			if (TEXT_EXTENSIONS.has(extension)) return true;
 			if (BINARY_EXTENSIONS.has(extension)) return false;
