@@ -227,14 +227,38 @@ describe("buildLists with virtual facts", () => {
 		expect(known.map((o) => o.description)).not.toContain("Find files named OrderService.java");
 	});
 
-	it("finds a bare file name an output or a command reveals, never a wildcard pattern", () => {
-		const steps = [bash("cat Main.kt", "see also Helper.kt and *.kt")];
+	it("finds a file name an output or a command reveals, never a wildcard pattern or a dotted code name", () => {
+		const steps = [bash("cat Main.kt", "see also Helper.kt and *.kt; using System.Linq; c.Name")];
 		const find = buildLists(input(steps, [])).argumentsByTool.find ?? [];
 		expect(find.map((o) => o.description)).toEqual([
 			"Find the files under /app",
 			"Find files named Helper.kt",
 			"Find files named Main.kt",
 		]);
+	});
+
+	it("finds by pattern only missing paths with a known file extension, and by name the missing ones past the limit", () => {
+		const empty: FactEvent = { type: "listing", folder: "/app", entries: [] };
+		const names = Array.from({ length: 9 }, (_, i) => `F${i}.java`);
+		const task = `import java.util.List; fix ${names.join(" ")}`;
+		const find = (buildLists(input([], [empty], task)).argumentsByTool.find ?? []).map((o) => o.description);
+		expect(find).toEqual([
+			...Array.from({ length: 8 }, (_, i) => `Find files matching **/F${i}.java`),
+			"Find the files under /app",
+			"Find files named F8.java",
+		]);
+	});
+
+	it("finds by name the file a path names when no revealed path shows where that file is", () => {
+		const task = "Fix the leak in tests/Mandrill.Tests/UnitTests/PostTests.cs.";
+		const find = buildLists(input([], [], task)).argumentsByTool.find ?? [];
+		expect(find.map((o) => o.description)).toContain("Find files named PostTests.cs");
+		const known = buildLists(
+			input([], [{ type: "read", path: "/app/tests/Mandrill.Tests/UnitTests/PostTests.cs" }], task),
+		);
+		expect((known.argumentsByTool.find ?? []).map((o) => o.description)).not.toContain(
+			"Find files named PostTests.cs",
+		);
 	});
 
 	it("proves the folders a known file lies in, and lists and finds under them once a path names the file", () => {

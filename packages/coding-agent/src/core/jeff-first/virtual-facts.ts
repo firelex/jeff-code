@@ -71,6 +71,14 @@ const BINARY_EXTENSIONS = new Set(
 		.map((ext) => `.${ext}`),
 );
 
+/** Whether a file name ends in an extension of a known text or binary file type, spelled in lower case as file
+ * extensions almost always are: "Main.java" does; dotted code names such as "System.Linq", "c.Name" or
+ * "java.util.List" (".List" is not ".list") do not. */
+export function hasKnownFileExtension(name: string): boolean {
+	const extension = extname(name);
+	return TEXT_EXTENSIONS.has(extension) || BINARY_EXTENSIONS.has(extension);
+}
+
 function describeEvent(index: number, event: unknown): string {
 	return `event ${index} (${JSON.stringify(event)})`;
 }

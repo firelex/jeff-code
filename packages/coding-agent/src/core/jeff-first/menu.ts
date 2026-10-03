@@ -1,8 +1,9 @@
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
 import { type FileFacts, stringsIn } from "./facts.ts";
 import type { Step } from "./transcript.ts";
+import { hasKnownFileExtension } from "./virtual-facts.ts";
 
 export const MENU_LIMIT = 25;
 export const READ_LIMIT = 15;
@@ -42,7 +43,7 @@ function unquote(argument: string): string {
 		: argument;
 }
 
-/** A file name with an extension and nothing else: no folder, no wildcard. */
+/** A file name with an extension: no folder, no wildcard. */
 const BARE_FILE_NAME = /^[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,9}$/;
 
 /** A control character (U+0000-U+001F or U+007F): never part of a real file name, only junk from binary output. */
@@ -135,13 +136,15 @@ export function revealedPaths(input: MenuInput): { files: string[]; folders: str
 	return pathsIn(input, revealingSources(input));
 }
 
-/** Bare file names (a name with an extension, no folder, no wildcard) the session has revealed, in the order of
- * revealedPaths, each once. */
+/** The file names the session has revealed, in the order of revealedPaths, each once: every named path's last
+ * part (`tests/PostTests.cs` gives `PostTests.cs`) when it has a known file extension and no wildcard. */
 export function revealedFileNames(input: MenuInput): string[] {
 	const names: string[] = [];
 	for (const source of revealingSources(input)) {
 		for (const token of candidates(source.text)) {
-			if (BARE_FILE_NAME.test(token) && !names.includes(token)) names.push(token);
+			if (token.endsWith("/")) continue;
+			const name = basename(token);
+			if (BARE_FILE_NAME.test(name) && hasKnownFileExtension(name) && !names.includes(name)) names.push(name);
 		}
 	}
 	return names;

@@ -251,7 +251,9 @@ describe("buildLists", () => {
 		const find = buildLists(input).argumentsByTool.find ?? [];
 		const listed = (buildLists(input).argumentsByTool.list ?? []).map(target);
 		const under = find.filter((o) => o.description.startsWith("Find the files under "));
-		expect(find.slice(0, find.length - under.length).map(searched)).toContain("**/config.yaml");
+		const firstUnder = find.indexOf(under[0]);
+		expect(find.slice(0, firstUnder).map(searched)).toContain("**/config.yaml");
+		expect(find.slice(firstUnder, firstUnder + under.length)).toEqual(under);
 		expect(under.map((o) => o.description)).toEqual(listed.map((folder) => `Find the files under ${folder}`));
 		expect(under[0].toolCall).toEqual({
 			name: "bash",
@@ -476,6 +478,12 @@ describe("buildLists", () => {
 		expect(lists.argumentsByTool.run).toBeUndefined();
 		expect((lists.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([
 			`Find the files under ${cwd}`,
+			// Newest step first (its output, then its call), then the task.
+			"Find files named scan.py",
+			"Find files named app.py",
+			"Find files named test_app.py",
+			"Find files named missing.py",
+			"Find files named input.csv",
 			"Find files named data.csv",
 			"Find files named README.md",
 		]);

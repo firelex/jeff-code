@@ -16,6 +16,7 @@ import {
 } from "./menu.ts";
 import { PROBE_TIMEOUT_SECONDS, shellQuote } from "./probes.ts";
 import { docsOptions, installOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
+import { hasKnownFileExtension } from "./virtual-facts.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
 export const ARGUMENT_LIMIT = 30;
@@ -360,18 +361,19 @@ function findOptions(input: ListsInput): Built[] {
 		// A sentence's closing period is not part of the name.
 		const path = token.replace(/\.$/, "");
 		const name = basename(path);
-		// Only a path known not to exist where it was named: an unknown one may well be there.
-		if (!FILE_NAME.test(name) || input.facts.kind(resolve(input.cwd, path)) !== "missing") continue;
+		// Only a path known not to exist where it was named: an unknown one may well be there. A known file extension
+		// keeps out dotted code names (`java.util.List` in a task's code is "missing" in the working folder too).
+		if (!FILE_NAME.test(name) || !hasKnownFileExtension(name)) continue;
+		if (input.facts.kind(resolve(input.cwd, path)) !== "missing") continue;
 		names.push(name);
 	}
-	const byName = unique(names)
-		.slice(0, FIND_LIMIT)
-		.map((name) => ({
-			call: bashProbe(
-				`find ${shellQuote(input.cwd)} -name ${shellQuote(name)} -not -path '*/node_modules/*' 2>/dev/null | head -n ${SEARCH_RESULT_LIMIT}`,
-			),
-			description: `Find files matching **/${name}`,
-		}));
+	const patterned = unique(names).slice(0, FIND_LIMIT);
+	const byName = patterned.map((name) => ({
+		call: bashProbe(
+			`find ${shellQuote(input.cwd)} -name ${shellQuote(name)} -not -path '*/node_modules/*' 2>/dev/null | head -n ${SEARCH_RESULT_LIMIT}`,
+		),
+		description: `Find files matching **/${name}`,
+	}));
 	// Every file under a folder List offers, in List's order; never under the root folder (the whole machine).
 	const underFolders = listedFolders(input)
 		.filter((folder) => folder !== "/")
@@ -381,10 +383,10 @@ function findOptions(input: ListsInput): Built[] {
 			),
 			description: `Find the files under ${folder}`,
 		}));
-	// Every bare file name the session has revealed whose location is not known: no revealed existing file has it.
+	// Every file name the session has revealed whose location is not known: no revealed existing file has that name.
 	const located = new Set(revealedPaths(input).files.map((path) => basename(path)));
 	const unlocated = revealedFileNames(input)
-		.filter((name) => !located.has(name) && !names.includes(name))
+		.filter((name) => !located.has(name) && !patterned.includes(name))
 		.map((name) => ({
 			call: bashProbe(
 				`find ${shellQuote(input.cwd)} -name ${shellQuote(name)} -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n ${SEARCH_RESULT_LIMIT}`,
