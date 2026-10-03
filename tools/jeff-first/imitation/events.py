@@ -20,10 +20,16 @@ line that does not parse gives no listing; a path that holds `$`, a backquote or
 Paths are resolved against the shell's current folder: the folder on the command's own prompt line when the screen
 showed it, else the folder after the previous command's `cd` parts; `~` is the user's home (/root for root).
 
-Back-fill (`backfill`): at a decision point, a file that exists by then may take its whole text or size from evidence
-seen LATER in the session (a later bare `cat`, or a later `ls -l`), provided no write, edit, move, removal or "no such
-file" of that path came in between. This is inference from what the transcript shows, not a guess; it lets the
-rebuilt menu offer a Read of a file that `ls` revealed without a size.
+Back-fill (`backfill`): at a decision point, the evidence of the LATER commands that only gather information, up to
+the first command that acts (writes, edits, runs, installs, compiles, or anything else outside labels.py's table of
+information and neutral commands), is added to the point's events. Nothing changed between the point and those
+commands, so what they showed was already true at the point. This is inference from what the transcript shows, not a
+guess; it lets the rebuilt menu offer, for example, a Read of a file that `ls` revealed without a size. A back-filled
+whole text whose byte length differs from a size `ls -l` showed for the file keeps only the file's existence.
+
+Evidence from one part of a command of several: a `find ROOT -type f` whose output only passes through line filters
+gives each listed file; a read (cat, head, sed -n, ...) whose errors would reach the screen and do not proves its
+file exists.
 """
 
 import posixpath
@@ -31,7 +37,7 @@ import re
 import shlex
 from dataclasses import dataclass
 
-from imitation.labels import NEUTRAL, part_intent
+from imitation.labels import INFORMATION_KINDS, NEUTRAL, Intent, part_intent
 from imitation.splitter import HEREDOC_MARKER, Part, first_word, split_command
 
 UNSAFE_PATH = re.compile(r"[$`*?\[\]{}]")
@@ -50,10 +56,10 @@ WRITE_TARGET = re.compile(r"(?<![0-9&<])(>>?)\s*([^\s;&|<>]+)")
 
 @dataclass(frozen=True)
 class Shell:
-    """Where relative paths of a command point: the current folder (None when unknown) and the user's home."""
+    """Where relative paths of a command point: the current folder and the user's home (each None when unknown)."""
 
     cwd: str | None
-    home: str
+    home: str | None
 
 
 def resolve(path: str, shell: Shell) -> str | None:
@@ -61,6 +67,8 @@ def resolve(path: str, shell: Shell) -> str | None:
     if not path or UNSAFE_PATH.search(path):
         return None
     if path == "~" or path.startswith("~/"):
+        if shell.home is None:
+            return None
         path = shell.home + path[1:]
     elif not path.startswith("/"):
         if shell.cwd is None:
@@ -80,6 +88,20 @@ def _words(text: str) -> list[str] | None:
 
 def _plain(args: list[str]) -> list[str]:
     return [arg for arg in args if not arg.startswith("-") and not re.match(r"^\d*[<>]", arg)]
+
+
+def _without_redirections(args: list[str]) -> list[str]:
+    """The words of a command without its redirections (`2>/dev/null`, `2> err.txt`, `2>&1`)."""
+    kept: list[str] = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+        elif re.fullmatch(r"\d*(?:>>?|<|&>)", arg):
+            skip = True
+        elif not re.match(r"^\d*(?:>|<|&>)", arg):
+            kept.append(arg)
+    return kept
 
 
 def _flags(args: list[str]) -> str:
@@ -200,9 +222,58 @@ def _listing(args: list[str], output: str, shell: Shell) -> list[dict]:
     return [{"type": "listing", "folder": folder, "entries": entries, "showsHidden": "a" in flags or "A" in flags}]
 
 
-def _output_events(base: str, args: list[str], output: str, shell: Shell, filtered: bool) -> list[dict]:
+# Pipeline stages that only drop or reorder whole lines, so every line they let through is a line of the input.
+LINE_SELECTING = re.compile(r"^(?:head|tail)(?:\s+-n)?(?:\s+-?\d+)?$|^sort(?:\s+-[urf]+)*$|^uniq$|^grep(?:\s+-[viEFwx]+)*(?:\s+-e)?\s+('[^']*'|\"[^\"]*\"|[^\s'\"|]+)$")
+FIND_PREDICATES_WITHOUT_OUTPUT_CHANGE = {"-name", "-iname", "-path", "-ipath", "-maxdepth", "-mindepth", "-type", "-not", "!", "-newer", "-size", "-mtime", "-mmin", "-empty", "-print", "-regex", "-iregex", "-perm", "-user", "-group", "-readable", "-writable", "-executable", "-wholename"}  # fmt: skip
+FIND_TAKES_VALUE = {"-name", "-iname", "-path", "-ipath", "-maxdepth", "-mindepth", "-type", "-newer", "-size", "-mtime", "-mmin", "-regex", "-iregex", "-perm", "-user", "-group", "-wholename"}  # fmt: skip
+# The terminal is 160 columns wide: a line this long may be the first piece of a longer line it wrapped.
+SCREEN_WIDTH = 160
+
+
+def _find_events(args: list[str], output: str, shell: Shell, filters: tuple[str, ...]) -> list[dict]:
+    """`find ROOT... -type f [tests]`: every output line is a file. Only for a find whose tests do not change what
+    it prints, with exactly one `-type f` and no `-o`, whose output only passes through line-selecting filters
+    (head, tail, sort, uniq, grep), and whose every line is a path under one of its roots or a find error."""
+    if any(not LINE_SELECTING.match(stage.strip()) for stage in filters) or TRUNCATED.search(output):
+        return []
+    args = _without_redirections(args)
+    roots: list[str] = []
+    index = 0
+    while index < len(args) and not args[index].startswith("-") and args[index] not in ("!", "("):
+        roots.append(args[index].rstrip("/") or "/")
+        index += 1
+    tests = args[index:]
+    types = [tests[i + 1] for i, arg in enumerate(tests[:-1]) if arg == "-type"]
+    if types != ["f"]:
+        return []
+    skip = False
+    for arg in tests:
+        if skip:
+            skip = False
+            continue
+        if arg not in FIND_PREDICATES_WITHOUT_OUTPUT_CHANGE:
+            return []
+        skip = arg in FIND_TAKES_VALUE
+    roots = roots or ["."]
+    found: list[dict] = []
+    for line in output.split("\n"):
+        if not line.strip() or line.startswith("find: "):
+            continue
+        if len(line) >= SCREEN_WIDTH - 1 or not any(line == root or line.startswith(root.rstrip("/") + "/") for root in roots):
+            return []
+        path = resolve(line, shell)
+        if path is None:
+            return []
+        found.append({"type": "read", "path": path})
+    return found
+
+
+def _output_events(base: str, args: list[str], output: str, shell: Shell, filters: tuple[str, ...]) -> list[dict]:
     """Evidence from the output of the command's only non-neutral part."""
     plain = _plain(args)
+    filtered = bool(filters)
+    if base == "find":
+        return _find_events(args, output, shell, filters)
     if base == "ls" and not filtered:
         return _listing(args, output, shell)
     if base in ("which", "command") and (base == "which" or args[:1] in (["-v"], ["-V"])):
@@ -225,29 +296,167 @@ def _output_events(base: str, args: list[str], output: str, shell: Shell, filter
     return []
 
 
+def _after_cd(part: Part, shell: Shell) -> Shell | None:
+    """The shell after this part when it changes folder (cd, pushd, popd), else None. The folder becomes unknown
+    after `cd -`, `popd`, or a target that cannot be resolved without guessing (`cd "$DIR"`)."""
+    word, text = first_word(part.head)
+    base = word.rsplit("/", 1)[-1]
+    if base not in ("cd", "pushd", "popd"):
+        return None
+    words = _words(HEREDOC_MARKER.sub("", text))
+    target = words[1] if words and len(words) > 1 else None
+    if base == "popd" or target == "-" or words is None:
+        return Shell(None, shell.home)
+    return Shell(resolve(target, shell) if target else shell.home, shell.home)
+
+
+def part_folders(command: str, shell: Shell) -> tuple[list[str | None], Shell]:
+    """The folder each part of the command (split_command order) runs in, None when unknown, and the shell after
+    the whole command: a `cd` part moves the parts after it."""
+    folders: list[str | None] = []
+    for part in split_command(command):
+        folders.append(shell.cwd)
+        moved = _after_cd(part, shell)
+        if moved is not None:
+            shell = moved
+    return folders, shell
+
+
+STDERR_REDIRECT = re.compile(r"(?<![<>&\w])(?:2>|&>|>&)")
+
+
+def _shown_file(part: Part, output: str, shell: Shell) -> list[dict]:
+    """For one part of a command of several: a read (cat, head, sed -n, ...) of a file proves the file exists when
+    its errors would reach the screen and the output shows none that names it."""
+    intent = part_intent(part)
+    if not isinstance(intent, Intent) or intent.kind != "read" or TRUNCATED.search(output):
+        return []
+    if STDERR_REDIRECT.search(part.head) or any(STDERR_REDIRECT.search(stage) for stage in part.filters):
+        return []
+    path = resolve(intent.target, shell)
+    if path is None:
+        return []
+    name = posixpath.basename(path)
+    for line in output.split("\n"):
+        if name in line and re.search(r"No such file|Is a directory|Permission denied|cannot open|cannot access", line):
+            return []
+    return [{"type": "read", "path": path}]
+
+
+SILENT_WORDS = {"cd", "export", "unset", "set", "shopt", "alias", "sleep", "true", ":", "test", "[", "[[", "wait"}
+# A failed cd prints an error and stops an && chain: the output is then not what the parts would print.
+CD_ERROR = re.compile(r"\bcd: .*: (?:No such file or directory|Not a directory|Permission denied)")
+
+
+def _printed(part: Part, folder: str | None) -> list[str] | None:
+    """The lines a neutral part prints ([] when it prints nothing), or None when that cannot be known from the
+    command text (a variable, an escape, a command outside SILENT_WORDS / echo / printf / pwd)."""
+    word, text = first_word(part.head)
+    base = word.rsplit("/", 1)[-1]
+    words = _words(text)
+    if words is None or part.filters or part.heredoc is not None:
+        return None
+    args = words[1:]
+    if re.match(r"^\w+=", word):
+        return [] if not re.search(r"[$`]", text) else None
+    if base in SILENT_WORDS:
+        needs_args = base in ("export", "set", "shopt", "alias")
+        return [] if (args or not needs_args) and args != ["-"] else None
+    if base == "pwd":
+        return None if folder is None or args else [folder]
+    if re.search(r"[$`]", text):
+        return None
+    if base == "echo" and "\\" not in text and not (args and re.fullmatch(r"-[neE]+", args[0])):
+        return " ".join(args).split("\n")
+    if base == "printf" and len(args) == 1 and not args[0].startswith("-") and "%" not in args[0]:
+        # Only the \n escape is read; the text must end with one, or the next output would join its last line.
+        if "\\" in args[0].replace("\\n", "") or not args[0].endswith("\\n"):
+            return None
+        return args[0][:-2].replace("\\n", "\n").split("\n")
+    return None
+
+
+def _attribute(parts: list[Part], folders: list[str | None], output: str) -> dict[int, str]:
+    """For each information-gathering part whose output can be told apart from the rest: its output, by index.
+
+    Every part must be an information part, a silent neutral part or a neutral part whose printed lines are known
+    from the text (a literal echo or printf, pwd); the printed lines of the known parts are found in the output in
+    order and set aside, and each information part gets the lines between them. Two information parts with no known
+    line between them get nothing (their outputs cannot be told apart), and neither does a part before a known line
+    that occurs more than once in the rest of the output. A final `|| echo ...` fallback is allowed: when its
+    message is at the end of the output the part before it failed, and nothing is attributed."""
+    if any(part.in_control_flow or part.joiner not in ("", ";", "\n", "&&", "||") for part in parts) or CD_ERROR.search(output):
+        return {}
+    kinds: list[tuple[str, list[str]]] = []
+    for part, folder in zip(parts, folders):
+        intent = part_intent(part)
+        if isinstance(intent, Intent) and intent.kind in INFORMATION_KINDS:
+            kinds.append(("info", []))
+            continue
+        printed = _printed(part, folder) if intent is NEUTRAL else None
+        if printed is None:
+            return {}
+        kinds.append(("printed", printed))
+    lines = output.split("\n")
+    if any(part.joiner == "||" for part in parts):
+        if [part.joiner for part in parts].index("||") != len(parts) - 1 or kinds[-1][0] != "printed" or kinds[-2][0] != "info":
+            return {}
+        fallback = kinds.pop()[1]
+        if fallback and lines[-len(fallback) :] == fallback:
+            return {}
+    blocks: dict[int, str] = {}
+    position = 0
+    pending: list[int] = []
+    for index, (kind, printed) in enumerate(kinds):
+        if kind == "info":
+            pending.append(index)
+            continue
+        if not printed:
+            continue
+        if not pending:
+            if lines[position : position + len(printed)] != printed:
+                return {}
+            position += len(printed)
+            continue
+        found = [at for at in range(position, len(lines) - len(printed) + 1) if lines[at : at + len(printed)] == printed]
+        if len(found) != 1:
+            return {}
+        if len(pending) == 1:
+            blocks[pending[0]] = "\n".join(lines[position : found[0]])
+        pending = []
+        position = found[0] + len(printed)
+    if len(pending) == 1:
+        blocks[pending[0]] = "\n".join(lines[position:])
+    elif not pending and position != len(lines) and lines[position:] != [""]:
+        return {}
+    return blocks
+
+
 def command_events(command: str, output: str | None, shell: Shell) -> tuple[list[dict], Shell]:
     """The evidence one command and its output give, in order, and the shell's folder after the command."""
     events: list[dict] = []
     parts = split_command(command)
-    significant = [part for part in parts if part_intent(part) is not NEUTRAL]
-    for part in parts:
+    folders, _ = part_folders(command, shell)
+    blocks = {} if output is None else _attribute(parts, folders, output)
+    for index, part in enumerate(parts):
         word, text = first_word(part.head)
         base = word.rsplit("/", 1)[-1]
         words = _words(HEREDOC_MARKER.sub("", text))
-        if base in ("cd", "pushd", "popd"):
-            target = words[1] if words and len(words) > 1 else None
-            if base == "popd" or target == "-":
-                shell = Shell(None, shell.home)
-            else:
-                shell = Shell(resolve(target, shell) if target else shell.home, shell.home)
+        moved = _after_cd(part, shell)
+        if moved is not None:
+            shell = moved
             continue
         if words is None:
             continue
         writes = _write_events(part, shell)
         events.extend(writes)
         events.extend(_action_events(base, words[1:], shell, output))
-        if output is not None and not writes and len(significant) == 1 and significant[0] is part:
-            events.extend(_output_events(base, words[1:], output, shell, filtered=bool(part.filters)))
+        if output is None or writes:
+            continue
+        if index in blocks:
+            events.extend(_output_events(base, words[1:], blocks[index], shell, part.filters))
+        else:
+            events.extend(_shown_file(part, output, shell))
     if output is not None:
         for pattern in MISSING_PATTERNS:
             for match in pattern.finditer(output):
@@ -263,34 +472,6 @@ def _under(path: str, folder: str) -> bool:
     return path == folder or path.startswith(folder.rstrip("/") + "/")
 
 
-def _existing(events: list[dict]) -> set[str]:
-    """Paths the events establish as existing at their end."""
-    present: set[str] = set()
-
-    def drop(path: str) -> None:
-        for other in [p for p in present if _under(p, path)]:
-            present.discard(other)
-
-    for event in events:
-        kind = event["type"]
-        if kind == "listing":
-            folder = event["folder"]
-            listed = {posixpath.join(folder, entry["name"]) for entry in event["entries"]}
-            for path in [p for p in present if posixpath.dirname(p) == folder and p not in listed]:
-                if event.get("showsHidden") or not posixpath.basename(path).startswith("."):
-                    drop(path)
-            present.add(folder)
-            present.update(listed)
-        elif kind in ("read", "written"):
-            present.add(event["path"])
-        elif kind in ("missing", "deleted"):
-            drop(event["path"])
-        elif kind == "moved":
-            drop(event["from"])
-            present.add(event["to"])
-    return present
-
-
 def _touched(event: dict) -> list[str]:
     if event["type"] in ("written", "deleted", "missing"):
         return [event["path"]]
@@ -299,43 +480,38 @@ def _touched(event: dict) -> list[str]:
     return []
 
 
-def backfill(point_events: list[dict], later: list[list[dict]]) -> list[dict]:
-    """The point's events, completed with whole texts and sizes seen later for files that exist at the point and
-    that nothing changed in between; see the module docstring."""
-    present = _existing(point_events)
-    touched: set[str] = set()
-    contents: dict[str, str] = {}
+def _known_sizes(events: list[dict]) -> dict[str, int]:
+    """The size `ls -l` showed for each file, as of the end of the events (forgotten when the file was written,
+    moved, removed or reported missing)."""
     sizes: dict[str, int] = {}
-    for step in later:
-        for event in step:
+    for event in events:
+        if event["type"] == "listing":
+            for entry in event["entries"]:
+                if "size" in entry:
+                    sizes[posixpath.join(event["folder"], entry["name"])] = entry["size"]
+        else:
             for path in _touched(event):
-                touched.update(p for p in present if _under(p, path))
-            if event["type"] == "read" and "content" in event:
-                path = event["path"]
-                if path in present and path not in touched and path not in contents:
-                    contents[path] = event["content"]
-            elif event["type"] == "listing":
-                for entry in event["entries"]:
-                    path = posixpath.join(event["folder"], entry["name"])
-                    if entry.get("kind") == "file" and "size" in entry and path in present and path not in touched:
-                        sizes.setdefault(path, entry["size"])
+                for known in [p for p in sizes if _under(p, path)]:
+                    del sizes[known]
+    return sizes
+
+
+def backfill(point_events: list[dict], later: list[tuple[bool, list[dict]]]) -> list[dict]:
+    """The point's events, then the events of the later commands up to the first one that acts; see the module
+    docstring. `later` holds the later commands in order, each as (whether it acts, its events). A later whole
+    text whose byte length differs from the file's known size (`ls -l`, at the point or later) keeps only the
+    file's existence: the terminal showed the text inexactly (tabs as spaces, a cut line)."""
+    added: list[dict] = []
+    for acts, step in later:
+        if acts:
+            break
+        added.extend(step)
+    sizes = _known_sizes([*point_events, *(event for event in added if event["type"] == "listing")])
     completed = [dict(event) for event in point_events]
-    for path, size in sizes.items():
-        last = next((e for e in reversed(completed) if path in _mentions(e)), None)
-        if last is not None and last["type"] == "listing":
-            last["entries"] = [
-                {**entry, "size": size} if posixpath.join(last["folder"], entry["name"]) == path and "size" not in entry else entry
-                for entry in last["entries"]
-            ]
-    completed.extend({"type": "read", "path": path, "content": content} for path, content in contents.items())
+    for event in added:
+        content = event.get("content") if event["type"] == "read" else None
+        if content is not None and event["path"] in sizes and sizes[event["path"]] != len(content.encode("utf-8", "surrogatepass")):
+            completed.append({"type": "read", "path": event["path"]})
+        else:
+            completed.append(dict(event))
     return completed
-
-
-def _mentions(event: dict) -> set[str]:
-    if event["type"] == "listing":
-        return {posixpath.join(event["folder"], entry["name"]) for entry in event["entries"]}
-    if event["type"] == "moved":
-        return {event["from"], event["to"]}
-    if "path" in event:
-        return {event["path"]}
-    return set()

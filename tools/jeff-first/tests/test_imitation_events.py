@@ -1,3 +1,5 @@
+import pytest
+
 from imitation.events import Shell, backfill, command_events, resolve
 
 SHELL = Shell("/app", "/root")
@@ -89,25 +91,130 @@ def test_cd_moves_the_folder_and_cd_minus_makes_it_unknown():
 
 
 def test_mixed_commands_give_only_self_naming_evidence():
-    assert events("ls && cat a.py", "a.py\nprint(1)") == []
+    assert events("ls && cat a.py", "a.py\nprint(1)") == [{"type": "read", "path": "/app/a.py"}]
     assert events("ls && rm a.py", "a.py") == [{"type": "deleted", "path": "/app/a.py"}]
 
 
 LISTING = {"type": "listing", "folder": "/app", "entries": [{"name": "a.py"}], "showsHidden": False}
 
 
-def test_backfill_takes_a_later_whole_text_of_an_unchanged_file():
-    later = [[{"type": "missing", "path": "/app/other"}], [{"type": "read", "path": "/app/a.py", "content": "x\n" * 10}]]
-    assert backfill([LISTING], later) == [LISTING, {"type": "read", "path": "/app/a.py", "content": "x\n" * 10}]
+def looking(*steps: list[dict]) -> list[tuple[bool, list[dict]]]:
+    """Later commands that only gather information, with their events."""
+    return [(False, step) for step in steps]
 
 
-def test_backfill_ignores_text_seen_after_a_change_or_of_unknown_files():
-    changed = [[{"type": "deleted", "path": "/app/a.py"}, {"type": "read", "path": "/app/a.py"}], [{"type": "read", "path": "/app/a.py", "content": "y\n"}]]
-    assert backfill([LISTING], changed) == [LISTING]
-    unknown = [[{"type": "read", "path": "/app/b.py", "content": "y\n"}]]
-    assert backfill([LISTING], unknown) == [LISTING]
+def test_backfill_adds_what_later_information_commands_showed_before_any_action():
+    # Nothing acted between the point and these commands, so what they showed was already true at the point.
+    later = looking([{"type": "missing", "path": "/app/other"}], [{"type": "read", "path": "/app/b.py", "content": "x\n" * 10}])
+    assert backfill([LISTING], later) == [
+        LISTING,
+        {"type": "missing", "path": "/app/other"},
+        {"type": "read", "path": "/app/b.py", "content": "x\n" * 10},
+    ]
+    listing = {"type": "listing", "folder": "/output", "entries": [], "showsHidden": True}
+    assert backfill([], looking([listing])) == [listing]
 
 
-def test_backfill_takes_a_later_size_into_the_listing():
-    later = [[{"type": "listing", "folder": "/app", "entries": [{"name": "a.py", "kind": "file", "size": 40}, {"name": "new.py", "kind": "file", "size": 5}], "showsHidden": True}]]
-    assert backfill([LISTING], later) == [{**LISTING, "entries": [{"name": "a.py", "size": 40}]}]
+def test_backfill_stops_at_any_acting_command_even_one_that_gives_no_events():
+    # `cp other.py a.py` acts but is not recognised as a write: nothing seen after it may be back-filled.
+    later = [(True, []), (False, [{"type": "read", "path": "/app/a.py", "content": "y\n"}])]
+    assert backfill([LISTING], later) == [LISTING]
+    removed = [(True, [{"type": "deleted", "path": "/app/a.py"}]), (False, [{"type": "read", "path": "/app/a.py", "content": "y\n"}])]
+    assert backfill([LISTING], removed) == [LISTING]
+
+
+def test_backfill_keeps_only_the_existence_of_a_text_whose_length_differs_from_a_known_size():
+    sized = {"type": "listing", "folder": "/app", "entries": [{"name": "a.py", "kind": "file", "size": 40}], "showsHidden": False}
+    assert backfill([sized], looking([{"type": "read", "path": "/app/a.py", "content": "x\n"}])) == [sized, {"type": "read", "path": "/app/a.py"}]
+    later_size = {"type": "listing", "folder": "/app", "entries": [{"name": "a.py", "kind": "file", "size": 40}], "showsHidden": True}
+    later = looking([{"type": "read", "path": "/app/a.py", "content": "\tx\n"}], [later_size])
+    assert backfill([LISTING], later) == [LISTING, {"type": "read", "path": "/app/a.py"}, later_size]
+    fits = {"type": "read", "path": "/app/a.py", "content": "y" * 39 + "\n"}
+    assert backfill([sized], looking([fits])) == [sized, fits]
+def test_find_output_lines_of_a_file_search_are_files():
+    output = "/app/a.py\n/app/src/b.py"
+    assert events("find /app -type f -name '*.py'", output) == [
+        {"type": "read", "path": "/app/a.py"},
+        {"type": "read", "path": "/app/src/b.py"},
+    ]
+    assert events("find . -name '*.py' -type f 2>/dev/null | head -20", "./a.py\n./src/b.py") == [
+        {"type": "read", "path": "/app/a.py"},
+        {"type": "read", "path": "/app/src/b.py"},
+    ]
+    assert events("find /app /lib -type f | sort", "/app/a.py\n/lib/c.so") == [
+        {"type": "read", "path": "/app/a.py"},
+        {"type": "read", "path": "/lib/c.so"},
+    ]
+    assert events("find /app -type f", "find: '/app/secret': Permission denied\n/app/a.py") == [{"type": "read", "path": "/app/a.py"}]
+
+
+@pytest.mark.parametrize(
+    ("command", "output"),
+    [
+        ("find /app -type f -o -type l", "/app/a.py"),
+        ("find /app -name '*.py'", "/app/a.py"),
+        ("find /app -type d", "/app/src"),
+        ("find /app -type f -printf '%s %p\\n'", "12 /app/a.py"),
+        ("find /app -type f | wc -l", "3"),
+        ("find /app -type f | sed 's/a/b/'", "/bpp/a.py"),
+        ("find /app -type f", "/app/a.py\nsomething else"),
+        ("find /app -type f", "/app/" + "x" * 160),
+        ("find /app -type f | head", "/app/a.py\n[... output limited to 10000 bytes; 70 interior bytes omitted ...]"),
+    ],
+)
+def test_find_output_that_does_not_prove_files_gives_nothing(command, output):
+    assert events(command, output) == []
+
+
+def test_a_read_in_a_command_of_several_parts_proves_the_file_when_no_error_names_it():
+    assert events("ls -la && cat a.py", "a.py\nprint(1)") == [{"type": "read", "path": "/app/a.py"}]
+    assert events("echo '--- a ---'; head -n 5 a.py; echo; sed -n '1,3p' b.py", "x") == [
+        {"type": "read", "path": "/app/a.py"},
+        {"type": "read", "path": "/app/b.py"},
+    ]
+    assert events("ls; cat a.py", "cat: a.py: No such file or directory") == [{"type": "missing", "path": "/app/a.py"}]
+    assert events("ls; cat a.py 2>/dev/null", "") == []
+    assert events("ls; cat a.py 2>&1 | grep x", "") == []
+    assert events("ls; cat a.py", "x\n[... output limited to 10000 bytes; 70 interior bytes omitted ...]") == []
+
+
+LONG_OUTPUT = "total 4\n-rw-r--r--. 1 root root 12 Aug 26 10:46 a.py"
+LONG_ENTRIES = [{"name": "a.py", "kind": "file", "size": 12}]
+
+
+def test_literal_echo_lines_around_one_information_part_are_set_aside():
+    found = events("echo '=== files ===' && ls -l", "=== files ===\n" + LONG_OUTPUT)
+    assert found == [{"type": "listing", "folder": "/app", "entries": LONG_ENTRIES, "showsHidden": False}]
+    found = events("ls -l 2>/dev/null || echo 'no such folder'", LONG_OUTPUT)
+    assert found == [{"type": "listing", "folder": "/app", "entries": LONG_ENTRIES, "showsHidden": False}]
+    # The fallback message ran, so the listing failed: nothing about the folder.
+    assert events("ls -l missing 2>/dev/null || echo 'no such folder'", "no such folder") == []
+    assert events("printf '== a ==\\n'; pwd; ls", "== a ==\n/app\na.py  b.py") == [
+        {"type": "listing", "folder": "/app", "entries": [{"name": "a.py"}, {"name": "b.py"}], "showsHidden": False}
+    ]
+
+
+def test_literal_separators_attribute_the_output_of_several_information_parts():
+    command = "echo '--- list ---'; ls -l; echo '--- text ---'; cat a.py"
+    output = "--- list ---\n" + LONG_OUTPUT + "\n--- text ---\nprint(1)"
+    assert events(command, output) == [
+        {"type": "listing", "folder": "/app", "entries": LONG_ENTRIES, "showsHidden": False},
+        {"type": "read", "path": "/app/a.py", "content": "print(1)\n"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("command", "output"),
+    [
+        # Two information parts with no separator between them: their outputs cannot be told apart.
+        ("ls -l; cat a.py", LONG_OUTPUT + "\nprint(1)"),
+        # A separator that also occurs inside a later output is ambiguous.
+        ("echo '---'; ls; echo '---'; cat a.py", "---\na.py\n---\nx\n---\ny"),
+        # Output that is not computable from the text: a variable, a printing command outside the table.
+        ('echo "$NAME"; ls', "jeff\na.py"),
+        ("apt-get update; ls", "Reading package lists... Done\na.py"),
+        ("echo -n 'x'; ls", "xa.py"),
+    ],
+)
+def test_output_that_cannot_be_attributed_gives_no_listing_or_text(command, output):
+    assert [event for event in events(command, output) if event["type"] == "listing" or "content" in event] == []

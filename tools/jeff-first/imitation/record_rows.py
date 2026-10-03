@@ -6,8 +6,9 @@ scout's full option lists at that moment (`lists`: `tools` and `arguments_by_too
 (`action.tool_calls`). The pi session file (agent/pi/sessions/*.jsonl: a "session" header line with the session id
 and working folder, then one line per message) holds every command with its full output.
 
-Each logged turn becomes one decision: the label is the option matched by the first matching command of the turn,
-or "hand over" (labels.py). Only the turn's first match is labelled: menus are logged only before each coding-model
+Each logged turn becomes one decision: the label is the option matched by the first matching command of the turn
+before its first acting command, or "hand over" (labels.py). Each bash call runs in a new shell in the session's
+folder, so paths resolve against it (and any `cd` earlier in the same command). Only the turn's first match is labelled: menus are logged only before each coding-model
 turn, so the points inside a stint (after a scout step) have no menu. Rows are tagged quality "exact".
 
 Checks (each raises ValueError naming the session and turn): every trace session has a session file; the record's
@@ -22,6 +23,7 @@ the returned notes list each such turn.
 import json
 from pathlib import Path
 
+from imitation.events import Shell, part_folders
 from imitation.labels import LabelTurn, SessionLabeler, TurnCommand
 from imitation.rows import Menu, Row, RowSource, ShellStep, render_state, rows_for_decision, terminal_command
 
@@ -117,14 +119,16 @@ def record_rows(trace: list[dict], session_files: list[Path], source: str = "jef
                 if record["action"]["stop_reason"] in FAILED_STOPS:
                     notes.append(f"{session_id} turn {number}: the model call ended with {record['action']['stop_reason']}; no row")
                     record = None
-            turns.append(LabelTurn(commands, labelled=record is not None))
+            # pi runs each bash call in a new shell in the session's folder; the user's home is not recorded.
+            folders = [part_folders(command.text, Shell(cwd, None))[0] for command in commands]
+            turns.append(LabelTurn(commands, labelled=record is not None, folders=folders))
         missing = sorted(set(records) - set(range(1, len(assistants) + 1)))
         if missing:
             raise ValueError(f"{session_id}: the trace has turns {missing} that the session file does not")
         first = records[min(records)]
         meta = RowSource(source=source, stage=3, quality="exact", task=first["task_id"], session=session_id)
         task = first["state"]["task"]
-        labeler = SessionLabeler(turns, cwd, follow_stints=False, drop_unmatched_information=False)
+        labeler = SessionLabeler(turns, follow_stints=False, drop_unmatched_information=False)
         while (history := labeler.next_point()) is not None:
             record = records[labeler.current_turn]
             covered = len(record["state"]["recentSteps"]) + record["state"]["stepsLeftOut"]

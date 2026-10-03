@@ -10,8 +10,17 @@ from imitation.labels import (
     match_command,
     part_intent,
 )
+from imitation.events import Shell, part_folders
 from imitation.rows import Choice, ShellStep
 from imitation.splitter import split_command
+
+
+def folders_of(command: str, cwd: str = "/app") -> list[str | None]:
+    return part_folders(command, Shell(cwd, "/root"))[0]
+
+
+def match(menu, command, previous_command=None, cwd="/app"):
+    return match_command(menu, command, previous_command, folders_of(command, cwd))
 
 
 def intent(command: str):
@@ -162,7 +171,6 @@ MENU = make_menu(
         ("cat /app/util.py", ("read", "read-3")),
         ("ls -la /app/", ("list", "list-1")),
         ("grep -rn solve /app", ("search", "search-1")),
-        ("grep -rn 'def solve(' /app", ("search", "search-1")),
         ("find /app -name '*.csv'", ("find", "find-1")),
         ("which gcc", ("toolchain", "toolchain-1")),
         ("find / -name 'ffmpeg*' 2>/dev/null", ("toolchain", "toolchain-2")),
@@ -176,7 +184,7 @@ MENU = make_menu(
     ],
 )
 def test_match_command_finds_the_option_with_the_same_kind_and_target(command, expected):
-    found = match_command(MENU, command, previous_command=None, cwd="/app")
+    found = match(MENU, command)
     assert found == Choice.step(*expected)
 
 
@@ -185,6 +193,7 @@ def test_match_command_finds_the_option_with_the_same_kind_and_target(command, e
     [
         "cat /app/other.py",
         "grep -rn so /app",
+        "grep -rn 'def solve(' /app",
         "pip install scipy",
         "python3 /app/other.py",
         "cat /app/util.py && python3 /app/fix.py",
@@ -192,25 +201,29 @@ def test_match_command_finds_the_option_with_the_same_kind_and_target(command, e
     ],
 )
 def test_match_command_rejects_other_targets_and_mixed_commands(command):
-    assert match_command(MENU, command, previous_command=None, cwd="/app") is None
+    assert match(MENU, command) is None
 
 
 def test_a_repeat_of_the_previous_command_is_never_a_label():
-    assert match_command(MENU, "cat /app/util.py", previous_command="cat  /app/util.py", cwd="/app") is None
-    assert match_command(MENU, "make", previous_command="ls", cwd="/app") == Choice.step("repeat", "repeat-1")
-    assert match_command(MENU, "make", previous_command="make", cwd="/app") is None
+    assert match(MENU, "cat /app/util.py", previous_command="cat  /app/util.py") is None
+    assert match(MENU, "make", previous_command="ls") == Choice.step("repeat", "repeat-1")
+    assert match(MENU, "make", previous_command="make") is None
 
 
 def test_neutral_command_is_reported_as_neutral():
-    assert match_command(MENU, "cd /app", previous_command=None, cwd="/app") is NEUTRAL
+    assert match(MENU, "cd /app") is NEUTRAL
 
 
 def step(command, output="out", by_scout=False):
     return ShellStep(command=command, output=output, is_error=False, by_scout=by_scout)
 
 
+def label_turn(commands: list[TurnCommand], labelled: bool = True, cwd: str = "/app") -> LabelTurn:
+    return LabelTurn(commands=commands, labelled=labelled, folders=[folders_of(c.text, cwd) for c in commands])
+
+
 def labelled(turns: list[list[TurnCommand]]) -> list[LabelTurn]:
-    return [LabelTurn(commands=commands, labelled=True) for commands in turns]
+    return [label_turn(commands) for commands in turns]
 
 
 def drive(labeler: SessionLabeler, menus: list[dict]) -> list:
@@ -226,7 +239,7 @@ def test_session_labeler_hand_over_and_single_match():
         [TurnCommand("ls -la /app", "main.py\nutil.py", False)],
         [TurnCommand("cat > /app/new.py <<'EOF'\nx\nEOF", "", False)],
     ]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=True, drop_unmatched_information=False)
+    labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=False)
     points = drive(labeler, [MENU, MENU])
     assert points[0] == []
     assert [d.choice for d in labeler.decisions] == [Choice.step("list", "list-1"), Choice.hand_over()]
@@ -245,7 +258,7 @@ def test_stint_follows_matches_then_hands_over_at_the_first_action():
             TurnCommand("cat main.py", "D", False),
         ]
     ]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=True, drop_unmatched_information=False)
+    labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=False)
     points = drive(labeler, [MENU, MENU, MENU])
     assert [d.choice for d in labeler.decisions] == [
         Choice.step("read", "read-1"),
@@ -258,22 +271,41 @@ def test_stint_follows_matches_then_hands_over_at_the_first_action():
 
 def test_a_stint_that_uses_up_the_turn_needs_no_hand_over_row():
     turns = [[TurnCommand("cat main.py", "A", False), TurnCommand("clear", "", False)], []]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=True, drop_unmatched_information=False)
+    labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=False)
     drive(labeler, [MENU, MENU])
     assert [d.choice for d in labeler.decisions] == [Choice.step("read", "read-1"), Choice.hand_over()]
     assert labeler.decisions[1].history == [step("cat main.py", "A", by_scout=True), step("clear", "", by_scout=False)]
 
 
-def test_first_matching_command_is_used_even_after_an_action():
-    turns = [[TurnCommand("mkdir -p /app/out", "", False), TurnCommand("cat /app/util.py", "B", False)]]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=True, drop_unmatched_information=False)
-    drive(labeler, [MENU, MENU])
-    assert [d.choice for d in labeler.decisions] == [Choice.step("read", "read-3"), Choice.hand_over()]
+def run(labeler: SessionLabeler) -> list:
+    drive(labeler, [MENU] * 10)
+    return [d.choice for d in labeler.decisions]
+
+
+def stints(*commands: str, follow: bool = True) -> SessionLabeler:
+    turn = [TurnCommand(text, "out", False) for text in commands]
+    return SessionLabeler(labelled([turn]), follow_stints=follow, drop_unmatched_information=False)
+
+
+def test_a_turn_is_scanned_only_up_to_its_first_acting_command():
+    # Ruling 2026-10-03: commands after the coding model's own action never become labels or stint rows.
+    assert run(stints("mkdir -p /app/out", "cat /app/util.py")) == [Choice.hand_over()]
+    assert run(stints("printf 'x' > /app/main.py", "cat /app/main.py")) == [Choice.hand_over()]
+    assert run(stints("ls -la /app", "printf 'x' > /app/main.py", "cat /app/main.py")) == [
+        Choice.step("list", "list-1"),
+        Choice.hand_over(),
+    ]
+    assert run(stints("mkdir -p /app/out", "cat /app/util.py", follow=False)) == [Choice.hand_over()]
+
+
+def test_an_acting_command_is_never_a_label_even_when_a_run_or_check_option_matches_it():
+    assert run(stints("pytest -q")) == [Choice.hand_over()]
+    assert run(stints("cat /app/main.py", "python3 /app/solve.py")) == [Choice.step("read", "read-1"), Choice.hand_over()]
 
 
 def test_without_stints_only_the_first_match_of_a_turn_is_labelled():
     turns = [[TurnCommand("cat main.py", "A", False), TurnCommand("cat util.py", "B", False)], []]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=False, drop_unmatched_information=False)
+    labeler = SessionLabeler(labelled(turns), follow_stints=False, drop_unmatched_information=False)
     drive(labeler, [MENU, MENU])
     assert [(d.turn, d.choice) for d in labeler.decisions] == [(1, Choice.step("read", "read-1")), (2, Choice.hand_over())]
     assert labeler.decisions[1].history == [step("cat main.py", "A", by_scout=True), step("cat util.py", "B")]
@@ -281,10 +313,10 @@ def test_without_stints_only_the_first_match_of_a_turn_is_labelled():
 
 def test_an_unlabelled_turn_asks_for_no_menu_but_joins_the_history():
     turns = [
-        LabelTurn(commands=[TurnCommand("ls /app", "x", False)], labelled=False),
-        LabelTurn(commands=[], labelled=True),
+        label_turn([TurnCommand("ls /app", "x", False)], labelled=False),
+        label_turn([]),
     ]
-    labeler = SessionLabeler(turns, cwd="/app", follow_stints=True, drop_unmatched_information=False)
+    labeler = SessionLabeler(turns, follow_stints=True, drop_unmatched_information=False)
     points = drive(labeler, [MENU])
     assert points == [[step("ls /app", "x")]]
     assert [(d.turn, d.choice) for d in labeler.decisions] == [(2, Choice.hand_over())]
@@ -296,7 +328,7 @@ def test_approximate_sources_drop_a_point_whose_unmatched_next_command_only_gath
         [TurnCommand("cat > /app/new.py <<'EOF'\nx\nEOF", "", False)],
         [TurnCommand("cat /app/main.py", "A", False), TurnCommand("grep -rn nothing_offered /app", "B", False)],
     ]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=True, drop_unmatched_information=True)
+    labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=True)
     drive(labeler, [MENU, MENU, MENU, MENU])
     assert [(d.turn, d.choice) for d in labeler.decisions] == [
         (2, Choice.hand_over()),
@@ -307,7 +339,7 @@ def test_approximate_sources_drop_a_point_whose_unmatched_next_command_only_gath
 
 def test_exact_sources_keep_hand_over_for_unmatched_information():
     turns = [[TurnCommand("cat /app/elsewhere.py", "x", False)]]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=False, drop_unmatched_information=False)
+    labeler = SessionLabeler(labelled(turns), follow_stints=False, drop_unmatched_information=False)
     drive(labeler, [MENU])
     assert [d.choice for d in labeler.decisions] == [Choice.hand_over()]
     assert labeler.dropped == []
@@ -315,9 +347,68 @@ def test_exact_sources_keep_hand_over_for_unmatched_information():
 
 def test_next_point_keys_name_the_real_commands_of_the_history():
     turns = [[TurnCommand("ls", "a", False), TurnCommand("mkdir x", "", False)], [TurnCommand("cat main.py", "A", False), TurnCommand("cat util.py", "B", False)]]
-    labeler = SessionLabeler(labelled(turns), cwd="/app", follow_stints=True, drop_unmatched_information=False)
+    labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=False)
     keys = []
     while labeler.next_point() is not None:
         keys.append(labeler.next_point_keys())
         labeler.give(MENU)
     assert keys == [[], [(0, 0)], [(0, 0), (0, 1)], [(0, 0), (0, 1), (1, 0)]]
+
+
+SEARCH_MENU = make_menu(
+    search=[
+        option("search", 1, 'Search the project for the text "tmp"'),
+        option("search", 2, 'Search the project for the text "sock"'),
+        option("search", 3, 'Search the project for the text "snapshot"'),
+        option("search", 4, 'Search the project for the text "a.b"'),
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("grep -n 'if (tmp == null) return null;' F.java", None),
+        ("grep -n -A 20 'public void snapshot() throws' F.java", None),
+        ("grep 'try\\|finally\\|sock.close\\|Socket sock' F.java", None),
+        ("grep -rn tmp .", "search-1"),
+        ("grep -n 'sock\\|close' F.java", "search-2"),
+        ("grep -n -e close -e sock F.java", "search-2"),
+        ("grep -nE 'close|sock' F.java", "search-2"),
+        ("egrep 'close|sock' F.java", "search-2"),
+        ("grep -n 'a\\.b' F.java", "search-4"),
+        ("grep -nF 'a\\.b' F.java", None),
+    ],
+)
+def test_search_matches_the_whole_pattern_or_one_alternative_exactly(command, expected):
+    found = match(SEARCH_MENU, command)
+    assert found == (None if expected is None else Choice.step("search", expected))
+
+
+FOLDER_MENU = make_menu(
+    list=[option("list", 1, "List the folder /workspace"), option("list", 2, "List the folder /workspace/mokstore")],
+    read=[option("read", 1, "Read the file /workspace/mokstore/a.py")],
+)
+
+
+def test_paths_resolve_against_the_folder_each_command_part_runs_in():
+    assert match(FOLDER_MENU, "cd /workspace/mokstore && ls -la", cwd="/workspace") == Choice.step("list", "list-2")
+    assert match(FOLDER_MENU, "ls -la", cwd="/workspace/mokstore") == Choice.step("list", "list-2")
+    assert match(FOLDER_MENU, "cat a.py", cwd="/workspace/mokstore") == Choice.step("read", "read-1")
+    assert match(FOLDER_MENU, "cat mokstore/a.py", cwd="/") is None
+    with pytest.raises(ValueError, match="folder"):
+        match_command(FOLDER_MENU, "ls -la", None, [None])
+
+
+def test_xargs_decides_the_kind_by_the_program_it_runs():
+    # nl2bash-3550: xargs runs an inline sh script that greps; a script of its own acts.
+    command = (
+        "find . -type f ! -name '*.png' -print0 | xargs -0 -I{} sh -c 'count=$(grep -oi \"foo=\" \"$1\" 2>/dev/null | wc -l); "
+        "[ \"$count\" -gt 0 ] && echo \"$1: $count\"' _ {} | sort"
+    )
+    assert intent(command) is OTHER
+    found = intent("find . -name '*.py' | xargs grep -n solve")
+    assert isinstance(found, Intent) and (found.kind, found.target) == ("search", "solve")
+    assert intent("find . -name '*.pyc' | xargs rm -f") is OTHER
+    found = intent("find . -name '*.py' | xargs wc -l")
+    assert isinstance(found, Intent) and found.kind == "find"

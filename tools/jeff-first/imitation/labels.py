@@ -18,10 +18,18 @@ How a match is decided:
    by its first non-neutral part (in menu order: tool order, then argument order; for a read with a line range, the
    slice that contains its first line is preferred, otherwise the whole file). A command made only of neutral parts
    is NEUTRAL. A command identical (up to spacing) to the coding model's immediately preceding command is never a
-   label: a repeat with nothing changed.
+   label: a repeat with nothing changed. Paths are resolved against the folder each part runs in (the caller gives
+   it: the shell's folder before the command, moved by any `cd` earlier in the same command).
+4. A search matches when the grep's pattern, with grep's escapes removed, equals the option's text, or one
+   alternative of it does (`a\\|b`, several `-e`, or `a|b` for -E): `grep -n 'sock\\|close' F` matches the text
+   "sock"; `grep 'if (tmp == null)' F` does not match "tmp" (the scout would search the whole project for that
+   word, a different step).
 
 Labelling a session (SessionLabeler), per the design's Labels section: at the point before each coding-model turn,
-the first matching command of the turn is the label; if none matches, the label is "hand over". With stints
+the first matching command of the turn is the label; if none matches, the label is "hand over". The turn is scanned
+only up to its first command that acts (`command_acts`: writes, edits, runs, installs, compiles, anything neither
+gathering information nor neutral): commands after it are never labels or stint rows, and an acting command is
+never a label itself, even when a Run, Check, Install or Repeat option matches it (ruling 2026-10-03). With stints
 followed, the matched command's real output then joins the history as a scout step, and the next command of the
 turn (after neutral ones) is labelled at a new point: its option if it matches, otherwise "hand over", which ends
 the turn's stint. A stint that uses up the turn needs no hand-over row (the next turn's point follows), unless
@@ -231,19 +239,43 @@ def _list(word: str, args: list[str], part: Part) -> PartResult:
     return Intent("list", plain[0] if plain else ".", word=word)
 
 
-def _grep_pattern(args: list[str]) -> str | None:
-    for index, arg in enumerate(args):
-        if arg in ("-e", "--regexp") and index + 1 < len(args):
-            return args[index + 1]
-        if arg.startswith("--regexp="):
-            return arg.split("=", 1)[1]
+def _grep_patterns(args: list[str]) -> list[str]:
+    """Every pattern a grep is given: each `-e`/`--regexp` value, else its first plain argument."""
+    given = [args[index + 1] for index, arg in enumerate(args[:-1]) if arg in ("-e", "--regexp")]
+    given += [arg.split("=", 1)[1] for arg in args if arg.startswith("--regexp=")]
+    if given:
+        return given
     plain = _plain_args(args, GREP_VALUE_FLAGS)
-    return plain[0] if plain else None
+    return plain[:1]
+
+
+def _search_texts(word: str, args: list[str], patterns: list[str]) -> tuple[str, ...]:
+    """The texts a grep looks for, as a Search option would name them: each whole pattern and each alternative of
+    an alternation (`a\\|b`, or `a|b` for an extended pattern), with grep's escapes removed (`a\\.b` is "a.b").
+    A fixed-string grep (-F, fgrep) looks for its patterns as typed."""
+    flags = "".join(arg[1:] for arg in args if re.fullmatch(r"-[A-Za-z]+", arg))
+    if "F" in flags or word == "fgrep":
+        return tuple(patterns)
+    extended = "E" in flags or "P" in flags or word in ("egrep", "rg", "ag")
+    texts: list[str] = []
+    for pattern in patterns:
+        branches = re.split(r"(?<!\\)\|" if extended else r"\\\|", pattern)
+        for text in [pattern, *branches]:
+            unescaped = re.sub(r"\\(.)", r"\1", text)
+            if unescaped and unescaped not in texts:
+                texts.append(unescaped)
+    return tuple(texts)
+
+
+def _search(word: str, grep_word: str, args: list[str]) -> PartResult:
+    patterns = _grep_patterns(args)
+    if not patterns:
+        return OTHER
+    return Intent("search", patterns[0], targets=_search_texts(grep_word, args, patterns), word=word)
 
 
 def _grep(word: str, args: list[str], part: Part) -> PartResult:
-    pattern = _grep_pattern(args)
-    return Intent("search", pattern, word=word) if pattern else OTHER
+    return _search(word, word, args)
 
 
 def _find(word: str, args: list[str], part: Part) -> PartResult:
@@ -253,18 +285,34 @@ def _find(word: str, args: list[str], part: Part) -> PartResult:
         if flag in args:
             program = args[args.index(flag) + 1] if args.index(flag) + 1 < len(args) else ""
             if _basename(program) in GREP_LIKE:
-                pattern = _grep_pattern(args[args.index(flag) + 2 :])
-                return Intent("search", pattern, word=word) if pattern else OTHER
+                return _search(word, _basename(program), args[args.index(flag) + 2 :])
             if _basename(program) not in CAT_LIKE | {"ls", "wc", "head", "file", "stat"}:
                 return OTHER
-    if any(_basename(first_word(stage)[0]) == "xargs" and re.search(r"\bgrep\b", stage) for stage in part.filters):
-        xargs_words = _words(next(stage for stage in part.filters if re.search(r"\bgrep\b", stage)))
-        pattern = _grep_pattern(xargs_words[xargs_words.index(next(w for w in xargs_words if _basename(w) in GREP_LIKE)) + 1 :])
-        return Intent("search", pattern, word=word) if pattern else OTHER
+    for stage in part.filters:
+        program = _xargs_program(stage)
+        if program is not None and _basename(program[0]) in GREP_LIKE:
+            return _search(word, _basename(program[0]), program[1:])
     for flag in ("-name", "-iname", "-path", "-ipath"):
         if flag in args and args.index(flag) + 1 < len(args):
             return Intent("find", args[args.index(flag) + 1], word=word)
     return Intent("find", "", word=word)
+
+
+XARGS_VALUE_FLAGS = {"-I", "-n", "-P", "-L", "-d", "-s", "-E", "-a", "--max-args", "--max-procs", "--delimiter", "--arg-file"}
+# Programs that only show what they are given; xargs running anything else acts (rm, sed -i, an inline sh -c script).
+XARGS_SHOWING = GREP_LIKE | CAT_LIKE | {"ls", "wc", "head", "tail", "file", "stat", "du", "basename", "dirname", "echo"}
+
+
+def _xargs_program(stage: str) -> list[str] | None:
+    """For a pipeline stage that runs xargs: the program xargs runs and its arguments (["echo"] when none is named,
+    as xargs does). None for any other stage. Raises ValueError for an unclosed quote."""
+    if _basename(first_word(stage)[0]) != "xargs":
+        return None
+    words = _words(first_word(stage)[1])[1:]
+    index = 0
+    while index < len(words) and words[index].startswith("-"):
+        index += 2 if words[index] in XARGS_VALUE_FLAGS else 1
+    return words[index:] or ["echo"]
 
 
 def _locate(word: str, args: list[str], part: Part) -> PartResult:
@@ -468,6 +516,13 @@ def part_intent(part: Part) -> PartResult:
     base = _basename(word)
     if any(_basename(first_word(stage)[0]) in ("tee", "sh", "bash") or has_file_write(stage) for stage in part.filters):
         return OTHER
+    try:
+        programs = [program for program in (_xargs_program(stage) for stage in part.filters) if program is not None]
+    except ValueError:
+        # An unclosed quote: bash itself would wait for more input instead of running it, so the part runs nothing.
+        return OTHER
+    if any(_basename(program[0]) not in XARGS_SHOWING for program in programs):
+        return OTHER
     if has_file_write(text):
         return OTHER
     if re.match(r"^\w+=", word):
@@ -558,23 +613,7 @@ def _resolve(path: str, cwd: str) -> str:
 
 
 def _same_path(a: str, b: str, cwd: str) -> bool:
-    if not a or not b:
-        return False
-    if _resolve(a, cwd) == _resolve(b, cwd):
-        return True
-    # A relative path with a folder in it, typed after a `cd` elsewhere: compare by its trailing segments.
-    for relative, other in ((a, b), (b, a)):
-        if not relative.startswith("/") and "/" in relative.strip("/"):
-            if _resolve(other, cwd).endswith("/" + posixpath.normpath(relative)):
-                return True
-    return False
-
-
-def _same_search(pattern: str, text: str) -> bool:
-    if pattern == text:
-        return True
-    plain = pattern.replace("\\", "")
-    return len(text) >= 3 and re.search(rf"(?<!\w){re.escape(text)}(?!\w)", plain) is not None
+    return bool(a) and bool(b) and _resolve(a, cwd) == _resolve(b, cwd)
 
 
 def _glob_core(pattern: str) -> str:
@@ -617,7 +656,7 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
     if intent.kind == "list":
         return kind == "list" and target.form == "path" and _same_path(intent.target, target.value, cwd)
     if intent.kind == "search":
-        return kind == "search" and target.form == "name" and _same_search(intent.target, target.value)
+        return kind == "search" and target.form == "name" and target.value in (intent.targets or (intent.target,))
     if intent.kind == "find":
         if kind == "find" and target.form == "find":
             return bool(intent.target) and _glob_core(intent.target) == _glob_core(target.value)
@@ -678,28 +717,42 @@ def _best_option(menu: Menu, intent: Intent, cwd: str) -> tuple[str, str] | None
     return kind, option_id
 
 
-def match_command(menu: Menu, command: str, previous_command: str | None, cwd: str) -> Choice | _Marker | None:
+def match_command(
+    menu: Menu, command: str, previous_command: str | None, folders: list[str | None]
+) -> Choice | _Marker | None:
     """The option this command of the coding model takes (a Choice), NEUTRAL when it does nothing worth a step, or
-    None when it matches no option; see the module docstring."""
+    None when it matches no option; see the module docstring. `folders` gives the folder each part of the command
+    (split_command order) runs in; a part that needs one must have it (ValueError otherwise)."""
     if previous_command is not None and _normal(command) == _normal(previous_command):
         return None
     stripped = _normal(re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", command))
     for option in menu["arguments_by_tool"].get("repeat", []):
         if _normal(_option_target(option).value) == stripped:
             return Choice.step("repeat", option["id"])
-    results = [part_intent(part) for part in split_command(command)]
-    acting = [result for result in results if result is not NEUTRAL]
+    parts = split_command(command)
+    if len(folders) != len(parts):
+        raise ValueError(f"{len(folders)} folders given for the {len(parts)} parts of the command {command[:120]!r}")
+    results = [(part_intent(part), folder) for part, folder in zip(parts, folders)]
+    acting = [(result, folder) for result, folder in results if result is not NEUTRAL]
     if not acting:
         return NEUTRAL
     choices: list[tuple[str, str]] = []
-    for result in acting:
+    for result, folder in acting:
         if not isinstance(result, Intent):
             return None
-        best = _best_option(menu, result, cwd)
+        if folder is None:
+            raise ValueError(f"the folder a part of the command {command[:120]!r} runs in is unknown")
+        best = _best_option(menu, result, folder)
         if best is None:
             return None
         choices.append(best)
     return Choice.step(*choices[0])
+
+
+def command_acts(command: str) -> bool:
+    """Whether the command acts: it is neither neutral nor only gathering information (writes, edits, runs,
+    installs, compiles, or does anything outside the table)."""
+    return not command_is_neutral(command) and not gathers_information(command)
 
 
 @dataclass(frozen=True)
@@ -714,10 +767,16 @@ class TurnCommand:
 @dataclass(frozen=True)
 class LabelTurn:
     """One coding-model turn. `labelled` is False for a turn that gets no row (its reply could not be read by the
-    harness, or the model call failed); its commands still join the history."""
+    harness, the model call failed, or it only answers the harness's completion question); its commands still join
+    the history. `folders` gives, for each command, the folder each of its parts runs in (None when unknown)."""
 
     commands: list[TurnCommand]
     labelled: bool
+    folders: list[list[str | None]]
+
+    def __post_init__(self) -> None:
+        if len(self.folders) != len(self.commands):
+            raise ValueError(f"a turn of {len(self.commands)} commands needs as many folder lists, not {len(self.folders)}")
 
 
 @dataclass(frozen=True)
@@ -746,7 +805,6 @@ class SessionLabeler:
     what the scout really had, so an unmatched information command is a genuine "hand over"."""
 
     turns: list[LabelTurn]
-    cwd: str
     follow_stints: bool
     drop_unmatched_information: bool
     decisions: list[Decision] = field(default_factory=list)
@@ -801,6 +859,25 @@ class SessionLabeler:
             raise ValueError("the session has no decision point left")
         return [*self._done_keys, *((self._turn, index) for index in sorted(self._scout))]
 
+    def end_before_current_turn(self) -> None:
+        """End the session before the pending point's turn: that turn's decisions and drops so far are removed and
+        no later point is asked for (used when the point's facts cannot be known)."""
+        turn = self._turn + 1
+        self.decisions = [decision for decision in self.decisions if decision.turn < turn]
+        self.dropped = [dropped for dropped in self.dropped if dropped < turn]
+        self._turn = len(self.turns)
+
+    def _limit(self) -> int:
+        """The index of the current turn's first acting command (the number of commands when none acts): the turn
+        is scanned for labels only up to it (ruling 2026-10-03: what the coding model does after its own action
+        is never a label)."""
+        commands = self.turns[self._turn].commands
+        return next((index for index, command in enumerate(commands) if command_acts(command.text)), len(commands))
+
+    def _match(self, menu: Menu, index: int) -> Choice | _Marker | None:
+        turn = self.turns[self._turn]
+        return match_command(menu, turn.commands[index].text, self._previous(index), turn.folders[index])
+
     def _no_match(self, menu: Menu, next_commands: list[str]) -> None:
         """Hand over, or no row when the coding model's next commands only gather information (see the class)."""
         relevant = [text for text in next_commands if not command_is_neutral(text)]
@@ -836,15 +913,16 @@ class SessionLabeler:
         if self._hand_over_due:
             self._no_match(menu, [c.text for i, c in enumerate(commands) if i not in self._scout])
             return
+        limit = self._limit()
         if self._next is not None:
-            choice = match_command(menu, commands[self._next].text, self._previous(self._next), self.cwd)
+            choice = self._match(menu, self._next) if self._next < limit else None
             if isinstance(choice, Choice):
                 self._take(self._next, choice, menu)
                 return
             self._no_match(menu, [commands[self._next].text])
             return
-        for index, command in enumerate(commands):
-            choice = match_command(menu, command.text, self._previous(index), self.cwd)
+        for index in range(limit):
+            choice = self._match(menu, index)
             if isinstance(choice, Choice):
                 self._take(index, choice, menu)
                 return

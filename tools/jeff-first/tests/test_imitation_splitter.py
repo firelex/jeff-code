@@ -42,6 +42,36 @@ def test_heredoc_body_is_kept_out_of_the_parts():
     assert parts[0].heredoc == "import sys; print(1)\nx = a && b"
 
 
+def test_heredoc_belongs_to_the_part_that_opens_it_not_the_last_part_of_the_line():
+    parts = split_command("cat > /app/run.sh <<'EOF' && chmod +x /app/run.sh\necho hi\nEOF")
+    assert [(part.head, part.heredoc) for part in parts] == [
+        ("cat > /app/run.sh <<'EOF' __HEREDOC0__", "echo hi"),
+        ("chmod +x /app/run.sh", None),
+    ]
+    parts = split_command("sqlite3 /app/db <<EOF | head -5\n.tables\nEOF")
+    assert parts == [Part(head="sqlite3 /app/db <<EOF __HEREDOC0__", filters=("head -5",), heredoc=".tables")]
+
+
+def test_heredoc_marker_inside_quotes_or_a_here_string_is_not_a_heredoc():
+    parts = split_command("echo \"use <<EOF to start\" && ls\ncat a.txt")
+    assert [(part.head, part.heredoc) for part in parts] == [
+        ('echo "use <<EOF to start"', None),
+        ("ls", None),
+        ("cat a.txt", None),
+    ]
+    parts = split_command("python3 -c 'print(1)\n# <<EOF'\nls")
+    assert [part.heredoc for part in parts] == [None, None]
+    assert [part.head for part in split_command("grep x <<< \"$TEXT\"\nls")] == ['grep x <<< "$TEXT"', "ls"]
+
+
+def test_two_heredocs_on_one_line_each_go_to_their_own_part():
+    parts = split_command("cat > a <<A && cat > b <<B\none\nA\ntwo\nB")
+    assert [(part.head, part.heredoc) for part in parts] == [
+        ("cat > a <<A __HEREDOC0__", "one"),
+        ("cat > b <<B __HEREDOC1__", "two"),
+    ]
+
+
 def test_control_flow_keywords_are_stripped_and_conditions_kept():
     assert heads("if [ -f a ]; then cat a; fi") == ["cat a"]
     assert heads("for f in *.py; do wc -l $f; done") == ["wc -l $f"]
@@ -76,3 +106,12 @@ def test_has_file_write():
     assert not has_file_write("ls 2>/dev/null")
     assert not has_file_write("make > /dev/null 2>&1")
     assert not has_file_write("cmd 2>&1")
+
+
+def test_each_part_records_the_operator_before_it_and_whether_control_flow_was_stripped():
+    parts = split_command("echo a; ls && cat b || echo c\npwd")
+    assert [part.joiner for part in parts] == ["", ";", "&&", "||", "\n"]
+    assert not any(part.in_control_flow for part in parts)
+    assert all(part.in_control_flow for part in split_command("if [ -f a ]; then cat a; fi; ls"))
+    assert all(part.in_control_flow for part in split_command("{ ls; cat a; } > out"))
+    assert not any(part.in_control_flow for part in split_command("ls -la /out 2>/dev/null || true"))
