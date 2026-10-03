@@ -474,7 +474,11 @@ describe("buildLists", () => {
 		expect(lists.argumentsByTool.read).toBeUndefined();
 		expect(lists.argumentsByTool.peek).toBeUndefined();
 		expect(lists.argumentsByTool.run).toBeUndefined();
-		expect((lists.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([`Find the files under ${cwd}`]);
+		expect((lists.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([
+			`Find the files under ${cwd}`,
+			"Find files named data.csv",
+			"Find files named README.md",
+		]);
 		expect((lists.argumentsByTool.list ?? []).map(target)).toEqual([cwd]);
 		const tools = lists.tools.map((t) => t.id);
 		expect(tools).toContain("toolchain");

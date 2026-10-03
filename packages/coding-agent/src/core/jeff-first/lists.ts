@@ -11,6 +11,8 @@ import {
 	type MenuToolCall,
 	namedPaths,
 	RECENT_OUTPUTS,
+	revealedFileNames,
+	revealedPaths,
 } from "./menu.ts";
 import { PROBE_TIMEOUT_SECONDS, shellQuote } from "./probes.ts";
 import { docsOptions, installOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
@@ -379,7 +381,17 @@ function findOptions(input: ListsInput): Built[] {
 			),
 			description: `Find the files under ${folder}`,
 		}));
-	return [...byName, ...underFolders];
+	// Every bare file name the session has revealed whose location is not known: no revealed existing file has it.
+	const located = new Set(revealedPaths(input).files.map((path) => basename(path)));
+	const unlocated = revealedFileNames(input)
+		.filter((name) => !located.has(name) && !names.includes(name))
+		.map((name) => ({
+			call: bashProbe(
+				`find ${shellQuote(input.cwd)} -name ${shellQuote(name)} -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n ${SEARCH_RESULT_LIMIT}`,
+			),
+			description: `Find files named ${name}`,
+		}));
+	return [...byName, ...underFolders, ...unlocated];
 }
 
 function checkOptions(input: ListsInput): MenuToolCall[] {

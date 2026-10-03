@@ -192,14 +192,48 @@ describe("buildLists with virtual facts", () => {
 		expect(deleted.argumentsByTool.read).toBeUndefined();
 	});
 
-	it("offers Find only for a named path known to be missing, never for an unknown one", () => {
+	it("offers Find by pattern only for a named path known to be missing, and Find by name for an unknown one", () => {
 		const unknown = buildLists(input([], [], "Fix config.yaml."));
-		expect((unknown.argumentsByTool.find ?? []).map((o) => o.description)).toEqual(["Find the files under /app"]);
+		expect((unknown.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([
+			"Find the files under /app",
+			"Find files named config.yaml",
+		]);
 		expect(unknown.argumentsByTool.read).toBeUndefined();
 		const missing = buildLists(input([], [{ type: "missing", path: "/app/config.yaml" }], "Fix config.yaml."));
 		expect((missing.argumentsByTool.find ?? []).map((o) => o.description)).toEqual([
 			"Find files matching **/config.yaml",
 			"Find the files under /app",
+		]);
+	});
+
+	it("finds a file the task names by name while no revealed path shows where it is", () => {
+		const task = "The bug is in OrderService.java.";
+		const unknown = buildLists(input([], [], task)).argumentsByTool.find ?? [];
+		expect(unknown.find((o) => o.description === "Find files named OrderService.java")?.toolCall).toEqual({
+			name: "bash",
+			arguments: {
+				command:
+					"find '/app' -name 'OrderService.java' -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n 50",
+				timeout: 60,
+			},
+		});
+		const listing: FactEvent = {
+			type: "listing",
+			folder: "/app/src",
+			entries: [{ name: "OrderService.java", kind: "file", size: 900 }],
+		};
+		const steps = [bash("ls -la /app/src", "total 4\n-rw-r--r-- 1 root root 900 Jan 1 00:00 OrderService.java\n")];
+		const known = buildLists(input(steps, [listing], task)).argumentsByTool.find ?? [];
+		expect(known.map((o) => o.description)).not.toContain("Find files named OrderService.java");
+	});
+
+	it("finds a bare file name an output or a command reveals, never a wildcard pattern", () => {
+		const steps = [bash("cat Main.kt", "see also Helper.kt and *.kt")];
+		const find = buildLists(input(steps, [])).argumentsByTool.find ?? [];
+		expect(find.map((o) => o.description)).toEqual([
+			"Find the files under /app",
+			"Find files named Helper.kt",
+			"Find files named Main.kt",
 		]);
 	});
 

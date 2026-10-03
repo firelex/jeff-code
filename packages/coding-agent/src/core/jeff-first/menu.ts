@@ -42,6 +42,9 @@ function unquote(argument: string): string {
 		: argument;
 }
 
+/** A file name with an extension and nothing else: no folder, no wildcard. */
+const BARE_FILE_NAME = /^[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,9}$/;
+
 /** A control character (U+0000-U+001F or U+007F): never part of a real file name, only junk from binary output. */
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 
@@ -115,16 +118,33 @@ export function namedPaths(input: MenuInput): { files: string[]; folders: string
 	return pathsIn(input, sources);
 }
 
-/** Existing files and folders the session has revealed: named in any step's output or call arguments (newest step
- * first, its output before its arguments), then in the task. */
-export function revealedPaths(input: MenuInput): { files: string[]; folders: string[] } {
+/** Every step's output and call arguments (newest step first, its output before its arguments), then the task. */
+function revealingSources(input: MenuInput): Source[] {
 	const sources: Source[] = [];
 	for (const step of [...input.steps].reverse()) {
 		sources.push(...outputSource(step, input.cwd));
 		for (const text of stringsIn(step.call.arguments)) sources.push({ text, bases: [input.cwd] });
 	}
 	sources.push({ text: input.task, bases: [input.cwd] });
-	return pathsIn(input, sources);
+	return sources;
+}
+
+/** Existing files and folders the session has revealed: named in any step's output or call arguments (newest step
+ * first, its output before its arguments), then in the task. */
+export function revealedPaths(input: MenuInput): { files: string[]; folders: string[] } {
+	return pathsIn(input, revealingSources(input));
+}
+
+/** Bare file names (a name with an extension, no folder, no wildcard) the session has revealed, in the order of
+ * revealedPaths, each once. */
+export function revealedFileNames(input: MenuInput): string[] {
+	const names: string[] = [];
+	for (const source of revealingSources(input)) {
+		for (const token of candidates(source.text)) {
+			if (BARE_FILE_NAME.test(token) && !names.includes(token)) names.push(token);
+		}
+	}
+	return names;
 }
 
 function sortedJson(value: JsonValue): string {
