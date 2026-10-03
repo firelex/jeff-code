@@ -13,8 +13,8 @@ from pathlib import Path
 
 DISSENT = re.compile(
     r"not (?:an |one of the |among the )?option|not offered|isn't offered|no such option|but (?:that's|that is|it's) not"
-    r"|among (?:the|these) (?:options|choices)|only (?:the )?options? (?:are|is)|rather than re-?run|would (?:just )?fail again"
-    r"|instead of re-?running|without ever executing|never (?:actually )?execut|not (?:yet )?(?:been )?(?:run|executed)",
+    r"|only (?:the )?options? (?:are|is)|rather than re-?run|would (?:just )?fail again"
+    r"|instead of re-?running",
     re.IGNORECASE,
 )
 FORCED_SHARE = 1 / 20
@@ -39,8 +39,11 @@ def quality(lines: list[dict]) -> Quality:
             continue
         steps += 1
         argument_levels = [level for level in line["levels"] if level["level"] == "argument"]
-        if argument_levels and sum(1 for pick in argument_levels[-1]["picks"] if DISSENT.search(pick["reason"])) >= 2:
-            forced += 1
+        if argument_levels:
+            last = argument_levels[-1]
+            chosen_picks = [pick for pick in last["picks"] if pick["optionId"] == last["chosen"]]
+            if sum(1 for pick in chosen_picks if DISSENT.search(pick["reason"])) >= 2:
+                forced += 1
         key = json.dumps(line["action"]["tool_call"], sort_keys=True)
         stint[key] += 1
         longest = max(longest, stint[key])
