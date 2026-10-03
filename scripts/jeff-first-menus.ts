@@ -3,7 +3,7 @@
  * Builds JeffFirst menus (the scout's option lists) for points in past sessions whose machines are gone, with the
  * same list code as live runs, reading facts rebuilt from the transcript instead of a disk.
  *
- * Usage: node scripts/jeff-first-menus.ts < points.jsonl > menus.jsonl
+ * Usage: node scripts/jeff-first-menus.ts [--live] < points.jsonl > menus.jsonl
  *
  * Each input line is one point before a coding-model turn:
  *   {id, cwd, task, steps: [{command, output, byScout}], events: [FactEvent...], activeTools: ["bash"],
@@ -12,16 +12,26 @@
  * the evidence about files and programs up to that point (see FactEvent in virtual-facts.ts).
  * Each output line, in input order: {id, tools, argumentsByTool}, as buildLists returns them.
  * A bad input line stops the run with an error naming its line number and id.
+ *
+ * With --live (node scripts/jeff-first-menus.ts --live), the facts come from this machine's own disk and PATH, as in a
+ * live run (liveFacts), instead of from events; a point must then carry no events. Used to replay a session inside
+ * the task's container, where the files are real.
  */
 
 import { createInterface } from "node:readline";
 import { detectCheckCommands } from "../packages/coding-agent/src/core/jeff-first/check-commands.ts";
 import type { RunApproval } from "../packages/coding-agent/src/core/jeff-first/config.ts";
+import { type FileFacts, liveFacts } from "../packages/coding-agent/src/core/jeff-first/facts.ts";
 import { buildLists } from "../packages/coding-agent/src/core/jeff-first/lists.ts";
 import type { Step } from "../packages/coding-agent/src/core/jeff-first/transcript.ts";
 import { type FactEvent, virtualFacts } from "../packages/coding-agent/src/core/jeff-first/virtual-facts.ts";
 
 const RUN_APPROVALS: RunApproval[] = ["all", "seen", "never"];
+
+const flags = process.argv.slice(2);
+const unknownFlag = flags.find((flag) => flag !== "--live");
+if (unknownFlag !== undefined) throw new Error(`unknown flag ${unknownFlag}; the only flag is --live`);
+const live = flags.includes("--live");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -32,7 +42,8 @@ function menusFor(point: Record<string, unknown>): string {
 	if (typeof cwd !== "string" || !cwd.startsWith("/")) throw new Error("cwd must be an absolute path");
 	if (typeof task !== "string") throw new Error("task must be text");
 	if (!Array.isArray(steps)) throw new Error("steps must be an array");
-	if (!Array.isArray(events)) throw new Error("events must be an array");
+	if (live && events !== undefined) throw new Error("with --live the facts come from the disk, so events must be left out");
+	if (!live && !Array.isArray(events)) throw new Error("events must be an array");
 	if (!Array.isArray(activeTools) || !activeTools.every((tool) => typeof tool === "string")) {
 		throw new Error("activeTools must be an array of tool names");
 	}
@@ -56,7 +67,7 @@ function menusFor(point: Record<string, unknown>): string {
 			byScout: step.byScout,
 		};
 	});
-	const facts = virtualFacts(events as FactEvent[]);
+	const facts: FileFacts = live ? liveFacts() : virtualFacts(events as FactEvent[]);
 	const checks = detectCheckCommands({ cwd, task, steps: built, facts });
 	const lists = buildLists({
 		cwd,

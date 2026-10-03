@@ -1,11 +1,13 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const CLI = join(import.meta.dirname, "..", "..", "..", "scripts", "jeff-first-menus.ts");
 
-function run(lines: unknown[]) {
-	return spawnSync(process.execPath, [CLI], {
+function run(lines: unknown[], flags: string[] = []) {
+	return spawnSync(process.execPath, [CLI, ...flags], {
 		input: lines.map((line) => JSON.stringify(line)).join("\n"),
 		encoding: "utf8",
 	});
@@ -51,5 +53,41 @@ describe("jeff-first-menus CLI", () => {
 		expect(result.status).not.toBe(0);
 		expect(result.stderr).toMatch(/bad-one/);
 		expect(result.stderr).toMatch(/runApproval/);
+	});
+
+	it("with --live, reads the facts from this machine's disk instead of events", () => {
+		const folder = mkdtempSync(join(tmpdir(), "jeff-first-menus-live-"));
+		try {
+			writeFileSync(join(folder, "main.py"), "print('hello')\n");
+			const { events: _events, ...point } = first;
+			const live = { ...point, cwd: folder, steps: [{ command: "ls", output: "main.py\n", byScout: false }] };
+			const result = run([live], ["--live"]);
+			expect(result.status, result.stderr).toBe(0);
+			const out = JSON.parse(result.stdout.trim());
+			expect(
+				out.argumentsByTool.read.map(
+					(o: { toolCall: { arguments: { command: string } } }) => o.toolCall.arguments.command,
+				),
+			).toEqual([`cat '${join(folder, "main.py")}'`]);
+			// A file named in an output but not on the disk is never offered.
+			const ghost = { ...live, id: "ghost", steps: [{ command: "ls", output: "ghost.py\n", byScout: false }] };
+			const shown = JSON.parse(run([ghost], ["--live"]).stdout.trim());
+			expect(JSON.stringify(shown.argumentsByTool)).not.toContain("ghost.py");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("with --live, refuses events (the disk is the only source of facts)", () => {
+		const result = run([first], ["--live"]);
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toMatch(/s1-t1/);
+		expect(result.stderr).toMatch(/events/);
+	});
+
+	it("refuses an unknown flag", () => {
+		const result = run([first], ["--lve"]);
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toMatch(/--lve/);
 	});
 });
