@@ -1,5 +1,5 @@
 import type { JsonObject } from "@earendil-works/pi-ai";
-import type { ArgumentOption, ToolOption } from "./lists.ts";
+import type { ToolOption } from "./lists.ts";
 import type { JeffState } from "./state.ts";
 
 export const ANSWER_CODES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -9,9 +9,15 @@ export interface ChatMessage {
 	content: string;
 }
 
+/** One option as the chooser sees it: an id for the answer and the text shown. */
+export interface ShownOption {
+	id: string;
+	description: string;
+}
+
 export type Level =
-	| { level: "tool"; options: ToolOption[] }
-	| { level: "argument"; tool: ToolOption; options: ArgumentOption[] };
+	| { level: "tool"; page: number; options: ShownOption[] }
+	| { level: "argument"; page: number; tool: ToolOption; options: ShownOption[] };
 
 export const TEACHER_SYSTEM = [
 	"You are helping a coding assistant that works on a programming task inside a Linux computer.",
@@ -56,14 +62,18 @@ export function answerSchema(codes: string[]): JsonObject {
 }
 
 export function teacherMessages(state: JeffState, level: Level): ChatMessage[] {
-	const options: Array<{ description: string }> = level.options;
+	const options: ShownOption[] = level.options;
 	if (options.length > ANSWER_CODES.length) {
 		throw new Error(`the teacher can be shown at most ${ANSWER_CODES.length} options, not ${options.length} options`);
 	}
+	const later =
+		level.page > 1
+			? `You asked to see more options. This is page ${level.page}; the options on earlier pages are not repeated here.\n`
+			: "";
 	const question =
 		level.level === "tool"
-			? "What should the next step be? Choose one option."
-			: `You have decided that the next step is: ${level.tool.description}. Which one exactly? Choose one option.`;
+			? `${later}What should the next step be? Choose one option.`
+			: `${later}You have decided that the next step is: ${level.tool.description}. Which one exactly? Choose one option.`;
 	const lines = options.map((option, index) => `${ANSWER_CODES[index]}: ${option.description}`);
 	const instruction =
 		'Answer with a JSON object with two fields: "reason", one short sentence explaining your choice, and "choice", the letter of the option you choose.';

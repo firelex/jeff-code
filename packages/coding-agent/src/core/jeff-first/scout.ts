@@ -143,7 +143,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 				});
 				const listsMs = performance.now() - listsStarted;
 				const chooserStarted = performance.now();
-				const toolChoice = await options.chooser.choose(state, { level: "tool", options: lists.tools });
+				const toolChoice = await options.chooser.choose(state, { level: "tool", page: 1, options: lists.tools });
 				const toolLevel = levelRecord(lists.tools, toolChoice, options.chooser.name);
 				if (toolChoice.optionId === "hand_over") {
 					record = {
@@ -162,6 +162,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 						throw new Error(`the chooser picked the tool ${kind}, which was not offered`);
 					const argumentChoice = await options.chooser.choose(state, {
 						level: "argument",
+						page: 1,
 						tool,
 						options: argumentOptions,
 					});

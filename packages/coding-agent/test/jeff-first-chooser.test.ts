@@ -60,6 +60,7 @@ describe("GlmTeacher", () => {
 		teacher = await startFakeTeacher((options) => answerFor(options, n++ < 3 ? "Run the project" : "Read"));
 		const choice = await new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, {
 			level: "tool",
+			page: 1,
 			options: tools,
 		});
 		expect(teacher.requests).toHaveLength(TEACHER_SAMPLES);
@@ -79,14 +80,14 @@ describe("GlmTeacher", () => {
 	it("names the teacher when it answers with an HTTP error", async () => {
 		teacher = await startFakeTeacher(() => "!500");
 		await expect(
-			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", page: 1, options: tools }),
 		).rejects.toThrow(/the teacher model at http:\/\/127\.0\.0\.1:\d+ answered 500/);
 	});
 
 	it("names the teacher when its response body is not JSON", async () => {
 		teacher = await startFakeTeacher(() => "!raw:<html>bad gateway</html>");
 		await expect(
-			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", page: 1, options: tools }),
 		).rejects.toThrow(
 			/the teacher model at http:\/\/127\.0\.0\.1:\d+ answered with a body that is not JSON: <html>bad gateway<\/html>/,
 		);
@@ -95,7 +96,7 @@ describe("GlmTeacher", () => {
 	it("names the teacher when its reply has no message text", async () => {
 		teacher = await startFakeTeacher(() => '!raw:{"choices":[]}');
 		await expect(
-			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", page: 1, options: tools }),
 		).rejects.toThrow(
 			/the teacher model at http:\/\/127\.0\.0\.1:\d+ replied without message text: \{"choices":\[\]\}/,
 		);
@@ -104,14 +105,14 @@ describe("GlmTeacher", () => {
 	it("refuses an answer that is not JSON", async () => {
 		teacher = await startFakeTeacher(() => "I would read the file.");
 		await expect(
-			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", page: 1, options: tools }),
 		).rejects.toThrow(/at http:\/\/127\.0\.0\.1:\d+ gave an answer that is not JSON: I would read the file\./);
 	});
 
 	it("refuses a letter that is not one of the options", async () => {
 		teacher = await startFakeTeacher(() => JSON.stringify({ reason: "x", choice: "Q" }));
 		await expect(
-			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", page: 1, options: tools }),
 		).rejects.toThrow(
 			/the teacher model at http:\/\/127\.0\.0\.1:\d+ gave an answer with no valid choice and reason/,
 		);
@@ -119,7 +120,11 @@ describe("GlmTeacher", () => {
 
 	it("fails when the teacher cannot be reached", async () => {
 		await expect(
-			new GlmTeacher("http://127.0.0.1:9", "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher("http://127.0.0.1:9", "glm-test", FAST).choose(state, {
+				level: "tool",
+				page: 1,
+				options: tools,
+			}),
 		).rejects.toThrow(/could not reach the teacher model at http:\/\/127\.0\.0\.1:9: fetch failed \(bad port\)/);
 	});
 });
@@ -143,6 +148,7 @@ describe("GlmTeacher retries", () => {
 		});
 		const choice = await new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, {
 			level: "tool",
+			page: 1,
 			options: tools,
 		});
 		expect(choice.optionId).toBe("read");
@@ -157,6 +163,7 @@ describe("GlmTeacher retries", () => {
 		teacher = await startFakeTeacher((options) => (n++ === 0 ? "!500" : answerFor(options, "Read")));
 		const choice = await new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, {
 			level: "tool",
+			page: 1,
 			options: tools,
 		});
 		expect(choice.picks.flatMap((p) => p.failedAttempts.map((a) => a.error))).toEqual([
@@ -167,7 +174,7 @@ describe("GlmTeacher retries", () => {
 	it("does not retry a 403, which a firewall gives the same way every time", async () => {
 		teacher = await startFakeTeacher(() => "!status:403:<html>403 Forbidden</html>");
 		await expect(
-			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", page: 1, options: tools }),
 		).rejects.toThrow(/answered 403: <html>403 Forbidden<\/html>/);
 		// The choice fails on the first 403; wait well past the 10 ms retry delay so any retry would have arrived.
 		await new Promise((done) => setTimeout(done, 200));
@@ -177,7 +184,7 @@ describe("GlmTeacher retries", () => {
 	it("gives up after the last retry and names every attempt", async () => {
 		teacher = await startFakeTeacher(() => "!500");
 		await expect(
-			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", options: tools }),
+			new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, { level: "tool", page: 1, options: tools }),
 		).rejects.toThrow(
 			/answered 500: .*gave up after 3 attempts.*attempt 1: .*answered 500.*attempt 2: .*answered 500/,
 		);
@@ -201,6 +208,7 @@ describe("GlmTeacher and the firewall in front of the GLM endpoint", () => {
 		};
 		const choice = await new GlmTeacher(teacher.url, "glm-test", FAST).choose(withDots, {
 			level: "tool",
+			page: 1,
 			options: tools,
 		});
 		const sent = JSON.stringify(teacher.requests[0].messages);
@@ -215,6 +223,7 @@ describe("GlmTeacher and the firewall in front of the GLM endpoint", () => {
 		teacher = await startFakeTeacher((options) => answerFor(options, "Read"));
 		const choice = await new GlmTeacher(teacher.url, "glm-test", FAST).choose(state, {
 			level: "tool",
+			page: 1,
 			options: tools,
 		});
 		expect(JSON.stringify(teacher.requests[0].messages)).not.toContain(WORD_JOINER);

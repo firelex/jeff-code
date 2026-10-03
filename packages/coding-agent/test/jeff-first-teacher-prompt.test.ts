@@ -49,7 +49,7 @@ describe("renderState", () => {
 
 describe("teacherMessages", () => {
 	it("asks for the next kind of step, with lettered options", () => {
-		const [system, user] = teacherMessages(state, { level: "tool", options: tools });
+		const [system, user] = teacherMessages(state, { level: "tool", page: 1, options: tools });
 		expect(system.role).toBe("system");
 		expect(system.content).toContain("Hand over as soon as");
 		expect(user.content).toContain("What should the next step be?");
@@ -60,14 +60,21 @@ describe("teacherMessages", () => {
 	});
 
 	it("asks for the argument once the tool is chosen", () => {
-		const [, user] = teacherMessages(state, { level: "argument", tool: tools[0], options: readArgs });
+		const [, user] = teacherMessages(state, { level: "argument", page: 1, tool: tools[0], options: readArgs });
 		expect(user.content).toContain("You have decided that the next step is: Read part or all of a file.");
 		expect(user.content).toContain("B: Read the file /app/README.md");
 	});
 
 	it("refuses more options than there are letters", () => {
 		const many = Array.from({ length: 27 }, (_, i) => ({ ...readArgs[0], id: `read-${i}` }));
-		expect(() => teacherMessages(state, { level: "argument", tool: tools[0], options: many })).toThrow(/27 options/);
+		expect(() => teacherMessages(state, { level: "argument", page: 1, tool: tools[0], options: many })).toThrow(
+			/27 options/,
+		);
+	});
+
+	it("says when the options are a later page", () => {
+		const [, user] = teacherMessages(state, { level: "tool", page: 2, options: tools });
+		expect(user.content).toContain("You asked to see more options. This is page 2");
 	});
 });
 
