@@ -53,6 +53,8 @@ def write_session(tmp_path, entries):
     folder.mkdir()
     header = {"type": "session", "version": 3, "id": "sess-1", "timestamp": "t", "cwd": "/app"}
     lines = [header, {"type": "message", "message": {"role": "user", "content": "Fix the bug in /app/main.py."}}, *entries]
+    # Entries form one chain, as pi writes them: entry N's parent is entry N-1 (the first one's parent is None).
+    lines = [header] + [{**line, "id": f"e{n}", "parentId": None if n == 1 else f"e{n - 1}"} for n, line in enumerate(lines[1:], start=1)]
     (folder / "s.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
     return folder
 
@@ -259,3 +261,48 @@ def test_trial_cut_names_a_timeout_and_nothing_else(tmp_path):
     assert trial_cut(write_trial(tmp_path / "a", GOOD, exception_type="AgentTimeoutError")) == "AgentTimeoutError"
     assert trial_cut(write_trial(tmp_path / "b", GOOD, exception_type="RuntimeError")) is None
     assert trial_cut(write_trial(tmp_path / "c", GOOD)) is None
+
+
+def test_after_a_compaction_the_state_holds_only_the_steps_pi_kept(tmp_path):
+    # pi's context after a compaction holds a summary, the entries from firstKeptEntryId on, and every later entry;
+    # the scout's state then covers only the steps in those entries. Entry ids: e1 is the user message, e2 the first
+    # assistant message, and so on.
+    entries = [
+        assistant(bash("c1", "ls -la /app")),  # e2
+        result("c1", "main.py"),  # e3
+        assistant(bash("c2", "cat /app/main.py")),  # e4
+        result("c2", "x"),  # e5
+        {"type": "compaction", "summary": "s", "firstKeptEntryId": "e4"},  # e6
+        assistant(bash("c3", "cat /app/main.py")),  # e7
+        result("c3", "x"),
+    ]
+    folder = write_session(tmp_path, entries)
+    kept = [new_shape("cat /app/main.py", "x")]
+    trace = [
+        record(1, [call("ls -la /app")]),
+        record(2, [call("cat /app/main.py")], recent=[new_shape("ls -la /app", "main.py")]),
+        record(3, [call("cat /app/main.py")], recent=kept),
+    ]
+    rows, _ = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
+    third = [r for r in rows if r.turn == 3]
+    assert third and all(r.state == (
+        "Task:\nFix the bug in /app/main.py.\n\nSteps so far, oldest first:\n\n"
+        "Step 1 (by you, the scout):\n$ cat /app/main.py\nx"
+    ) for r in third)  # turn 2's read matched the menu, so the scout is shown as having taken it
+
+
+def test_a_compaction_keeping_an_unknown_entry_is_an_error(tmp_path):
+    entries = [assistant(bash("c1", "ls -la /app")), result("c1", "main.py"), {"type": "compaction", "summary": "s", "firstKeptEntryId": "zz"}]
+    folder = write_session(tmp_path, entries)
+    with pytest.raises(ValueError, match="firstKeptEntryId"):
+        record_rows([record(1, [call("ls -la /app")])], sorted(folder.glob("*.jsonl")), cut=False)
+
+
+def test_a_branched_session_file_is_an_error(tmp_path):
+    folder = write_session(tmp_path, [assistant(bash("c1", "ls -la /app")), result("c1", "main.py")])
+    path = next(folder.glob("*.jsonl"))
+    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    lines[-1]["parentId"] = "e1"
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    with pytest.raises(ValueError, match="branch"):
+        record_rows([record(1, [call("ls -la /app")])], [path], cut=False)

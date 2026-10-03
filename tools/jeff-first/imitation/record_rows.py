@@ -32,6 +32,7 @@ trial is an unparsable last line dropped and such a record line dropped, each wi
 """
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from imitation.events import Shell, part_folders
@@ -107,23 +108,54 @@ def _text(content: str | list[dict]) -> str:
     return "\n".join(part["text"] if part["type"] == "text" else "[image]" for part in content)
 
 
-def _read_session(path: Path, cut: bool, notes: list[str]) -> tuple[str, str, list[dict], dict[str, dict]]:
-    """The session id, its working folder, its assistant messages in order, and tool results by call id."""
+@dataclass(frozen=True)
+class Session:
+    """One pi session file: its working folder, its assistant messages in order, tool results by call id, and for
+    each assistant message the number of steps (tool calls) before it that pi's context no longer holds because of
+    a compaction (see `_read_session`)."""
+
+    cwd: str
+    assistants: list[dict]
+    results: dict[str, dict]
+    hidden_steps: list[int]
+
+
+def _read_session(path: Path, cut: bool, notes: list[str]) -> tuple[str, Session]:
+    """The session id and its contents. The entries must form one chain (each entry's parent is the entry before it),
+    so the file's order is the context's order. After a compaction entry pi's context holds the summary, the entries
+    from its firstKeptEntryId on and every later entry (session-manager.ts), so the steps before firstKeptEntryId are
+    hidden from the scout's state from then on."""
     lines, cut_notes = _json_lines(path, "cut" if cut else None)
     notes.extend(cut_notes)
     if not lines or lines[0].get("type") != "session":
         raise ValueError(f"{path} does not start with a session header line")
     assistants: list[dict] = []
     results: dict[str, dict] = {}
+    hidden_steps: list[int] = []
+    steps_before: dict[str, int] = {}
+    steps = 0
+    hidden = 0
+    parent = None
     for entry in lines[1:]:
-        if entry.get("type") != "message":
+        if entry["parentId"] != parent:
+            raise ValueError(f"{path}: entry {entry['id']} does not follow the entry before it (the session branches)")
+        parent = entry["id"]
+        steps_before[entry["id"]] = steps
+        if entry["type"] == "compaction":
+            if entry["firstKeptEntryId"] not in steps_before:
+                raise ValueError(f"{path}: compaction {entry['id']} keeps from the unknown entry firstKeptEntryId {entry['firstKeptEntryId']}")
+            hidden = steps_before[entry["firstKeptEntryId"]]
+            continue
+        if entry["type"] != "message":
             continue
         message = entry["message"]
         if message["role"] == "assistant":
             assistants.append(message)
+            hidden_steps.append(hidden)
+            steps += len(_calls(message))
         elif message["role"] == "toolResult":
             results[message["toolCallId"]] = message
-    return lines[0]["id"], lines[0]["cwd"], assistants, results
+    return lines[0]["id"], Session(lines[0]["cwd"], assistants, results, hidden_steps)
 
 
 def _calls(message: dict) -> list[dict]:
@@ -144,11 +176,11 @@ def record_rows(
 ) -> tuple[list[Row], list[str]]:
     """Rows for every record line of `trace` (lines of other kinds are ignored), and notes on turns given no row.
     `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
-    sessions = {}
+    sessions: dict[str, Session] = {}
     notes: list[str] = []
     for path in session_files:
-        session_id, cwd, assistants, results = _read_session(path, cut, notes)
-        sessions[session_id] = (cwd, assistants, results)
+        session_id, session = _read_session(path, cut, notes)
+        sessions[session_id] = session
     by_session: dict[str, dict[int, dict]] = {}
     for line in trace:
         if line.get("kind") == "record":
@@ -157,7 +189,8 @@ def record_rows(
     for session_id, records in by_session.items():
         if session_id not in sessions:
             raise ValueError(f"no pi session file holds the session {session_id} of the trace")
-        cwd, assistants, results = sessions[session_id]
+        session = sessions[session_id]
+        cwd, assistants, results = session.cwd, session.assistants, session.results
         if cut:
             for turn in sorted(number for number in records if number > len(assistants)):
                 notes.append(f"{session_id} turn {turn}: the trial was cut before the session file had this turn; record line dropped")
@@ -196,10 +229,11 @@ def record_rows(
         while (history := labeler.next_point()) is not None:
             record = records[labeler.current_turn]
             covered = len(record["state"]["recentSteps"]) + record["state"]["stepsLeftOut"]
+            history = history[session.hidden_steps[labeler.current_turn - 1] :]
             if covered != len(history):
                 raise ValueError(
                     f"{session_id} turn {labeler.current_turn}: the logged state covers {covered} steps, "
-                    f"the session file has {len(history)} steps before this turn"
+                    f"the session file has {len(history)} steps in pi's context before this turn"
                 )
             if record["state"]["recentSteps"]:
                 _check_last_step(record["state"]["recentSteps"][-1], history[-1], f"{session_id} turn {labeler.current_turn}")
@@ -207,6 +241,8 @@ def record_rows(
             labeler.give(menu)
         for decision, point in enumerate(labeler.decisions):
             rows.extend(
-                rows_for_decision(meta, decision, point.turn, render_state(task, point.history), point.menu, point.choice)
+                rows_for_decision(
+                    meta, decision, point.turn, render_state(task, point.history[session.hidden_steps[point.turn - 1] :]), point.menu, point.choice
+                )
             )
     return rows, notes

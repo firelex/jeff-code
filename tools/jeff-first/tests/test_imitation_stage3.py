@@ -85,6 +85,7 @@ def make_trial(
             {"type": "message", "message": {"role": "assistant", "content": [call]}},
             {"type": "message", "message": {"role": "toolResult", "toolCallId": "c1", "content": [{"type": "text", "text": "x"}], "isError": False}},
         ]
+        entries = [header] + [{**e, "id": f"e{n}", "parentId": None if n == 1 else f"e{n - 1}"} for n, e in enumerate(entries[1:], start=1)]
         (trial / "agent" / "pi" / "sessions" / "s.jsonl").write_text("".join(json.dumps(e) + "\n" for e in entries))
         line = record(task, session, 1, trace_build or build, "cat /app/main.py")
         (trial / "agent" / "jeff-first-trace.jsonl").write_text(json.dumps(line) + "\n")
