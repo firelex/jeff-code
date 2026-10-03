@@ -115,10 +115,20 @@ CD_PREFIX = re.compile(r"^\s*cd\s+\S+\s*&&\s*")
 
 
 class StepTarget(NamedTuple):
-    """What a scout step is about, as one or more search strings: a later tool call "mentions" the step's target
-    when its JSON text contains any one of them. See the module docstring's "target of a step"."""
+    """What a scout step is about, as one or more search strings. See the module docstring's "target of a step"
+    and "mentions".
+
+    For most kinds, `needles` are literal substrings: a later tool call "mentions" the target when the raw text of
+    one of its own string arguments contains one of them.
+
+    For a toolchain probe, a processes-and-ports step, and the "show every file's type" step, no single name
+    stands for the whole step - `command_word_markers` is then true, and `needles` are command-line shapes (such
+    as "ps " or "import ") that Qwen itself would type on a command line. These are searched only inside a later
+    bash call's "command" text, and only as that call's own word or flag - not as text embedded in a longer word
+    (so a command mentioning "steps" is not mistaken for a mention of the "ps " marker)."""
 
     needles: tuple[str, ...]
+    command_word_markers: bool = False
 
 
 def _path(match: re.Match[str]) -> StepTarget:
@@ -135,7 +145,7 @@ def _find_name(match: re.Match[str]) -> StepTarget:
 
 def _markers(*needles: str) -> Callable[[re.Match[str]], StepTarget]:
     def build(_match: re.Match[str]) -> StepTarget:
-        return StepTarget(needles)
+        return StepTarget(needles, command_word_markers=True)
 
     return build
 
@@ -151,30 +161,34 @@ def _command(match: re.Match[str]) -> StepTarget:
 
 
 # Each entry is a fixed sentence pi's own option descriptions use (see lists.ts, qwen-tools.ts, probes.ts), matched
-# whole against the description, paired with how to build this step's target from the match.
+# whole against the description, paired with how to build this step's target from the match. re.DOTALL makes "."
+# match a newline too, so a "Run" command that is itself a multi-line heredoc is still matched whole, instead of
+# raising "no target pattern matches" partway through it.
 DESCRIPTION_PATTERNS: list[tuple[re.Pattern[str], Callable[[re.Match[str]], StepTarget]]] = [
-    (re.compile(r"^Read the file (.+)$"), _path),
-    (re.compile(r"^Read lines \d+ to \d+ of (.+)$"), _path),
-    (re.compile(r"^Look at the data in (.+)$"), _path),
-    (re.compile(r"^Show the type of every file in (.+)$"), _path),
-    (re.compile(r"^List the folder (.+)$"), _path),
-    (re.compile(r"^Show the last 20 lines of (.+)$"), _path),
-    (re.compile(r'^Search the project for the text "(.*)"$'), _name),
-    (re.compile(r"^Find files matching (.+)$"), _find_name),
-    (re.compile(r"^Check which tools and languages are installed:.*$"), _markers(*TOOLCHAIN_MARKERS)),
-    (re.compile(r"^Check which installed packages match:.*$"), _markers(*TOOLCHAIN_MARKERS)),
-    (re.compile(r"^Search the whole filesystem for a program named (.+)$"), _name),
-    (re.compile(r"^Request http://(localhost:\d+)/ once$"), _localhost),
-    (re.compile(r"^Check the (.+) configuration$"), _name),
-    (re.compile(r"^Show running processes and listening ports$"), _markers(*PROCESS_MARKERS)),
-    (re.compile(r"^Show the README of the npm package (.+)$"), _name),
-    (re.compile(r"^List what the npm package (.+) exports$"), _name),
-    (re.compile(r"^List what the Python module (.+) provides$"), _name),
-    (re.compile(r"^Show the help of (.+)$"), _name),
-    (re.compile(r"^Install (.+) with apt \(package .+\)$"), _name),
-    (re.compile(r"^Install the Python package (.+) with pip$"), _name),
-    (re.compile(r"^Run: (.+)$"), _command),
-    (re.compile(r"^Run the last shell command again: (.+)$"), _command),
+    (re.compile(r"^Read the file (.+)$", re.DOTALL), _path),
+    (re.compile(r"^Read lines \d+ to \d+ of (.+)$", re.DOTALL), _path),
+    (re.compile(r"^Look at the data in (.+)$", re.DOTALL), _path),
+    # No one name stands for this step either (it always checks every file in the folder at once); the marker is
+    # the shape Qwen itself uses to classify a file from a command line, same reasoning as the processes markers.
+    (re.compile(r"^Show the type of every file in (.+)$", re.DOTALL), _markers("file ")),
+    (re.compile(r"^List the folder (.+)$", re.DOTALL), _path),
+    (re.compile(r"^Show the last 20 lines of (.+)$", re.DOTALL), _path),
+    (re.compile(r'^Search the project for the text "(.*)"$', re.DOTALL), _name),
+    (re.compile(r"^Find files matching (.+)$", re.DOTALL), _find_name),
+    (re.compile(r"^Check which tools and languages are installed:.*$", re.DOTALL), _markers(*TOOLCHAIN_MARKERS)),
+    (re.compile(r"^Check which installed packages match:.*$", re.DOTALL), _markers(*TOOLCHAIN_MARKERS)),
+    (re.compile(r"^Search the whole filesystem for a program named (.+)$", re.DOTALL), _name),
+    (re.compile(r"^Request http://(localhost:\d+)/ once$", re.DOTALL), _localhost),
+    (re.compile(r"^Check the (.+) configuration$", re.DOTALL), _name),
+    (re.compile(r"^Show running processes and listening ports$", re.DOTALL), _markers(*PROCESS_MARKERS)),
+    (re.compile(r"^Show the README of the npm package (.+)$", re.DOTALL), _name),
+    (re.compile(r"^List what the npm package (.+) exports$", re.DOTALL), _name),
+    (re.compile(r"^List what the Python module (.+) provides$", re.DOTALL), _name),
+    (re.compile(r"^Show the help of (.+)$", re.DOTALL), _name),
+    (re.compile(r"^Install (.+) with apt \(package .+\)$", re.DOTALL), _name),
+    (re.compile(r"^Install the Python package (.+) with pip$", re.DOTALL), _name),
+    (re.compile(r"^Run: (.+)$", re.DOTALL), _command),
+    (re.compile(r"^Run the last shell command again: (.+)$", re.DOTALL), _command),
 ]
 
 
@@ -262,10 +276,65 @@ def chosen_description(decision: dict) -> str:
     raise ValueError(f"decision {decision['decision']}'s chosen option {last['chosen']!r} is not among its last level's options")
 
 
+# The key holding the text a write or edit call sets a file to, left out of the search for a plain (non-marker)
+# target: that text is whatever the large model is writing INTO a file, not a command it is typing, and a plain
+# needle such as a bare file name or symbol would otherwise match it by coincidence almost every time.
+WRITTEN_CONTENT_KEY = {"write": "content", "edit": "edits"}
+
+_COMMAND_WORD_LEFT_BOUNDARY = r"""(?:^|[\s;&|("'])"""
+
+
+def _command_word_regex(marker: str) -> re.Pattern[str]:
+    """A command-shape marker such as "ps " or "ss -" counts only when it is its own word or flag in a shell
+    command, not embedded in a longer word - so a command containing "steps " is not mistaken for a mention of the
+    "ps " marker. When the marker ends in a space, that space becomes an explicit "followed by whitespace, or
+    nothing, to the end of the command" check, so the marker still counts when it is the last thing typed; a
+    marker that does not end in a space (a flag such as "ss -") needs no such check, since what follows it is not
+    part of the marker's own shape."""
+    if marker.endswith(" "):
+        return re.compile(rf"{_COMMAND_WORD_LEFT_BOUNDARY}{re.escape(marker[:-1])}(?:\s|$)")
+    return re.compile(rf"{_COMMAND_WORD_LEFT_BOUNDARY}{re.escape(marker)}")
+
+
+def _raw_strings(call: dict) -> list[str]:
+    """The string values among one tool call's own arguments, walking into nested lists and objects, but leaving
+    out the file content a write call sets, or the edits an edit call makes (see WRITTEN_CONTENT_KEY): that text
+    is what the large model is writing into a file, not a command it typed or a path or name it is operating on,
+    so it would otherwise match almost any search by coincidence."""
+    skip_key = WRITTEN_CONTENT_KEY.get(call.get("name"))
+    strings: list[str] = []
+
+    def walk(value: object) -> None:
+        if isinstance(value, str):
+            strings.append(value)
+        elif isinstance(value, dict):
+            for inner in value.values():
+                walk(inner)
+        elif isinstance(value, list):
+            for inner in value:
+                walk(inner)
+
+    for key, value in call.get("arguments", {}).items():
+        if key == skip_key:
+            continue
+        walk(value)
+    return strings
+
+
 def mentions(target: StepTarget, calls: list[dict]) -> bool:
-    """Whether one of `calls` mentions this step's target; see the module docstring's "mentions"."""
-    text = json.dumps(calls)
-    return any(needle in text for needle in target.needles)
+    """Whether one of `calls` mentions this step's target; see the module docstring's "mentions". A command-word
+    target (see StepTarget) is searched only inside a bash call's own "command" text, each needle matched as its
+    own word or flag there. A plain target's needles are literal substrings, searched among the raw string values
+    of each call's own arguments (not the file content a write or edit call is setting - see WRITTEN_CONTENT_KEY)."""
+    if target.command_word_markers:
+        commands = [
+            call["arguments"]["command"]
+            for call in calls
+            if call.get("name") == "bash" and isinstance(call.get("arguments", {}).get("command"), str)
+        ]
+        return any(_command_word_regex(needle).search(command) for needle in target.needles for command in commands)
+    strings = [one_string for call in calls for one_string in _raw_strings(call)]
+    return any(needle in one_string for needle in target.needles for one_string in strings)
 
 
 def value(teacher_trial: Path, base_trial: Path) -> dict:

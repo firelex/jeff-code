@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from scout_value import PROCESS_MARKERS, TOOLCHAIN_MARKERS, StepTarget, step_target, value
+from scout_value import PROCESS_MARKERS, TOOLCHAIN_MARKERS, StepTarget, mentions, step_target, value
 
 
 def trial_dir(root, task: str, trial_id: str):
@@ -133,17 +133,23 @@ def test_value_on_a_hand_computed_example(tmp_path):
         ("Read the file /app/a.py", StepTarget(("a.py",))),
         ("Read lines 10 to 69 of /app/a.py", StepTarget(("a.py",))),
         ("Look at the data in /app/data.csv", StepTarget(("data.csv",))),
-        ("Show the type of every file in /app", StepTarget(("app",))),
+        ("Show the type of every file in /app", StepTarget(("file ",), command_word_markers=True)),
         ("List the folder /app", StepTarget(("app",))),
         ("Show the last 20 lines of /var/log/app.log", StepTarget(("app.log",))),
         ('Search the project for the text "foo_bar"', StepTarget(("foo_bar",))),
         ("Find files matching **/foo.py", StepTarget(("foo.py",))),
-        ("Check which tools and languages are installed: python3, pip3", StepTarget(TOOLCHAIN_MARKERS)),
-        ("Check which installed packages match: numpy", StepTarget(TOOLCHAIN_MARKERS)),
+        (
+            "Check which tools and languages are installed: python3, pip3",
+            StepTarget(TOOLCHAIN_MARKERS, command_word_markers=True),
+        ),
+        (
+            "Check which installed packages match: numpy",
+            StepTarget(TOOLCHAIN_MARKERS, command_word_markers=True),
+        ),
         ("Search the whole filesystem for a program named ffmpeg", StepTarget(("ffmpeg",))),
         ("Request http://localhost:8000/ once", StepTarget(("localhost:8000", ":8000"))),
         ("Check the nginx configuration", StepTarget(("nginx",))),
-        ("Show running processes and listening ports", StepTarget(PROCESS_MARKERS)),
+        ("Show running processes and listening ports", StepTarget(PROCESS_MARKERS, command_word_markers=True)),
         ("Show the README of the npm package left-pad", StepTarget(("left-pad",))),
         ("List what the npm package left-pad exports", StepTarget(("left-pad",))),
         ("List what the Python module numpy provides", StepTarget(("numpy",))),
@@ -153,6 +159,13 @@ def test_value_on_a_hand_computed_example(tmp_path):
         ("Install the Python package scikit-learn with pip", StepTarget(("scikit-learn",))),
         ("Run: cd /app && pytest tests/test_x.py", StepTarget(("pytest tests/test_x.py",))),
         ("Run the last shell command again: cd /app && pytest tests/test_x.py", StepTarget(("pytest tests/test_x.py",))),
+        # A multi-line heredoc command, as a "Run" step would carry it (issue: DESCRIPTION_PATTERNS lacked
+        # re.DOTALL, so "." never matched the newlines inside the heredoc and the whole description failed to
+        # match any pattern).
+        (
+            "Run: cd /app && cat <<'EOF' > a.py\nprint(1)\nEOF",
+            StepTarget(("cat <<'EOF' > a.py\nprint(1)\nEOF",)),
+        ),
     ],
 )
 def test_step_target_per_description_family(description, expected):
@@ -162,3 +175,41 @@ def test_step_target_per_description_family(description, expected):
 def test_step_target_fails_loudly_on_an_unrecognised_description():
     with pytest.raises(ValueError, match="Do something nobody described"):
         step_target("Do something nobody described")
+
+
+def test_mentions_finds_a_run_target_with_a_quote_and_a_newline_in_a_later_call():
+    target = step_target("Run: cd /app && cat <<'EOF' > a.py\nprint(\"hi\")\nEOF")
+    calls = [{"name": "bash", "arguments": {"command": "cat <<'EOF' > a.py\nprint(\"hi\")\nEOF"}}]
+    assert mentions(target, calls)
+
+
+def test_mentions_toolchain_marker_ignores_a_written_file_s_content():
+    target = StepTarget(TOOLCHAIN_MARKERS, command_word_markers=True)
+    calls = [{"name": "write", "arguments": {"path": "a.py", "content": "import os\n"}}]
+    assert not mentions(target, calls)
+
+
+def test_mentions_processes_marker_requires_a_whole_word_not_a_substring():
+    target = StepTarget(PROCESS_MARKERS, command_word_markers=True)
+    calls = [{"name": "bash", "arguments": {"command": "ls steps/"}}]
+    assert not mentions(target, calls)
+
+
+def test_mentions_processes_marker_matches_a_real_ps_command():
+    target = StepTarget(PROCESS_MARKERS, command_word_markers=True)
+    calls = [{"name": "bash", "arguments": {"command": "ps aux"}}]
+    assert mentions(target, calls)
+
+
+def test_mentions_toolchain_marker_matches_a_real_import_check():
+    target = StepTarget(TOOLCHAIN_MARKERS, command_word_markers=True)
+    calls = [{"name": "bash", "arguments": {"command": "python3 -c 'import numpy'"}}]
+    assert mentions(target, calls)
+
+
+def test_mentions_plain_target_ignores_an_edit_s_edits_but_sees_other_arguments():
+    target = StepTarget(("a.py",))
+    calls = [{"name": "edit", "arguments": {"path": "b.py", "edits": [{"old": "a.py", "new": "a.py"}]}}]
+    assert not mentions(target, calls)
+    calls = [{"name": "edit", "arguments": {"path": "a.py", "edits": [{"old": "x", "new": "y"}]}}]
+    assert mentions(target, calls)
