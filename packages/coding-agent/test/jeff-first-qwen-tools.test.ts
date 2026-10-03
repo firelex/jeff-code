@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -67,5 +67,15 @@ describe("Data peek", () => {
 			},
 		];
 		expect(peekOptions(input)).toEqual([]);
+	});
+
+	it("skips a broken symlink in the working folder instead of throwing", () => {
+		writeFileSync(join(cwd, "data.csv"), "a,b\n1,2\n");
+		symlinkSync(join(cwd, "missing-target"), join(cwd, "broken-link"));
+		expect(() => peekOptions(input)).not.toThrow();
+		expect(peekOptions(input).map((o) => o.description)).toEqual([
+			`Look at the data in ${join(cwd, "data.csv")}`,
+			`Show the type of every file in ${cwd}`,
+		]);
 	});
 });

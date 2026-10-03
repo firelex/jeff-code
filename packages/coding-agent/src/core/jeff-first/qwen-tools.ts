@@ -1,7 +1,7 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { type Built, fitsReadLimit, isTextFile, type ListsInput, writtenFiles } from "./lists.ts";
-import { namedPaths } from "./menu.ts";
+import { namedPaths, pathKind } from "./menu.ts";
 import { folderTypesProbe, type PeekKind, PROBE_TIMEOUT_SECONDS, peekProbe } from "./probes.ts";
 
 const PEEK_BY_EXTENSION: Record<string, PeekKind> = {
@@ -28,17 +28,16 @@ const PEEK_BY_EXTENSION: Record<string, PeekKind> = {
 };
 const LONG_TEXT_LINES = 200;
 
-function lineCount(path: string): number {
-	return readFileSync(path, "utf8").split("\n").length - 1;
-}
-
 /** The probe kind for this file, from its extension, or from its text/binary nature and size; undefined when Read covers it. */
 export function peekKind(path: string): PeekKind | undefined {
 	const byType = PEEK_BY_EXTENSION[extname(path).toLowerCase()];
 	if (byType) return byType;
 	if (!isTextFile(path)) return "binary";
 	if (!fitsReadLimit(path)) return "text";
-	if ([".log", ".txt"].includes(extname(path).toLowerCase()) && lineCount(path) > LONG_TEXT_LINES) return "text";
+	if ([".log", ".txt"].includes(extname(path).toLowerCase())) {
+		const lines = readFileSync(path, "utf8").split("\n").length - 1;
+		if (lines > LONG_TEXT_LINES) return "text";
+	}
 	return undefined;
 }
 
@@ -54,7 +53,7 @@ export function peekOptions(input: ListsInput): Built[] {
 	const inFolder = readdirSync(input.cwd)
 		.sort()
 		.map((name) => join(input.cwd, name))
-		.filter((path) => statSync(path).isFile() && !written.has(path));
+		.filter((path) => pathKind(path) === "file" && !written.has(path));
 	const candidates = [...new Set([...namedPaths(input).files, ...inFolder])];
 	const options: Built[] = [];
 	for (const path of candidates) {
