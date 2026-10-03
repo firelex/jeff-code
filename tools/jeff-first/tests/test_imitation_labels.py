@@ -475,3 +475,31 @@ FIND_MENU = make_menu(
 def test_find_matches_find_under_a_folder_when_it_starts_in_that_folder(command, cwd, expected):
     found = match(FIND_MENU, command, cwd=cwd)
     assert found == (None if expected is None else Choice.step("find", expected))
+
+
+NAMED_MENU = make_menu(
+    find=[
+        option("find", 1, "Find the files under /app"),
+        option("find", 2, "Find files named OrderService.java"),
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "cwd", "expected"),
+    [
+        # "Find files named NAME" searches the working folder; a find for that exact name from anywhere matches it.
+        ("find / -name OrderService.java 2>/dev/null", "/app", "find-2"),
+        ("find . -name 'OrderService.java'", "/app", "find-2"),
+        ("find /app -name OrderService.java -not -path '*/.git/*'", "/", "find-2"),
+        ("find / -iname orderservice.java", "/app", "find-2"),
+        ("find / -name orderservice.java", "/app", None),
+        ("find / -name '*.java'", "/app", None),
+        ("find / -name 'OrderService*'", "/app", None),
+        ("find / -path '*/OrderService.java'", "/app", None),
+        ("find / -name Other.java", "/app", None),
+    ],
+)
+def test_find_by_exact_name_matches_find_files_named(command, cwd, expected):
+    found = match(NAMED_MENU, command, cwd=cwd)
+    assert found == (None if expected is None else Choice.step("find", expected))

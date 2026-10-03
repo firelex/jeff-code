@@ -58,7 +58,7 @@ Plain-English definitions used below:
       in PATH", "List the folder PATH", "Show the last 20 lines of PATH", "Find the files under PATH" -> the last
       path segment of PATH (so "/app/a.py" becomes "a.py": the large model rarely repeats a full path verbatim).
     - "Search the project for the text "P"" -> P. "Find files matching PATTERN" -> PATTERN with any leading
-      "**/" removed.
+      "**/" removed. "Find files named NAME" -> NAME.
     - "Check which tools and languages are installed: ..." and "Check which installed packages match: ..." ->
       no one name stands for a toolchain probe (it always checks a whole list of programs and modules at once);
       instead, the search strings are the patterns Qwen itself uses to probe the toolchain: "which ",
@@ -143,6 +143,10 @@ def _find_name(match: re.Match[str]) -> StepTarget:
     return StepTarget((match.group(1).removeprefix("**/"),))
 
 
+def _file_name(match: re.Match[str]) -> StepTarget:
+    return StepTarget((match.group(1),))
+
+
 def _markers(*needles: str) -> Callable[[re.Match[str]], StepTarget]:
     def build(_match: re.Match[str]) -> StepTarget:
         return StepTarget(needles, command_word_markers=True)
@@ -175,6 +179,7 @@ DESCRIPTION_PATTERNS: list[tuple[re.Pattern[str], Callable[[re.Match[str]], Step
     (re.compile(r"^Show the last 20 lines of (.+)$", re.DOTALL), _path),
     (re.compile(r'^Search the project for the text "(.*)"$', re.DOTALL), _name),
     (re.compile(r"^Find files matching (.+)$", re.DOTALL), _find_name),
+    (re.compile(r"^Find files named (.+)$", re.DOTALL), _file_name),
     (re.compile(r"^Find the files under (.+)$", re.DOTALL), _path),
     (re.compile(r"^Check which tools and languages are installed:.*$", re.DOTALL), _markers(*TOOLCHAIN_MARKERS)),
     (re.compile(r"^Check which installed packages match:.*$", re.DOTALL), _markers(*TOOLCHAIN_MARKERS)),

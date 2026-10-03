@@ -44,7 +44,7 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Callable
 
-from scout_value import DESCRIPTION_PATTERNS, _command, _find_name, _localhost, _name, _path
+from scout_value import DESCRIPTION_PATTERNS, _command, _file_name, _find_name, _localhost, _name, _path
 
 from imitation.rows import ArgumentOption, Choice, Menu, ShellStep
 from imitation.splitter import Part, first_word, has_file_write, split_command
@@ -55,7 +55,7 @@ class Intent:
     """What one command part does: a scout tool kind and its target.
 
     `aspect` tells apart the targets of a service step (a "port", a service "name", the "processes" list, or a
-    "log" file). `targets` holds every name when the part names several (`which gcc make`, `pip install a b`);
+    "log" file); for a find, it is the filter flag its target came from ("-name", "-iname", "-path", "-ipath"). `targets` holds every name when the part names several (`which gcc make`, `pip install a b`);
     `target` is the first. `lines` is the line range of a partial read (first, last; last may be None for "to the
     end"). `word` is the program the part runs. `start` is, for a find that only lists what it finds (no -exec, no
     xargs), its one start folder ("." when none is given; "" for several)."""
@@ -299,7 +299,7 @@ def _find(word: str, args: list[str], part: Part) -> PartResult:
     # The first name or path filter that selects files; an excluding one (`-not -path '*/venv/*'`) only narrows a listing.
     for i, arg in enumerate(args[:-1]):
         if arg in ("-name", "-iname", "-path", "-ipath") and (i == 0 or args[i - 1] not in ("-not", "!")):
-            return Intent("find", args[i + 1], word=word, start=start)
+            return Intent("find", args[i + 1], aspect=arg, word=word, start=start)
     return Intent("find", "", word=word, start=start)
 
 
@@ -598,7 +598,8 @@ def command_is_neutral(command: str) -> bool:
 
 @dataclass(frozen=True)
 class _OptionTarget:
-    """An option's target as read from its description: `form` is "path", "name", "find", "port", "command" or
+    """An option's target as read from its description: `form` is "path", "name", "find", "named" (an exact file
+    name), "port", "command" or
     "markers" (one of the fixed command shapes in `needles`)."""
 
     form: str
@@ -621,6 +622,8 @@ def _option_target(option: ArgumentOption) -> _OptionTarget:
             return _OptionTarget("path", match.group(1))
         if build is _find_name:
             return _OptionTarget("find", match.group(1))
+        if build is _file_name:
+            return _OptionTarget("named", match.group(1))
         if build is _localhost:
             return _OptionTarget("port", match.group(1).split(":", 1)[1])
         if build is _command:
@@ -682,6 +685,14 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
     if intent.kind == "search":
         return kind == "search" and target.form == "name" and target.value in (intent.targets or (intent.target,))
     if intent.kind == "find":
+        if kind == "find" and target.form == "named":
+            # "Find files named NAME" searches the working folder for that exact name. A find for that exact name (no
+            # wildcard) matches it from any start folder, though the coding model's search may be wider.
+            if intent.word != "find" or intent.aspect not in ("-name", "-iname") or re.search(r"[*?\[]", intent.target):
+                return False
+            if intent.aspect == "-iname":
+                return intent.target.lower() == target.value.lower()
+            return intent.target == target.value
         if kind == "find" and target.form == "find":
             return bool(intent.target) and _glob_core(intent.target) == _glob_core(target.value)
         if kind == "find" and target.form == "path":
