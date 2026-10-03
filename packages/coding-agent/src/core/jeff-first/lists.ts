@@ -1,5 +1,6 @@
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "../tools/truncate.ts";
 import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
 import type { RunApproval } from "./config.ts";
 import {
@@ -12,6 +13,7 @@ import {
 	pathKind,
 	RECENT_OUTPUTS,
 } from "./menu.ts";
+import { peekOptions } from "./qwen-tools.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
 export const ARGUMENT_LIMIT = 30;
@@ -33,7 +35,7 @@ export interface ListsInput extends MenuInput {
 	runApproval: RunApproval;
 }
 
-export type ToolKind = "read" | "list" | "search" | "find" | "check" | "run" | "repeat";
+export type ToolKind = "read" | "peek" | "list" | "search" | "find" | "check" | "run" | "repeat";
 
 export interface ToolOption {
 	id: ToolKind | "hand_over";
@@ -46,16 +48,23 @@ export interface ArgumentOption {
 	toolCall: MenuToolCall;
 }
 
+/** One option a builder offers: the call it would make, and the description shown to the teacher. */
+export interface Built {
+	call: MenuToolCall;
+	description: string;
+}
+
 export interface Lists {
 	tools: ToolOption[];
 	argumentsByTool: Partial<Record<ToolKind, ArgumentOption[]>>;
 }
 
-const TOOL_ORDER: ToolKind[] = ["read", "list", "search", "find", "check", "run", "repeat"];
+const TOOL_ORDER: ToolKind[] = ["read", "peek", "list", "search", "find", "check", "run", "repeat"];
 
 /** The pi tool each kind needs; a kind is offered only when that tool is active. */
 const PI_TOOL: Record<ToolKind, string> = {
 	read: "read",
+	peek: "bash",
 	list: "ls",
 	search: "grep",
 	find: "find",
@@ -66,6 +75,7 @@ const PI_TOOL: Record<ToolKind, string> = {
 
 const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 	read: "Read part or all of a file",
+	peek: "Look at what a data file contains",
 	list: "List the contents of a folder",
 	search: "Search the project's files for a name or a piece of error text",
 	find: "Find files by name",
@@ -128,6 +138,15 @@ export function isTextFile(path: string): boolean {
 	}
 }
 
+/** A text file small enough for pi's read tool to return whole: at most DEFAULT_MAX_BYTES bytes and fewer than
+ * DEFAULT_MAX_LINES lines. Larger files go to Data peek instead. */
+export function fitsReadLimit(path: string): boolean {
+	if (!isTextFile(path)) return false;
+	if (statSync(path).size > DEFAULT_MAX_BYTES) return false;
+	const lines = readFileSync(path, "utf8").split("\n").length - 1;
+	return lines < DEFAULT_MAX_LINES;
+}
+
 /** Files the coding model wrote or edited (write, edit, or a bash "cat > file" / "tee file"), newest first. */
 export function writtenFiles(input: MenuInput): Array<{ path: string; index: number }> {
 	const found: Array<{ path: string; index: number }> = [];
@@ -182,8 +201,9 @@ function modelCallFiles(input: MenuInput): string[] {
 function readOptions(input: ListsInput): MenuToolCall[] {
 	const calls: MenuToolCall[] = [];
 	const readable = (path: string) => pathKind(path) === "file" && isTextFile(path);
+	const wholeFileReadable = (path: string) => pathKind(path) === "file" && fitsReadLimit(path);
 	const changed = writtenFiles(input).filter(({ path, index }) => index > lastScoutRead(input, path));
-	for (const { path } of changed) if (readable(path)) calls.push({ name: "read", arguments: { path } });
+	for (const { path } of changed) if (wholeFileReadable(path)) calls.push({ name: "read", arguments: { path } });
 	const seen = new Set<string>();
 	for (const output of recentOutputs(input)) {
 		for (const pattern of [PYTHON_PLACE, PLACE]) {
@@ -198,9 +218,10 @@ function readOptions(input: ListsInput): MenuToolCall[] {
 			}
 		}
 	}
-	for (const path of modelCallFiles(input)) if (readable(path)) calls.push({ name: "read", arguments: { path } });
+	for (const path of modelCallFiles(input))
+		if (wholeFileReadable(path)) calls.push({ name: "read", arguments: { path } });
 	for (const file of namedPaths(input).files)
-		if (isTextFile(file)) calls.push({ name: "read", arguments: { path: file } });
+		if (fitsReadLimit(file)) calls.push({ name: "read", arguments: { path: file } });
 	return calls;
 }
 
@@ -303,7 +324,7 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 	return calls;
 }
 
-function describe(kind: ToolKind, call: MenuToolCall): string {
+function describe(kind: Exclude<ToolKind, "peek">, call: MenuToolCall): string {
 	const args = call.arguments;
 	switch (kind) {
 		case "read":
@@ -325,14 +346,22 @@ function describe(kind: ToolKind, call: MenuToolCall): string {
 	}
 }
 
-const BUILDERS: Record<ToolKind, (input: ListsInput) => MenuToolCall[]> = {
-	read: readOptions,
-	list: listOptions,
-	search: searchOptions,
-	find: findOptions,
-	check: checkOptions,
-	run: runOptions,
-	repeat: repeatOptions,
+function builtFrom(
+	kind: Exclude<ToolKind, "peek">,
+	options: (input: ListsInput) => MenuToolCall[],
+): (input: ListsInput) => Built[] {
+	return (input) => options(input).map((call) => ({ call, description: describe(kind, call) }));
+}
+
+const BUILDERS: Record<ToolKind, (input: ListsInput) => Built[]> = {
+	read: builtFrom("read", readOptions),
+	peek: peekOptions,
+	list: builtFrom("list", listOptions),
+	search: builtFrom("search", searchOptions),
+	find: builtFrom("find", findOptions),
+	check: builtFrom("check", checkOptions),
+	run: builtFrom("run", runOptions),
+	repeat: builtFrom("repeat", repeatOptions),
 };
 
 export function buildLists(input: ListsInput): Lists {
@@ -342,11 +371,11 @@ export function buildLists(input: ListsInput): Lists {
 	for (const kind of TOOL_ORDER) {
 		if (!input.activeTools.has(PI_TOOL[kind])) continue;
 		const options: ArgumentOption[] = [];
-		for (const call of BUILDERS[kind](input)) {
-			const key = callKey(call, input.cwd);
+		for (const built of BUILDERS[kind](input)) {
+			const key = callKey(built.call, input.cwd);
 			if (seen.has(key)) continue;
 			seen.add(key);
-			options.push({ id: `${kind}-${options.length + 1}`, description: describe(kind, call), toolCall: call });
+			options.push({ id: `${kind}-${options.length + 1}`, description: built.description, toolCall: built.call });
 			if (options.length === ARGUMENT_LIMIT) break;
 		}
 		if (options.length === 0) continue;

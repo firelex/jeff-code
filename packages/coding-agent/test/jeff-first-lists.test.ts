@@ -271,6 +271,18 @@ describe("buildLists", () => {
 		expect(repeat[0]?.toolCall.arguments.timeout).toBe(300);
 	});
 
+	it("offers Read only for text files within pi's read limit; larger ones go to Data peek", () => {
+		writeFileSync(join(cwd, "huge.json"), `[${"1,".repeat(40000)}1]`);
+		input.task = "Read huge.json and README.md.";
+		const lists = buildLists(input);
+		const reads = (lists.argumentsByTool.read ?? []).map((o) => o.toolCall.arguments.path);
+		expect(reads).not.toContain(join(cwd, "huge.json"));
+		expect(reads).toContain(join(cwd, "README.md"));
+		expect((lists.argumentsByTool.peek ?? []).map((o) => o.description)).toContain(
+			`Look at the data in ${join(cwd, "huge.json")}`,
+		);
+	});
+
 	it("does not throw on binary junk with null bytes and control characters, and still offers a real file named in the same output", () => {
 		input.steps.push(
 			step(
