@@ -10,6 +10,8 @@ export interface TrimmedStep {
 	arguments: JsonObject;
 	output: string | null;
 	isError: boolean;
+	/** true when the scout took this step, false when the coding model did. */
+	byScout: boolean;
 }
 
 /** What Jeff would be shown: the task and the most recent steps that fit the budget. */
@@ -51,7 +53,7 @@ export function trimState(task: string, steps: Step[]): JeffState {
 		const cost = (output?.length ?? 0) + JSON.stringify(args).length;
 		if (used + cost > STEP_BUDGET_CHARS) break;
 		used += cost;
-		kept.push({ tool: step.call.name, arguments: args, output, isError: step.isError });
+		kept.push({ tool: step.call.name, arguments: args, output, isError: step.isError, byScout: step.byScout });
 	}
 	return { task, recentSteps: kept.reverse(), stepsLeftOut: steps.length - kept.length };
 }

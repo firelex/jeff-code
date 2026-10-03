@@ -19,8 +19,8 @@ describe("trimState", () => {
 		expect(state).toEqual({
 			task: "task",
 			recentSteps: [
-				{ tool: "bash", arguments: { command: "echo 1" }, output: "one", isError: false },
-				{ tool: "bash", arguments: { command: "echo 2" }, output: null, isError: false },
+				{ tool: "bash", arguments: { command: "echo 1" }, output: "one", isError: false, byScout: false },
+				{ tool: "bash", arguments: { command: "echo 2" }, output: null, isError: false, byScout: false },
 			],
 			stepsLeftOut: 0,
 		});

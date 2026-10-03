@@ -6,8 +6,8 @@ import { answerSchema, renderState, teacherMessages } from "../src/core/jeff-fir
 const state: JeffState = {
 	task: "Fix the failing test in tests/test_app.py.",
 	recentSteps: [
-		{ tool: "bash", arguments: { command: "pytest -q" }, output: "1 failed", isError: true },
-		{ tool: "read", arguments: { path: "/app/src/app.py" }, output: null, isError: false },
+		{ tool: "bash", arguments: { command: "pytest -q" }, output: "1 failed", isError: true, byScout: false },
+		{ tool: "read", arguments: { path: "/app/src/app.py" }, output: null, isError: false, byScout: true },
 	],
 	stepsLeftOut: 3,
 };
@@ -29,12 +29,14 @@ const readArgs: ArgumentOption[] = [
 ];
 
 describe("renderState", () => {
-	it("shows the task, a note on left-out steps, and each step with its output", () => {
+	it("shows the task, a note on left-out steps, and each step with who took it and its output", () => {
 		const text = renderState(state);
 		expect(text).toContain("Task:\nFix the failing test in tests/test_app.py.");
 		expect(text).toContain("Steps so far, oldest first (3 earlier steps are not shown):\n");
-		expect(text).toContain('Step 1: bash {"command":"pytest -q"}\nOutput (it reported an error):\n1 failed');
-		expect(text).toContain("Step 2: read");
+		expect(text).toContain(
+			'Step 1 (by the coding model): bash {"command":"pytest -q"}\nOutput (it reported an error):\n1 failed',
+		);
+		expect(text).toContain("Step 2 (by you, the scout): read");
 		expect(text).toContain("(no output was recorded)");
 	});
 
