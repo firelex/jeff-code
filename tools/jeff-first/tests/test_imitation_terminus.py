@@ -7,8 +7,10 @@ from imitation.labels import TurnCommand
 from imitation.rows import RowSource
 from imitation.terminus import (
     MenuPoint,
+    EmptyTaskFolder,
     build_menus,
     convert_sessions,
+    empty_task_folder,
     latest_episodes,
     parse_terminus,
     session_from_dataset_row,
@@ -585,3 +587,31 @@ def test_an_interrupting_c_c_takes_no_command_slot_in_the_durations():
     session = parse_terminus(conv)
     assert session.turns[1].interrupts
     assert session.turns[1].durations == [0.1]
+
+
+EMPTY_APP = ("total 0", "drwxr-xr-x. 2 root root  6 Aug 26 10:46 .", "drwxr-xr-x. 1 root root 62 Aug 27 11:31 ..")
+
+
+def session_of(*turns: tuple[str, tuple[str, ...]]):
+    conv = [user(FIRST_USER)]
+    for command, output in turns:
+        conv += [assistant([command + "\n"]), screen(f"root@abc123:/app# {command}", *output)]
+    return parse_terminus(conv)
+
+
+# Review of waves 2-3, finding 2: InferredBugs sessions whose /app is empty (the project was never copied in).
+@pytest.mark.parametrize(
+    ("turns", "expected"),
+    [
+        ([("pwd && ls -la", ("/app", *EMPTY_APP))], EmptyTaskFolder(1, "pwd && ls -la", "empty")),
+        ([("find / -name Main.java 2>/dev/null", ()), ("ls /app", ())], EmptyTaskFolder(2, "ls /app", "empty")),
+        ([("ls -la /app", ("ls: cannot access '/app': No such file or directory",))], EmptyTaskFolder(1, "ls -la /app", "missing")),
+        # The first listing of the folder decides: here it shows the project, and the later empty one comes after rm.
+        ([("ls", ("main.py",)), ("rm -f main.py", ()), ("ls -la", EMPTY_APP)], None),
+        # Another folder's empty listing says nothing about the task folder.
+        ([("ls -la /tmp", EMPTY_APP)], None),
+        ([("cat main.py", ("print(1)",))], None),
+    ],
+)
+def test_empty_task_folder_is_the_first_evidence_about_the_working_folder(turns, expected):
+    assert empty_task_folder(session_of(*turns)) == expected

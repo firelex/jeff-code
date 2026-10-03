@@ -573,6 +573,33 @@ def latest_episodes(rows: list[dict]) -> list[dict]:
 
 
 @dataclass(frozen=True)
+class EmptyTaskFolder:
+    """The evidence that a session's working folder was empty or missing: the 1-based turn and the command whose
+    output showed it, and `finding` ("empty" or "missing")."""
+
+    turn: int
+    command: str
+    finding: str
+
+
+def empty_task_folder(session: TerminusSession) -> EmptyTaskFolder | None:
+    """Whether the session's own commands show its working folder (the task folder, from the first prompt) empty or
+    missing. The first evidence about the folder itself decides, in the session's order: a full listing of it
+    (events.py: a plain `ls`, `ls -l` or `ls -la` of that one folder, unfiltered) that has no entries, or an error
+    saying it does not exist. A listing with entries, or no such evidence at all, gives None. Listings that cannot be
+    told apart from other output (a command with several listing parts) are not evidence (events.py)."""
+    for (turn_index, command_index), shell in _walk(session.turns, session.cwd, session.home):
+        command = session.turns[turn_index].commands[command_index]
+        events, _ = command_events(command.text, command.output, shell)
+        for event in events:
+            if event["type"] == "listing" and event["folder"] == session.cwd:
+                return None if event["entries"] else EmptyTaskFolder(turn_index + 1, command.text, "empty")
+            if event["type"] == "missing" and event["path"] == session.cwd:
+                return EmptyTaskFolder(turn_index + 1, command.text, "missing")
+    return None
+
+
+@dataclass(frozen=True)
 class SessionResult:
     """How one session's conversion ended (`end_reason`, one of END_REASONS, and `end_detail`), and its row and
     decision counts."""
