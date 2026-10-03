@@ -1,7 +1,11 @@
 import json
+import subprocess
+from pathlib import Path
 
 import pytest
 
+from imitation.events import Shell, part_folders
+from imitation.labels import LabelTurn, SessionLabeler, TurnCommand
 from imitation.rows import (
     Choice,
     Row,
@@ -12,6 +16,9 @@ from imitation.rows import (
     terminal_view,
     tool_page,
 )
+
+
+JEFF_FIRST_TS = Path(__file__).resolve().parents[3] / "packages" / "coding-agent" / "src" / "core" / "jeff-first"
 
 
 def option(kind: str, number: int, description: str) -> dict:
@@ -173,3 +180,45 @@ def test_a_row_needs_a_tool_description_exactly_when_it_is_an_argument_row():
         Row(**argument, tool_description="")
     with pytest.raises(ValueError, match="tool description"):
         Row(**tool, tool_description="Read a file")
+
+
+STATE_SCRIPT = """
+import { readFileSync } from "node:fs";
+import { trimState } from "%(ts)s/state.ts";
+import { renderState } from "%(ts)s/teacher-prompt.ts";
+const { task, steps } = JSON.parse(readFileSync(0, "utf8"));
+process.stdout.write(JSON.stringify(renderState(trimState(task, steps))));
+"""
+
+
+def test_a_stint_step_renders_as_state_ts_renders_the_scout_options_own_call(tmp_path):
+    # Review of waves 2-3, finding 4: a step the scout is credited with shows the option's own bash call, as the
+    # live scout's step would, with the coding model's real output.
+    peek_call = {
+        "name": "bash",
+        "arguments": {"command": "wc -l '/app/big.txt'\necho '--- first 20 lines ---'\nhead -n 20 '/app/big.txt' | cut -c1-300", "timeout": 60},
+    }
+    read_call = {"name": "bash", "arguments": {"command": "cat '/app/main.py'", "timeout": 60}}
+    menu = {
+        "tools": [{"id": "read", "description": "Read"}, {"id": "peek", "description": "Peek"}, {"id": "hand_over", "description": "Hand over"}],
+        "arguments_by_tool": {
+            "read": [{"id": "read-1", "description": "Read the file /app/main.py", "toolCall": read_call}],
+            "peek": [{"id": "peek-1", "description": "Look at the data in /app/big.txt", "toolCall": peek_call}],
+        },
+    }
+    commands = [TurnCommand("cat -n main.py", "1 print(1)", False), TurnCommand("head -n 20 big.txt", "a\nb", False), TurnCommand("make", "ok", False)]
+    turn = LabelTurn(commands, labelled=True, folders=[part_folders(c.text, Shell("/app", "/root"))[0] for c in commands])
+    labeler = SessionLabeler([turn], follow_stints=True, drop_unmatched_information=False)
+    while labeler.next_point() is not None:
+        labeler.give(menu)
+    assert [d.choice for d in labeler.decisions] == [Choice.step("read", "read-1"), Choice.step("peek", "peek-1"), Choice.hand_over()]
+    history = labeler.decisions[2].history
+    steps = [
+        {"call": {"type": "toolCall", "id": "s1", **read_call}, "output": "1 print(1)", "isError": False, "byScout": True},
+        {"call": {"type": "toolCall", "id": "s2", **peek_call}, "output": "a\nb", "isError": False, "byScout": True},
+    ]
+    script = tmp_path / "state.mjs"
+    script.write_text(STATE_SCRIPT % {"ts": JEFF_FIRST_TS.as_posix()})
+    done = subprocess.run(["node", str(script)], input=json.dumps({"task": "Fix it.", "steps": steps}), capture_output=True, text=True, check=True)
+    assert render_state("Fix it.", history) == json.loads(done.stdout)
+    assert "$ cat '/app/main.py'\n1 print(1)" in json.loads(done.stdout)

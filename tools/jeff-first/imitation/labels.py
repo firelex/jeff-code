@@ -1023,14 +1023,19 @@ class SessionLabeler:
         self._skip_unlabelled()
 
     def _previous(self, index: int) -> str | None:
+        """The coding model's own command before this one (a scout step's history shows the option's command)."""
         commands = self.turns[self._turn].commands
         if index > 0:
             return commands[index - 1].text
-        return self._done[-1].command if self._done else None
+        if not self._done_keys:
+            return None
+        turn, number = self._done_keys[-1]
+        return self.turns[turn].commands[number].text
 
     def _finish_turn(self) -> None:
+        stint = iter(self._stint)
         for index, command in enumerate(self.turns[self._turn].commands):
-            self._done.append(ShellStep(command.text, command.output, command.is_error, by_scout=index in self._scout))
+            self._done.append(next(stint) if index in self._scout else ShellStep(command.text, command.output, command.is_error, by_scout=False))
             self._done_keys.append((self._turn, index))
         self._turn += 1
         self._stint = []
@@ -1089,7 +1094,10 @@ class SessionLabeler:
             self._finish_turn()
             return
         command = self.turns[self._turn].commands[index]
-        self._stint.append(ShellStep(command.text, command.output, command.is_error, by_scout=True))
+        # The step as the live scout's would show: the option's own bash call, with the coding model's real output.
+        options = {option["id"]: option for option in menu["arguments_by_tool"][choice.kind]}
+        shown = _probe_command(options[choice.option_id])
+        self._stint.append(ShellStep(shown, command.output, command.is_error, by_scout=True))
         self._scout.add(index)
         following = index + 1
         commands = self.turns[self._turn].commands

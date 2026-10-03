@@ -166,11 +166,11 @@ def make_menu(**by_kind: list[dict]) -> dict:
 
 MENU = make_menu(
     read=[
-        option("read", 1, "Read the file /app/main.py"),
-        option("read", 2, "Read lines 100 to 159 of /app/main.py"),
-        option("read", 3, "Read the file /app/util.py"),
+        option("read", 1, "Read the file /app/main.py", "cat '/app/main.py'"),
+        option("read", 2, "Read lines 100 to 159 of /app/main.py", "sed -n '100,159p' '/app/main.py'"),
+        option("read", 3, "Read the file /app/util.py", "cat '/app/util.py'"),
     ],
-    list=[option("list", 1, "List the folder /app")],
+    list=[option("list", 1, "List the folder /app", "ls -la '/app'")],
     search=[option("search", 1, 'Search the project for the text "solve"')],
     find=[option("find", 1, "Find files matching **/*.csv")],
     toolchain=[
@@ -272,8 +272,9 @@ def test_session_labeler_hand_over_and_single_match():
     points = drive(labeler, [MENU, MENU])
     assert points[0] == []
     assert [d.choice for d in labeler.decisions] == [Choice.step("list", "list-1"), Choice.hand_over()]
-    # The listing became a scout step in the history of the next turn.
-    assert labeler.decisions[1].history == [step("ls -la /app", "main.py\nutil.py", by_scout=True)]
+    # The listing became a scout step in the history of the next turn: the List option's own command, with the
+    # coding model's real output (review of waves 2-3, finding 4).
+    assert labeler.decisions[1].history == [step("ls -la '/app'", "main.py\nutil.py", by_scout=True)]
     assert [d.turn for d in labeler.decisions] == [1, 2]
 
 
@@ -294,8 +295,8 @@ def test_stint_follows_matches_then_hands_over_at_the_first_action():
         Choice.step("read", "read-3"),
         Choice.hand_over(),
     ]
-    assert points[1] == [step("cat main.py", "A", by_scout=True)]
-    assert points[2] == [step("cat main.py", "A", by_scout=True), step("cat util.py", "B", by_scout=True)]
+    assert points[1] == [step("cat '/app/main.py'", "A", by_scout=True)]
+    assert points[2] == [step("cat '/app/main.py'", "A", by_scout=True), step("cat '/app/util.py'", "B", by_scout=True)]
 
 
 def test_a_stint_that_uses_up_the_turn_needs_no_hand_over_row():
@@ -303,7 +304,7 @@ def test_a_stint_that_uses_up_the_turn_needs_no_hand_over_row():
     labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=False)
     drive(labeler, [MENU, MENU])
     assert [d.choice for d in labeler.decisions] == [Choice.step("read", "read-1"), Choice.hand_over()]
-    assert labeler.decisions[1].history == [step("cat main.py", "A", by_scout=True), step("clear", "", by_scout=False)]
+    assert labeler.decisions[1].history == [step("cat '/app/main.py'", "A", by_scout=True), step("clear", "", by_scout=False)]
 
 
 def run(labeler: SessionLabeler) -> list:
@@ -687,3 +688,12 @@ def test_a_toolchain_option_whose_probe_cannot_be_read_is_an_error():
     menu = make_menu(toolchain=[option("toolchain", 1, "Check which tools and languages are installed: gcc", "x")])
     with pytest.raises(ValueError, match="program list"):
         match(menu, "which gcc")
+
+
+def test_a_repeat_check_after_a_scout_step_compares_with_the_coding_models_own_command():
+    # The scout step shows the option's command (cat '/app/main.py'); the coding model's next turn typing its own
+    # command again (cat main.py) is still a repeat of what it typed, so it is not a label.
+    turns = [[TurnCommand("cat main.py", "A", False)], [TurnCommand("cat main.py", "A", False)]]
+    labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=False)
+    drive(labeler, [MENU, MENU])
+    assert [(d.turn, d.choice) for d in labeler.decisions] == [(1, Choice.step("read", "read-1")), (2, Choice.hand_over())]

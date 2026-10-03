@@ -139,8 +139,8 @@ def test_first_message_without_task_is_an_error():
         parse_terminus([user("hello"), assistant(["ls\n"])])
 
 
-def option(kind, number, description):
-    return {"id": f"{kind}-{number}", "description": description, "toolCall": {"name": "bash", "arguments": {"command": "x"}}}
+def option(kind, number, description, command="x"):
+    return {"id": f"{kind}-{number}", "description": description, "toolCall": {"name": "bash", "arguments": {"command": command}}}
 
 
 MENU = {
@@ -150,8 +150,8 @@ MENU = {
         {"id": "hand_over", "description": "Hand over to the coding model"},
     ],
     "arguments_by_tool": {
-        "read": [option("read", 1, "Read the file /app/main.py")],
-        "list": [option("list", 1, "List the folder /app")],
+        "read": [option("read", 1, "Read the file /app/main.py", "cat '/app/main.py'")],
+        "list": [option("list", 1, "List the folder /app", "ls -la '/app'")],
     },
 }
 
@@ -177,9 +177,11 @@ def test_convert_sessions_labels_every_point_and_asks_for_menus_in_batches():
         (2, 2, "tool", "hand_over"),
     ]
     assert [len(batch) for batch in batches] == [1, 1, 1]
-    assert batches[1][0].steps[0].command == "ls -la" and batches[1][0].steps[0].by_scout
+    # The scout's step shows the List option's own command with the coding model's real output (review of waves
+    # 2-3, finding 4).
+    assert batches[1][0].steps[0].command == "ls -la '/app'" and batches[1][0].steps[0].by_scout
     assert batches[0][0].cwd == "/app" and batches[0][0].task == "Fix the bug in /app/main.py."
-    assert rows[2].state.endswith("Step 1 (by you, the scout):\n$ ls -la\ntotal 8\n-rw-r--r-- 1 root root 20 main.py")
+    assert rows[2].state.endswith("Step 1 (by you, the scout):\n$ ls -la '/app'\ntotal 8\n-rw-r--r-- 1 root root 20 main.py")
 
 
 def test_menu_count_mismatch_is_an_error():
@@ -255,7 +257,7 @@ def test_build_menus_runs_the_menu_cli_and_back_fill_lets_it_offer_a_read():
         return menus
 
     conversion = convert_sessions([(meta, parse_terminus(conv))], menus_for)
-    after_ls = next(menu for point, menu in seen if [s.command for s in point.steps] == ["ls"])
+    after_ls = next(menu for point, menu in seen if [s.command for s in point.steps] == ["ls -la '/app'"])
     reads = [option["description"] for option in after_ls["arguments_by_tool"].get("read", [])]
     assert "Read the file /app/a.py" in reads
     assert [(row.turn, row.level, row.label) for row in conversion.rows if row.turn == 3][0] == (3, "tool", "read")
