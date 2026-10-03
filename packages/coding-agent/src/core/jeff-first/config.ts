@@ -2,10 +2,21 @@
  * JeffFirst settings, read from the environment so the benchmark harness can set them per task.
  * Unset JEFF_FIRST_MODE means plain pi.
  */
+export type RunApproval = "all" | "seen" | "never";
+const RUN_APPROVALS: RunApproval[] = ["all", "seen", "never"];
+
 export type JeffFirstConfig =
 	| { mode: "off" }
 	| { mode: "shadow"; traceFile: string; taskId: string }
-	| { mode: "teacher"; traceFile: string; taskId: string; teacherUrl: string; teacherModel: string };
+	| {
+			mode: "teacher";
+			traceFile: string;
+			taskId: string;
+			teacherUrl: string;
+			teacherModel: string;
+			runApproval: RunApproval;
+			driverBuild: string;
+	  };
 
 function required(env: NodeJS.ProcessEnv, mode: string, name: string, meaning: string): string {
 	const value = env[name];
@@ -39,5 +50,20 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 		"JEFF_FIRST_TEACHER_MODEL",
 		"the teacher model's id, for example scissero-glm-5.3",
 	);
-	return { mode, traceFile, taskId, teacherUrl, teacherModel };
+	const approval = env.JEFF_FIRST_RUN_APPROVAL;
+	if (approval === undefined || approval === "") {
+		throw new Error(
+			`JeffFirst: JEFF_FIRST_MODE=${mode} needs JEFF_FIRST_RUN_APPROVAL, whether the scout may run scripts the coding model wrote: all, seen or never`,
+		);
+	}
+	if (!RUN_APPROVALS.includes(approval as RunApproval)) {
+		throw new Error(`JeffFirst: JEFF_FIRST_RUN_APPROVAL must be all, seen or never, got "${approval}"`);
+	}
+	const driverBuild = required(
+		env,
+		mode,
+		"JEFF_FIRST_DRIVER_BUILD",
+		"the exact build of the large model, for example qwen3.8-27b-nvfp4@spark-head",
+	);
+	return { mode, traceFile, taskId, teacherUrl, teacherModel, runApproval: approval as RunApproval, driverBuild };
 }

@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
 import type { Choice, Chooser } from "./chooser.ts";
+import type { RunApproval } from "./config.ts";
 import { buildLists, type ToolKind } from "./lists.ts";
 import type { MenuToolCall } from "./menu.ts";
 import { JEFF_PROVIDER } from "./provider.ts";
@@ -30,6 +31,7 @@ export interface ScoutOptions {
 	trace: TraceWriter;
 	chooser: Chooser;
 	isSessionTurn: (sessionId: string | undefined) => boolean;
+	runApproval: RunApproval;
 }
 
 /** The scout's assistant messages since the large model's last message (or since the user's message). */
@@ -137,6 +139,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 					steps,
 					activeTools: activeToolNames(context.messages),
 					checkCommands: checks.commands,
+					runApproval: options.runApproval,
 				});
 				const listsMs = performance.now() - listsStarted;
 				const chooserStarted = performance.now();

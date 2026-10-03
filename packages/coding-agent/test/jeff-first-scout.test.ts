@@ -131,6 +131,7 @@ describe("createScoutStreamFn", () => {
 			trace: new TraceWriter(tracePath),
 			chooser,
 			isSessionTurn: (id) => id === "s1",
+			runApproval: "all",
 		});
 	}
 

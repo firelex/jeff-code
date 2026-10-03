@@ -428,6 +428,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 						trace: new TraceWriter(jeffFirst.traceFile),
 						chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel, TEACHER_RETRY_POLICY),
 						isSessionTurn,
+						runApproval: jeffFirst.runApproval,
 					});
 
 	const agent = new Agent({

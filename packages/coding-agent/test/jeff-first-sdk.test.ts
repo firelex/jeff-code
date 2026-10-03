@@ -139,6 +139,8 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
 		vi.stubEnv("JEFF_FIRST_TEACHER_URL", teacher.url);
 		vi.stubEnv("JEFF_FIRST_TEACHER_MODEL", "glm-test");
+		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
+		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		const { session, provider } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
 		session.dispose();

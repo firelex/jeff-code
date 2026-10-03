@@ -48,6 +48,8 @@ describe("readJeffFirstConfig", () => {
 				JEFF_FIRST_TASK_ID: "fix-git",
 				JEFF_FIRST_TEACHER_URL: "http://192.168.0.79:8898",
 				JEFF_FIRST_TEACHER_MODEL: "scissero-glm-5.3",
+				JEFF_FIRST_RUN_APPROVAL: "all",
+				JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
 			}),
 		).toEqual({
 			mode: "teacher",
@@ -55,6 +57,8 @@ describe("readJeffFirstConfig", () => {
 			taskId: "fix-git",
 			teacherUrl: "http://192.168.0.79:8898",
 			teacherModel: "scissero-glm-5.3",
+			runApproval: "all",
+			driverBuild: "qwen3.8-27b-nvfp4@spark-head",
 		});
 	});
 
@@ -65,6 +69,8 @@ describe("readJeffFirstConfig", () => {
 				JEFF_FIRST_TRACE_FILE: "/tmp/t.jsonl",
 				JEFF_FIRST_TASK_ID: "x",
 				JEFF_FIRST_TEACHER_MODEL: "m",
+				JEFF_FIRST_RUN_APPROVAL: "all",
+				JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
 			}),
 		).toThrow(/JEFF_FIRST_TEACHER_URL/);
 	});
@@ -76,7 +82,33 @@ describe("readJeffFirstConfig", () => {
 				JEFF_FIRST_TRACE_FILE: "/tmp/t.jsonl",
 				JEFF_FIRST_TASK_ID: "x",
 				JEFF_FIRST_TEACHER_URL: "http://x",
+				JEFF_FIRST_RUN_APPROVAL: "all",
+				JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
 			}),
 		).toThrow(/JEFF_FIRST_TEACHER_MODEL/);
+	});
+
+	const teacherEnv = {
+		JEFF_FIRST_MODE: "teacher",
+		JEFF_FIRST_TRACE_FILE: "/tmp/t.jsonl",
+		JEFF_FIRST_TASK_ID: "x",
+		JEFF_FIRST_TEACHER_URL: "http://t",
+		JEFF_FIRST_TEACHER_MODEL: "m",
+		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
+	};
+
+	it("rejects teacher mode without a run-approval setting, naming the three values", () => {
+		expect(() => readJeffFirstConfig(teacherEnv)).toThrow(/JEFF_FIRST_RUN_APPROVAL.*all, seen or never/);
+	});
+
+	it("rejects an unknown run-approval setting", () => {
+		expect(() => readJeffFirstConfig({ ...teacherEnv, JEFF_FIRST_RUN_APPROVAL: "always" })).toThrow(
+			/JEFF_FIRST_RUN_APPROVAL must be all, seen or never, got "always"/,
+		);
+	});
+
+	it("rejects teacher mode without the driver's build", () => {
+		const { JEFF_FIRST_DRIVER_BUILD: _, ...env } = teacherEnv;
+		expect(() => readJeffFirstConfig({ ...env, JEFF_FIRST_RUN_APPROVAL: "all" })).toThrow(/JEFF_FIRST_DRIVER_BUILD/);
 	});
 });

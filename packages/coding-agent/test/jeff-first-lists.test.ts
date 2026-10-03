@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ARGUMENT_LIMIT, buildLists, isTextFile } from "../src/core/jeff-first/lists.ts";
-import type { MenuInput } from "../src/core/jeff-first/menu.ts";
+import { ARGUMENT_LIMIT, buildLists, isTextFile, type ListsInput } from "../src/core/jeff-first/lists.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 const ALL_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
@@ -22,7 +21,7 @@ function step(
 
 describe("buildLists", () => {
 	let cwd: string;
-	let input: MenuInput;
+	let input: ListsInput;
 
 	beforeEach(() => {
 		cwd = mkdtempSync(join(tmpdir(), "jeff-first-lists-"));
@@ -51,6 +50,7 @@ describe("buildLists", () => {
 			],
 			activeTools: ALL_TOOLS,
 			checkCommands: ["pytest"],
+			runApproval: "all",
 		};
 	});
 	afterEach(() => {
@@ -67,6 +67,56 @@ describe("buildLists", () => {
 			"repeat",
 			"hand_over",
 		]);
+	});
+
+	it("offers to run a script the coding model wrote and has not run since", () => {
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF\necho written" }, "written"));
+		const run = buildLists(input).argumentsByTool.run ?? [];
+		expect(run.map((o) => o.toolCall)).toEqual([
+			{ name: "bash", arguments: { command: `cd ${cwd} && python3 scan.py`, timeout: 300 } },
+		]);
+		expect(run[0].description).toBe(`Run: cd ${cwd} && python3 scan.py`);
+		expect(buildLists(input).tools.map((t) => t.id)).toContain("run");
+	});
+
+	it("does not offer to run a script again until it changes", () => {
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(
+			step("write", { path: join(cwd, "scan.py"), content: "print(1)\n" }, "ok"),
+			step("bash", { command: "cd /app && python3 scan.py" }, "1"),
+		);
+		expect(buildLists(input).argumentsByTool.run).toBeUndefined();
+		input.steps.push(step("edit", { path: join(cwd, "scan.py"), edits: [] }, "ok"));
+		expect(buildLists(input).argumentsByTool.run).toHaveLength(1);
+	});
+
+	it("with approval 'seen' offers only scripts that have run before", () => {
+		input.runApproval = "seen";
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(step("write", { path: join(cwd, "scan.py"), content: "print(1)\n" }, "ok"));
+		expect(buildLists(input).argumentsByTool.run).toBeUndefined();
+		input.steps.push(
+			step("bash", { command: "python3 scan.py" }, "1"),
+			step("edit", { path: join(cwd, "scan.py"), edits: [] }, "ok"),
+		);
+		expect(buildLists(input).argumentsByTool.run).toHaveLength(1);
+	});
+
+	it("with approval 'never' leaves the Run tool out", () => {
+		input.runApproval = "never";
+		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		input.steps.push(step("write", { path: join(cwd, "scan.py"), content: "print(1)\n" }, "ok"));
+		expect(buildLists(input).tools.map((t) => t.id)).not.toContain("run");
+	});
+
+	it("runs shell and JavaScript scripts with their own interpreters, and ignores other files", () => {
+		for (const name of ["go.sh", "go.js", "notes.txt"]) writeFileSync(join(cwd, name), "x\n");
+		for (const name of ["go.sh", "go.js", "notes.txt"]) {
+			input.steps.push(step("write", { path: join(cwd, name), content: "x\n" }, "ok"));
+		}
+		const commands = (buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command);
+		expect(commands).toEqual([`cd ${cwd} && node go.js`, `cd ${cwd} && bash go.sh`]);
 	});
 
 	it("reads a 60-line slice around each traceback place, then whole named files", () => {

@@ -1,6 +1,7 @@
 import { closeSync, openSync, readSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
+import type { RunApproval } from "./config.ts";
 import {
 	callKey,
 	candidates,
@@ -27,7 +28,11 @@ export const FIND_LIMIT = 8;
 export const FAILING_TEST_LIMIT = 3;
 export const SEARCH_RESULT_LIMIT = 50;
 
-export type ToolKind = "read" | "list" | "search" | "find" | "check" | "repeat";
+export interface ListsInput extends MenuInput {
+	runApproval: RunApproval;
+}
+
+export type ToolKind = "read" | "list" | "search" | "find" | "check" | "run" | "repeat";
 
 export interface ToolOption {
 	id: ToolKind | "hand_over";
@@ -45,7 +50,7 @@ export interface Lists {
 	argumentsByTool: Partial<Record<ToolKind, ArgumentOption[]>>;
 }
 
-const TOOL_ORDER: ToolKind[] = ["read", "list", "search", "find", "check", "repeat"];
+const TOOL_ORDER: ToolKind[] = ["read", "list", "search", "find", "check", "run", "repeat"];
 
 /** The pi tool each kind needs; a kind is offered only when that tool is active. */
 const PI_TOOL: Record<ToolKind, string> = {
@@ -54,6 +59,7 @@ const PI_TOOL: Record<ToolKind, string> = {
 	search: "grep",
 	find: "find",
 	check: "bash",
+	run: "bash",
 	repeat: "bash",
 };
 
@@ -63,9 +69,16 @@ const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 	search: "Search the project's files for a name or a piece of error text",
 	find: "Find files by name",
 	check: "Run the project's tests or build, or one failing test",
+	run: "Run a script the coding model wrote or changed",
 	repeat: "Run the coding model's last shell command again",
 	hand_over: "Hand over to the coding model for its next turn",
 };
+
+const INTERPRETERS: Record<string, string> = { ".py": "python3", ".sh": "bash", ".js": "node" };
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 const PYTHON_PLACE = /File "([^"]+)", line (\d+)/g;
 const PLACE = /(?:^|[\s('"])((?:\.{0,2}\/)?[\w.\-/]+\.[A-Za-z][A-Za-z0-9]{0,9}):(\d+)/gm;
@@ -162,7 +175,7 @@ function modelCallFiles(input: MenuInput): string[] {
 /** Order: (1) files the coding model changed since the scout last read them, newest first; (2) place slices from
  * tracebacks; (3) files from the coding model's recent calls; (4) files named in outputs and the task. Every
  * candidate must be a readable text file. */
-function readOptions(input: MenuInput): MenuToolCall[] {
+function readOptions(input: ListsInput): MenuToolCall[] {
 	const calls: MenuToolCall[] = [];
 	const readable = (path: string) => pathKind(path) === "file" && isTextFile(path);
 	const changed = writtenFiles(input).filter(({ path, index }) => index > lastScoutRead(input, path));
@@ -187,12 +200,12 @@ function readOptions(input: MenuInput): MenuToolCall[] {
 	return calls;
 }
 
-function listOptions(input: MenuInput): MenuToolCall[] {
+function listOptions(input: ListsInput): MenuToolCall[] {
 	const folders = [input.cwd, ...namedPaths(input).folders.slice(0, LOOK_FOLDER_LIMIT)];
 	return folders.map((path) => ({ name: "ls", arguments: { path } }));
 }
 
-function searchOptions(input: MenuInput): MenuToolCall[] {
+function searchOptions(input: ListsInput): MenuToolCall[] {
 	const names: string[] = [];
 	for (const match of input.task.matchAll(TASK_NAME)) {
 		if (!FILE_NAME.test(match[1])) names.push(match[1]);
@@ -211,7 +224,7 @@ function searchOptions(input: MenuInput): MenuToolCall[] {
 		}));
 }
 
-function findOptions(input: MenuInput): MenuToolCall[] {
+function findOptions(input: ListsInput): MenuToolCall[] {
 	const named: string[] = [];
 	for (const match of input.task.matchAll(/[\w*.\-/]+/g)) named.push(match[0]);
 	for (const output of recentOutputs(input)) {
@@ -230,7 +243,7 @@ function findOptions(input: MenuInput): MenuToolCall[] {
 		.map((pattern) => ({ name: "find", arguments: { pattern, path: input.cwd, limit: SEARCH_RESULT_LIMIT } }));
 }
 
-function checkOptions(input: MenuInput): MenuToolCall[] {
+function checkOptions(input: ListsInput): MenuToolCall[] {
 	const commands = input.checkCommands.slice(0, CHECK_COMMAND_LIMIT);
 	if (commands.some((command) => command.startsWith("pytest"))) {
 		const failing: string[] = [];
@@ -245,7 +258,7 @@ function checkOptions(input: MenuInput): MenuToolCall[] {
 	}));
 }
 
-function repeatOptions(input: MenuInput): MenuToolCall[] {
+function repeatOptions(input: ListsInput): MenuToolCall[] {
 	const lastBash = input.steps.filter((step) => step.call.name === "bash" && !step.byScout).at(-1);
 	if (!lastBash) return [];
 	const args = structuredClone(lastBash.call.arguments);
@@ -255,6 +268,35 @@ function repeatOptions(input: MenuInput): MenuToolCall[] {
 			? Math.min(existingTimeout, SCOUT_COMMAND_TIMEOUT_SECONDS)
 			: SCOUT_COMMAND_TIMEOUT_SECONDS;
 	return [{ name: "bash", arguments: args }];
+}
+
+/** The step index at which this script was last run by anyone (any interpreter, any folder prefix), or -1. */
+function lastRun(input: ListsInput, path: string): number {
+	const pattern = new RegExp(`(?:python3?|bash|sh|node)\\s+(?:\\S*/)?${escapeRegExp(basename(path))}(?=$|[\\s;&|)])`);
+	for (let index = input.steps.length - 1; index >= 0; index--) {
+		const command = input.steps[index].call.arguments.command;
+		if (input.steps[index].call.name === "bash" && typeof command === "string" && pattern.test(command)) return index;
+	}
+	return -1;
+}
+
+/** Scripts the coding model wrote or changed since they last ran, newest first, as the approval setting allows. */
+function runOptions(input: ListsInput): MenuToolCall[] {
+	if (input.runApproval === "never") return [];
+	const calls: MenuToolCall[] = [];
+	const done = new Set<string>();
+	for (const { path, index } of writtenFiles(input)) {
+		if (done.has(path)) continue;
+		done.add(path);
+		const interpreter = INTERPRETERS[path.slice(path.lastIndexOf("."))];
+		if (!interpreter || pathKind(path) !== "file" || !isTextFile(path)) continue;
+		const ran = lastRun(input, path);
+		if (ran > index) continue;
+		if (input.runApproval === "seen" && ran < 0) continue;
+		const command = `cd ${dirname(path)} && ${interpreter} ${basename(path)}`;
+		calls.push({ name: "bash", arguments: { command, timeout: SCOUT_COMMAND_TIMEOUT_SECONDS } });
+	}
+	return calls;
 }
 
 function describe(kind: ToolKind, call: MenuToolCall): string {
@@ -272,21 +314,24 @@ function describe(kind: ToolKind, call: MenuToolCall): string {
 			return `Find files matching ${String(args.pattern)}`;
 		case "check":
 			return `Run: ${String(args.command)}`;
+		case "run":
+			return `Run: ${String(args.command)}`;
 		case "repeat":
 			return `Run the last shell command again: ${String(args.command)}`;
 	}
 }
 
-const BUILDERS: Record<ToolKind, (input: MenuInput) => MenuToolCall[]> = {
+const BUILDERS: Record<ToolKind, (input: ListsInput) => MenuToolCall[]> = {
 	read: readOptions,
 	list: listOptions,
 	search: searchOptions,
 	find: findOptions,
 	check: checkOptions,
+	run: runOptions,
 	repeat: repeatOptions,
 };
 
-export function buildLists(input: MenuInput): Lists {
+export function buildLists(input: ListsInput): Lists {
 	const seen = new Set<string>();
 	const argumentsByTool: Partial<Record<ToolKind, ArgumentOption[]>> = {};
 	const tools: ToolOption[] = [];
