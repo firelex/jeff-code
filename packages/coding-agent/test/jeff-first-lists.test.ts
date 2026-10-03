@@ -63,6 +63,7 @@ describe("buildLists", () => {
 			"list",
 			"search",
 			"find",
+			"toolchain",
 			"check",
 			"repeat",
 			"hand_over",
@@ -173,7 +174,7 @@ describe("buildLists", () => {
 
 	it("leaves out List, Search and Find when pi runs with its default tools", () => {
 		input.activeTools = DEFAULT_TOOLS;
-		expect(buildLists(input).tools.map((t) => t.id)).toEqual(["read", "check", "repeat", "hand_over"]);
+		expect(buildLists(input).tools.map((t) => t.id)).toEqual(["read", "toolchain", "check", "repeat", "hand_over"]);
 	});
 
 	it("caps every argument list at 30 options, three pages of ten", () => {

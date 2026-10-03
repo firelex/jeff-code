@@ -13,7 +13,7 @@ import {
 	pathKind,
 	RECENT_OUTPUTS,
 } from "./menu.ts";
-import { peekOptions } from "./qwen-tools.ts";
+import { peekOptions, toolchainOptions } from "./qwen-tools.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
 export const ARGUMENT_LIMIT = 30;
@@ -35,7 +35,7 @@ export interface ListsInput extends MenuInput {
 	runApproval: RunApproval;
 }
 
-export type ToolKind = "read" | "peek" | "list" | "search" | "find" | "check" | "run" | "repeat";
+export type ToolKind = "read" | "peek" | "list" | "search" | "find" | "toolchain" | "check" | "run" | "repeat";
 
 export interface ToolOption {
 	id: ToolKind | "hand_over";
@@ -59,7 +59,7 @@ export interface Lists {
 	argumentsByTool: Partial<Record<ToolKind, ArgumentOption[]>>;
 }
 
-const TOOL_ORDER: ToolKind[] = ["read", "peek", "list", "search", "find", "check", "run", "repeat"];
+const TOOL_ORDER: ToolKind[] = ["read", "peek", "list", "search", "find", "toolchain", "check", "run", "repeat"];
 
 /** The pi tool each kind needs; a kind is offered only when that tool is active. */
 const PI_TOOL: Record<ToolKind, string> = {
@@ -68,6 +68,7 @@ const PI_TOOL: Record<ToolKind, string> = {
 	list: "ls",
 	search: "grep",
 	find: "find",
+	toolchain: "bash",
 	check: "bash",
 	run: "bash",
 	repeat: "bash",
@@ -79,6 +80,7 @@ const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 	list: "List the contents of a folder",
 	search: "Search the project's files for a name or a piece of error text",
 	find: "Find files by name",
+	toolchain: "Check which tools, languages and Python packages are installed",
 	check: "Run the project's tests or build, or one failing test",
 	run: "Run a script the coding model wrote or changed",
 	repeat: "Run the coding model's last shell command again",
@@ -108,7 +110,7 @@ const TASK_QUOTE = /"([^"\n]{4,80})"/g;
 const FILE_NAME = /^[\w*.-]+\.[A-Za-z][A-Za-z0-9]{0,9}$/;
 const FAILED_PYTEST = /^FAILED (\S+::\S+)/gm;
 
-function recentOutputs(input: MenuInput): string[] {
+export function recentOutputs(input: MenuInput): string[] {
 	return input.steps
 		.slice(-RECENT_OUTPUTS)
 		.reverse()
@@ -324,7 +326,7 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 	return calls;
 }
 
-function describe(kind: Exclude<ToolKind, "peek">, call: MenuToolCall): string {
+function describe(kind: Exclude<ToolKind, "peek" | "toolchain">, call: MenuToolCall): string {
 	const args = call.arguments;
 	switch (kind) {
 		case "read":
@@ -347,7 +349,7 @@ function describe(kind: Exclude<ToolKind, "peek">, call: MenuToolCall): string {
 }
 
 function builtFrom(
-	kind: Exclude<ToolKind, "peek">,
+	kind: Exclude<ToolKind, "peek" | "toolchain">,
 	options: (input: ListsInput) => MenuToolCall[],
 ): (input: ListsInput) => Built[] {
 	return (input) => options(input).map((call) => ({ call, description: describe(kind, call) }));
@@ -359,6 +361,7 @@ const BUILDERS: Record<ToolKind, (input: ListsInput) => Built[]> = {
 	list: builtFrom("list", listOptions),
 	search: builtFrom("search", searchOptions),
 	find: builtFrom("find", findOptions),
+	toolchain: toolchainOptions,
 	check: builtFrom("check", checkOptions),
 	run: builtFrom("run", runOptions),
 	repeat: builtFrom("repeat", repeatOptions),

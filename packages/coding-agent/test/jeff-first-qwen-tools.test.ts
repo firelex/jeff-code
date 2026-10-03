@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ListsInput } from "../src/core/jeff-first/lists.ts";
-import { peekKind, peekOptions } from "../src/core/jeff-first/qwen-tools.ts";
+import { peekKind, peekOptions, toolchainOptions } from "../src/core/jeff-first/qwen-tools.ts";
 
 const ALL_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
 
@@ -77,5 +77,65 @@ describe("Data peek", () => {
 			`Look at the data in ${join(cwd, "data.csv")}`,
 			`Show the type of every file in ${cwd}`,
 		]);
+	});
+});
+
+describe("Toolchain check", () => {
+	let cwd: string;
+	let input: ListsInput;
+	beforeEach(() => {
+		cwd = mkdtempSync(join(tmpdir(), "jeff-first-toolchain-"));
+		input = {
+			cwd,
+			task: "Use weights.json.",
+			steps: [],
+			activeTools: ALL_TOOLS,
+			checkCommands: [],
+			runApproval: "all",
+		};
+	});
+	afterEach(() => {
+		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it("always offers the core check, and adds names from the task, file types, errors and installs", () => {
+		writeFileSync(join(cwd, "model.pth"), Buffer.from([0x80]));
+		input.task = "Design primers with oligotm and serve them with nginx.";
+		input.steps = [
+			{
+				call: { type: "toolCall", id: "a", name: "bash", arguments: { command: "xxd f" } },
+				output: "bash: xxd: command not found",
+				isError: true,
+				byScout: false,
+			},
+			{
+				call: { type: "toolCall", id: "b", name: "bash", arguments: { command: "python3 run.py" } },
+				output: "ModuleNotFoundError: No module named 'rdflib.plugins'",
+				isError: true,
+				byScout: false,
+			},
+			{
+				call: {
+					type: "toolCall",
+					id: "c",
+					name: "bash",
+					arguments: { command: "pip install -q scikit-learn pillow" },
+				},
+				output: "",
+				isError: false,
+				byScout: false,
+			},
+		];
+		const [core, packages] = toolchainOptions(input);
+		const command = String(core.call.arguments.command);
+		for (const name of ["python3", "oligotm", "nginx", "xxd"]) expect(command).toContain(`'${name}'`);
+		for (const module of ["torch", "numpy", "rdflib", "sklearn", "PIL"]) expect(command).toContain(`'${module}'`);
+		expect(core.call.arguments.timeout).toBe(60);
+		expect(packages.description).toMatch(/^Check which installed packages match: /);
+		expect(String(packages.call.arguments.command)).toContain("oligotm");
+	});
+
+	it("offers only the core check when nothing task-specific is known", () => {
+		expect(toolchainOptions(input).map((o) => o.description)).toHaveLength(1);
 	});
 });
