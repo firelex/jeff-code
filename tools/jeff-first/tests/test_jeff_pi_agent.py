@@ -87,14 +87,25 @@ def fake_models_json(monkeypatch):
 
 def test_marks_the_model_as_reasoning_with_its_thinking_switch_when_thinking_is_on(tmp_path, monkeypatch):
     fake_models_json(monkeypatch)
-    agent = make_agent(tmp_path, tarball="x.tgz", thinking="medium", thinking_format="qwen-chat-template")
+    agent = make_agent(
+        tmp_path,
+        tarball="x.tgz",
+        thinking="medium",
+        thinking_format="qwen-chat-template",
+        max_output_tokens=65536,
+    )
     model = agent._build_custom_models_json(None, "qwen3.8-27b")["providers"]["harbor-endpoint"]["models"][0]
-    assert model == {"id": "qwen3.8-27b", "reasoning": True, "compat": {"thinkingFormat": "qwen-chat-template"}}
+    assert model == {
+        "id": "qwen3.8-27b",
+        "reasoning": True,
+        "compat": {"thinkingFormat": "qwen-chat-template"},
+        "maxTokens": 65536,
+    }
 
 
 def test_refuses_thinking_without_a_thinking_switch(tmp_path, monkeypatch):
     fake_models_json(monkeypatch)
-    agent = make_agent(tmp_path, tarball="x.tgz", thinking="medium")
+    agent = make_agent(tmp_path, tarball="x.tgz", thinking="medium", max_output_tokens=65536)
     with pytest.raises(ValueError, match="thinking_format"):
         agent._build_custom_models_json(None, "qwen3.8-27b")
 
@@ -103,3 +114,17 @@ def test_leaves_the_model_alone_when_thinking_is_off(tmp_path, monkeypatch):
     fake_models_json(monkeypatch)
     agent = make_agent(tmp_path, tarball="x.tgz", thinking="off")
     assert agent._build_custom_models_json(None, "qwen3.8-27b") == SAMPLE
+
+
+def test_refuses_thinking_without_max_output_tokens(tmp_path, monkeypatch):
+    fake_models_json(monkeypatch)
+    agent = make_agent(tmp_path, tarball="x.tgz", thinking="medium", thinking_format="qwen-chat-template")
+    with pytest.raises(ValueError, match="max_output_tokens"):
+        agent._build_custom_models_json(None, "qwen3.8-27b")
+
+
+def test_refuses_max_output_tokens_when_thinking_is_off(tmp_path, monkeypatch):
+    fake_models_json(monkeypatch)
+    agent = make_agent(tmp_path, tarball="x.tgz", thinking="off", max_output_tokens=65536)
+    with pytest.raises(ValueError, match="max_output_tokens"):
+        agent._build_custom_models_json(None, "qwen3.8-27b")

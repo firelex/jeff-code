@@ -12,7 +12,9 @@
 #   THINKING     pi's thinking level for the model: off, minimal, low, medium or high; when not off, the environment
 #                variable JEFF_RUN_THINKING_FORMAT must be set to how pi switches the model's thinking on (pi's
 #                compat.thinkingFormat), e.g. qwen-chat-template, since Harbor's model entry does not say the model
-#                can reason
+#                can reason; also when not off, the environment variable JEFF_RUN_MAX_OUTPUT_TOKENS must be set to
+#                the most tokens the model may write in one turn, thinking included, as a positive whole number,
+#                e.g. 65536, since pi's default of 16,384 tokens is too small for a thinking model
 #   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write)
 #   MODEL        the model id at BASE_URL, e.g. qwen3.8-flash-next or scissero-glm-5.3
 #   MODE         shadow (log what the model does) or teacher (the teacher model scouts before every model turn;
@@ -33,7 +35,7 @@ set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
 if [ $# -lt 10 ]; then
-  sed -n '5,30p' "$0" >&2
+  sed -n '5,32p' "$0" >&2
   exit 2
 fi
 tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9 timeout_multiplier=${10}
@@ -46,6 +48,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 case "$thinking" in off|minimal|low|medium|high) ;; *) echo "THINKING must be off, minimal, low, medium or high" >&2; exit 2 ;; esac
 if [ "$thinking" != off ]; then
   [ -n "${JEFF_RUN_THINKING_FORMAT:-}" ] || { echo "THINKING $thinking needs JEFF_RUN_THINKING_FORMAT (how pi switches thinking on, e.g. qwen-chat-template)" >&2; exit 2; }
+  case "${JEFF_RUN_MAX_OUTPUT_TOKENS:-}" in ''|0|*[!0-9]*) echo "THINKING $thinking needs JEFF_RUN_MAX_OUTPUT_TOKENS (a positive whole number, e.g. 65536)" >&2; exit 2 ;; esac
 fi
 case "$concurrency" in ''|*[!0-9]*) echo "CONCURRENCY must be a whole number" >&2; exit 2 ;; esac
 [[ "$timeout_multiplier" =~ ^[0-9]*\.?[0-9]+$ && "$timeout_multiplier" =~ [1-9] ]] \
@@ -61,7 +64,7 @@ case "$mode" in
   *) echo "MODE must be shadow or teacher" >&2; exit 2 ;;
 esac
 export JEFF_FIRST_TEACHER_URL="${JEFF_FIRST_TEACHER_URL:-}" JEFF_FIRST_TEACHER_MODEL="${JEFF_FIRST_TEACHER_MODEL:-}"
-export JEFF_RUN_THINKING_FORMAT="${JEFF_RUN_THINKING_FORMAT:-}" JEFF_FIRST_RUN_APPROVAL="${JEFF_FIRST_RUN_APPROVAL:-}" JEFF_FIRST_DRIVER_BUILD="${JEFF_FIRST_DRIVER_BUILD:-}"
+export JEFF_RUN_THINKING_FORMAT="${JEFF_RUN_THINKING_FORMAT:-}" JEFF_RUN_MAX_OUTPUT_TOKENS="${JEFF_RUN_MAX_OUTPUT_TOKENS:-}" JEFF_FIRST_RUN_APPROVAL="${JEFF_FIRST_RUN_APPROVAL:-}" JEFF_FIRST_DRIVER_BUILD="${JEFF_FIRST_DRIVER_BUILD:-}"
 
 if [ $# -gt 0 ]; then
   tasks=("$@")
@@ -86,7 +89,9 @@ run_one() {
     --agent-timeout-multiplier "$timeout_multiplier"
   )
   if [ "$tools" != default ]; then command+=(--ak "tools=$tools"); fi
-  if [ "$thinking" != off ]; then command+=(--ak "thinking_format=$JEFF_RUN_THINKING_FORMAT"); fi
+  if [ "$thinking" != off ]; then
+    command+=(--ak "thinking_format=$JEFF_RUN_THINKING_FORMAT" --ak "max_output_tokens=$JEFF_RUN_MAX_OUTPUT_TOKENS")
+  fi
   command+=(
     --ae "JEFF_FIRST_MODE=$mode"
     --ae "JEFF_FIRST_TASK_ID=$task"
@@ -118,7 +123,7 @@ run_one() {
 }
 export -f run_one
 export here tarball base_url jobs thinking tools model mode timeout_multiplier dry_run JEFF_RUN_API_KEY \
-  JEFF_RUN_THINKING_FORMAT JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD
+  JEFF_RUN_THINKING_FORMAT JEFF_RUN_MAX_OUTPUT_TOKENS JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
 if ! printf '%s\n' "${tasks[@]}" | xargs -P "$concurrency" -I{} bash -c 'run_one "$1"' _ {}; then

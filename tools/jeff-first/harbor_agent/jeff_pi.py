@@ -32,6 +32,13 @@ class JeffPiOptions(PiOptions):
             "when thinking is on: Harbor's model entry does not say the model can reason, so pi would send no switch."
         ),
     )
+    max_output_tokens: int | None = Field(
+        default=None,
+        description=(
+            "The most tokens the model may write in one turn, thinking included. Required when thinking is on, "
+            "because pi's default of 16,384 is too small for thinking models."
+        ),
+    )
 
 
 class JeffPi(Pi):
@@ -50,18 +57,28 @@ class JeffPi(Pi):
         if thinking is None or thinking == "off":
             if self.options.thinking_format is not None:
                 raise ValueError("thinking_format is set but thinking is off; set thinking to a level such as medium")
+            if self.options.max_output_tokens is not None:
+                raise ValueError("max_output_tokens is set but thinking is off; set thinking to a level such as medium")
             return models_json
         if self.options.thinking_format is None:
             raise ValueError(
                 f"thinking is {thinking}, but pi is not told how to switch the model's thinking on; "
                 "set the agent option thinking_format, e.g. qwen-chat-template"
             )
+        if self.options.max_output_tokens is None:
+            raise ValueError(
+                f"thinking is {thinking}, but max_output_tokens is not set; pi's default output cap of 16,384 "
+                "tokens is too small for a thinking model, so set the agent option max_output_tokens, e.g. 65536"
+            )
+        if self.options.max_output_tokens <= 0:
+            raise ValueError(f"max_output_tokens must be a positive integer, got {self.options.max_output_tokens}")
         if models_json is None:
             raise ValueError("thinking_format needs a custom model endpoint (a configured base URL)")
         for provider in models_json["providers"].values():
             for model in provider["models"]:
                 model["reasoning"] = True
                 model["compat"] = {"thinkingFormat": self.options.thinking_format}
+                model["maxTokens"] = self.options.max_output_tokens
         return models_json
 
     @override
