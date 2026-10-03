@@ -48,7 +48,7 @@ def intent(command: str):
         ("python3 --version", "toolchain", "python3"),
         ("python3 -c \"import numpy; print(numpy.__version__)\"", "toolchain", "numpy"),
         ("cat /etc/os-release", "toolchain", "os-release"),
-        ("pip list 2>/dev/null | grep -i torch", "toolchain", ""),
+        ("pip list 2>/dev/null | grep -i torch", "toolchain", "torch"),
         ("head -c 200 /app/data.bin", "peek", "/app/data.bin"),
         ("xxd /app/firmware.img | head", "peek", "/app/firmware.img"),
         ("wc -l /app/input.txt", "peek", "/app/input.txt"),
@@ -96,7 +96,7 @@ def test_install_keeps_every_package():
     assert intent("apt-get update && apt-get install -y gcc make".split("&& ")[1]).targets == ("gcc", "make")
 
 
-@pytest.mark.parametrize("command", ["cd /app", "export X=1", "sleep 2", "clear", "echo done", "X=5", "apt-get update"])
+@pytest.mark.parametrize("command", ["cd /app", "export X=1", "sleep 2", "clear", "echo done", "X=5"])
 def test_neutral_parts(command):
     assert intent(command) is NEUTRAL
 
@@ -115,10 +115,39 @@ def test_neutral_parts(command):
         "git status",
         "curl -X POST -d '{}' http://localhost:8080/api",
         "vim /app/x.py",
+        # apt-get update changes the package lists: it acts (review of waves 2-3, finding 6).
+        "apt-get update",
     ],
 )
 def test_acting_or_unmatched_parts(command):
     assert intent(command) is OTHER
+
+
+def toolchain_probe(programs: list[str], modules: list[str]) -> str:
+    """probes.ts toolchainProbe, as it writes the command (checked against its real output when written)."""
+    quoted = lambda names: " ".join(f"'{name}'" for name in names)  # noqa: E731
+    lines = [
+        "head -n 2 /etc/os-release 2>/dev/null || echo 'os-release: MISSING'",
+        "echo '--- programs ---'",
+        f'for c in {quoted(programs)}; do p=$(command -v "$c") && echo "$c: $p" || echo "$c: MISSING"; done',
+    ]
+    if modules:
+        lines += [
+            "echo '--- Python modules ---'",
+            f"if command -v python3 >/dev/null 2>&1; then\npython3 - {quoted(modules)} <<'PY'\nimport importlib, importlib.util, sys\n"
+            "for name in sys.argv[1:]:\n    print(name)\nPY\nelse echo 'python3: MISSING'; fi",
+        ]
+    return "\n".join(lines)
+
+
+def installed_packages_probe(names: list[str]) -> str:
+    """probes.ts installedPackagesProbe."""
+    pattern = "|".join(names)
+    return (
+        f"if command -v apt >/dev/null 2>&1; then\napt list --installed 2>/dev/null | grep -iE '{pattern}' | head -n 40\n"
+        f"else echo 'apt: MISSING'; fi\nif command -v pip3 >/dev/null 2>&1; then\npip3 list 2>/dev/null | grep -iE '{pattern}' | head -n 40\n"
+        "else echo 'pip3: MISSING'; fi"
+    )
 
 
 def option(kind, number, description, command="x"):
@@ -145,7 +174,7 @@ MENU = make_menu(
     search=[option("search", 1, 'Search the project for the text "solve"')],
     find=[option("find", 1, "Find files matching **/*.csv")],
     toolchain=[
-        option("toolchain", 1, "Check which tools and languages are installed: python3, gcc"),
+        option("toolchain", 1, "Check which tools and languages are installed: python3, gcc", toolchain_probe(["python3", "gcc"], [])),
         option("toolchain", 2, "Search the whole filesystem for a program named ffmpeg"),
     ],
     service=[
@@ -475,7 +504,9 @@ FIND_MENU = make_menu(
     [
         ("find /app -type f", "/", "find-2"),
         ("find . -type f -not -path '*/venv/*' 2>/dev/null | head -50", "/app", "find-2"),
-        ("find -maxdepth 2 -type d", "/app", "find-2"),
+        # Folders only: "Find the files under" lists files (review of waves 2-3, finding 6).
+        ("find -maxdepth 2 -type d", "/app", None),
+        ("find /app -type d -maxdepth 3 | head -50", "/", None),
         # A find that filters by name or path looks for particular files; the first 50 files under the folder may not
         # include them, so it never matches "Find the files under".
         ("find . -name '*.py' -not -path '*/venv/*' 2>/dev/null | head -50", "/app", None),
@@ -521,3 +552,138 @@ NAMED_MENU = make_menu(
 def test_find_by_exact_name_matches_find_files_named(command, cwd, expected):
     found = match(NAMED_MENU, command, cwd=cwd)
     assert found == (None if expected is None else Choice.step("find", expected))
+
+
+PEEK_MENU = make_menu(
+    read=[option("read", 1, "Read the file /app/small.txt")],
+    peek=[
+        option("peek", 1, "Look at the data in /app/data.bin"),
+        option("peek", 2, "Look at the data in /app/db.sqlite"),
+        option("peek", 3, "Look at the data in /app/config.json"),
+        option("peek", 4, "Look at the data in /app/orig"),
+        option("peek", 5, "Look at the data in /app/big.txt"),
+        option("peek", 6, "Look at the data in /app/small.txt"),
+        option("peek", 7, "Show the type of every file in /app"),
+    ],
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        # Review of waves 2-3, finding 3: Peek matches only commands that print a slice of the file itself, the kinds
+        # of output the scout's peek probe shows (probes.ts peekProbe).
+        ("head -c 256 /app/data.bin | od -A d -t x1z", ("peek", "peek-1")),
+        ("xxd /app/data.bin | head -20", ("peek", "peek-1")),
+        ("hexdump -C /app/data.bin | head", ("peek", "peek-1")),
+        ("od -c /app/data.bin | head", ("peek", "peek-1")),
+        ("file /app/data.bin", ("peek", "peek-1")),
+        ("sqlite3 /app/db.sqlite .schema", ("peek", "peek-2")),
+        ("sqlite3 /app/db.sqlite '.tables'", ("peek", "peek-2")),
+        ("sqlite3 /app/db.sqlite 'SELECT * FROM words LIMIT 5;'", ("peek", "peek-2")),
+        ("sqlite3 /app/db.sqlite \"SELECT name FROM sqlite_master WHERE type='table'\"", ("peek", "peek-2")),
+        ("head -n 20 /app/big.txt", ("peek", "peek-5")),
+        ("tail -n 3 /app/big.txt", ("peek", "peek-5")),
+        ("wc -l /app/big.txt", ("peek", "peek-5")),
+        ("file /app/*", ("peek", "peek-7")),
+        # A read of a file that also has a Read option keeps the Read (menu order).
+        ("head -n 5 /app/small.txt", ("read", "read-1")),
+        # Analyses do not print a slice of the file.
+        ("objdump -d /app/orig | sed -n '/2530 </,/25c0:/p'", None),
+        ("strings /app/orig | head", None),
+        ("readelf -h /app/orig", None),
+        ("sqlite3 /app/db.sqlite 'EXPLAIN QUERY PLAN SELECT * FROM words WHERE w = 1'", None),
+        ("sqlite3 /app/db.sqlite 'SELECT COUNT(*) FROM words'", None),
+        ("sqlite3 /app/db.sqlite 'SELECT * FROM words'", None),
+        ("python3 -c \"import json; d=json.load(open('/app/config.json')); print(sorted(d['rows'], key=len))\"", None),
+        ("awk '{print $1}' /app/big.txt | sort | uniq -c", None),
+        ("jq '.rows | length' /app/config.json", None),
+        # wc -l over several files is not a peek of one (finding 6).
+        ("wc -l /app/big.txt /app/small.txt", None),
+    ],
+)
+def test_peek_matches_only_commands_that_print_a_slice_of_the_file(command, expected):
+    found = match(PEEK_MENU, command)
+    assert found == (None if expected is None else Choice.step(*expected))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # Review of waves 2-3, finding 6: these look at bytes or line endings, not the file's text as Read shows it.
+        "cat -A /app/small.txt",
+        "cat -v /app/small.txt",
+        "cat -vet /app/small.txt",
+        "cat -E /app/small.txt | head",
+    ],
+)
+def test_reads_that_show_control_characters_are_not_read(command):
+    found = intent(command)
+    assert isinstance(found, Intent) and found.kind == "peek"
+    assert match(PEEK_MENU, command) is None
+
+
+def test_a_read_piped_into_a_hex_viewer_is_a_byte_peek_not_a_read():
+    found = intent("head -5 /app/small.txt | xxd | head -3")
+    assert isinstance(found, Intent) and found.kind == "peek"
+    assert match(PEEK_MENU, "head -5 /app/small.txt | xxd | head -3") == Choice.step("peek", "peek-6")
+    assert match(PEEK_MENU, "cat /app/data.bin | od -c | head") == Choice.step("peek", "peek-1")
+
+
+TOOLCHAIN_MENU = make_menu(
+    toolchain=[
+        option(
+            "toolchain",
+            1,
+            "Check which tools and languages are installed: numpy, PIL, python3, gcc, make",
+            toolchain_probe(["python3", "gcc", "make"], ["numpy", "PIL"]),
+        ),
+        option("toolchain", 2, "Check which installed packages match: numpy, Pillow", installed_packages_probe(["numpy", "Pillow"])),
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        # Review of waves 2-3, finding 3: Toolchain matches only when the probe reports what the command asks about
+        # (its program list and its Python module list; probes.ts toolchainProbe, qwen-tools.ts toolchainOptions).
+        ("which gcc", "toolchain-1"),
+        ("which gcc make", "toolchain-1"),
+        ("command -v python3", "toolchain-1"),
+        ("gcc --version", "toolchain-1"),
+        ("python3 -c 'import numpy; print(numpy.__version__)'", "toolchain-1"),
+        ("python3 -c 'import PIL'", "toolchain-1"),
+        ("python3 -c 'import numpy, PIL'", "toolchain-1"),
+        ("python3 -c 'import numpy as np; print(np.__version__)'", "toolchain-1"),
+        ("python3 -c 'from PIL import Image'", "toolchain-1"),
+        ("cat /etc/os-release", "toolchain-1"),
+        ("which zig", None),
+        ("which gcc zig", None),
+        ("command -v zig && zig version", None),
+        ("python --version", None),
+        ("python3 -c 'import chess'", None),
+        ("python3 -c 'import numpy, chess'", None),
+        ("uname -a", None),
+        ("dpkg -L mailman3 | head", None),
+        ("apt-cache policy nginx", None),
+        ("npm ls", None),
+        # The installed-packages check (apt list --installed and pip3 list, filtered by its names).
+        ("pip show numpy", "toolchain-2"),
+        ("pip list 2>/dev/null | grep -i pillow", "toolchain-2"),
+        ("pip3 list | grep -iE 'numpy|pillow'", "toolchain-2"),
+        ("dpkg -l | grep numpy", "toolchain-2"),
+        ("pip list", None),
+        ("pip show torch", None),
+        ("pip list | grep -i torch", None),
+    ],
+)
+def test_toolchain_matches_only_what_the_probe_reports(command, expected):
+    found = match(TOOLCHAIN_MENU, command)
+    assert found == (None if expected is None else Choice.step("toolchain", expected))
+
+
+def test_a_toolchain_option_whose_probe_cannot_be_read_is_an_error():
+    menu = make_menu(toolchain=[option("toolchain", 1, "Check which tools and languages are installed: gcc", "x")])
+    with pytest.raises(ValueError, match="program list"):
+        match(menu, "which gcc")

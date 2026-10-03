@@ -10,10 +10,15 @@ How a match is decided:
 1. The command is split into parts (splitter.py). Each part is mapped to an Intent - a kind of step plus its target -
    by `part_intent`, one table of shell programs (INTENT_RULES). The kinds are the scout's tool kinds: read, peek,
    list, search, find, toolchain, service, docs, install, run, check. A part that does nothing worth a step (`cd`,
-   `export`, `sleep`, a plain `echo`, `apt-get update`) is NEUTRAL; a part that acts (writes or edits a file,
-   compiles, runs its own inline script, anything not in the table) is OTHER.
+   `export`, `sleep`, a plain `echo`) is NEUTRAL; a part that acts (writes or edits a file, compiles, runs its own
+   inline script, `apt-get update`, anything not in the table) is OTHER.
 2. Each option's target is read from its description with the description patterns of scout_value.py (the same fixed
-   sentences pi writes). Run and Check options are compared by the intent of their own command.
+   sentences pi writes). Run and Check options are compared by the intent of their own command; the two toolchain
+   checks by the programs, modules or package names their own command reports.
+   Peek and Toolchain match narrowly (review of waves 2-3, finding 3): a peek matches only a command that prints a
+   slice of the file itself (head, tail, `wc -l` of the one file, file, xxd/od/hexdump, a schema listing or a
+   SELECT ... LIMIT; not objdump, strings, a script or an EXPLAIN or COUNT query), and a toolchain step only when the
+   probe reports every program, module or package it asks about.
 3. A command matches when every non-neutral part matches some option on the menu; the label is the option matched
    by its first non-neutral part (in menu order: tool order, then argument order; for a read with a line range, the
    slice that contains its first line is preferred, otherwise the whole file). A command made only of neutral parts
@@ -55,7 +60,12 @@ class Intent:
     """What one command part does: a scout tool kind and its target.
 
     `aspect` tells apart the targets of a service step (a "port", a service "name", the "processes" list, or a
-    "log" file); for a find, it is the filter flag its target came from ("-name", "-iname", "-path", "-ipath"). `targets` holds every name when the part names several (`which gcc make`, `pip install a b`);
+    "log" file); for a find, it is the filter flag its target came from ("-name", "-iname", "-path", "-ipath"), or
+    "-type d" for a find of folders only with no such filter; for a peek, "slice" when the part prints a slice of the
+    file itself (see SLICE_TOOLS); for a toolchain step, what it asks about: "program" (`which X`, `X --version`),
+    "module" (`import X`), "os" (the OS release), "package" (whether a package is installed: `pip show X`, `pip
+    list | grep X`, `dpkg -l X`) or "other" (anything the toolchain probes never report: `uname`, `dpkg -L`,
+    `apt-cache`, `npm ls`). `targets` holds every name when the part names several (`which gcc make`, `pip install a b`);
     `target` is the first. `lines` is the line range of a partial read (first, last; last may be None for "to the
     end"). `word` is the program the part runs. `start` is, for a find that only lists what it finds (no -exec, no
     xargs), its one start folder ("." when none is given; "" for several)."""
@@ -89,6 +99,21 @@ CAT_LIKE = {"cat", "less", "more", "nl", "bat", "tac", "zcat"}
 DATA_TOOLS_WITH_SCRIPT = {"awk", "gawk", "jq"}
 DATA_TOOLS = {"cut", "sort", "uniq", "column"}
 BYTE_TOOLS = {"od", "xxd", "hexdump", "strings", "file", "readelf", "objdump", "nm", "identify", "exiftool", "pdfinfo", "ffprobe", "mediainfo"}  # fmt: skip
+# Flags of each byte tool that take a separate value (`od -t x1z F`, `xxd -l 64 F`); for the others, none matter here.
+BYTE_TOOL_VALUE_FLAGS = {
+    "od": {"-A", "-j", "-N", "-t", "-w", "-S"},
+    "xxd": {"-l", "-s", "-c", "-g", "-o", "-n"},
+    "hexdump": {"-n", "-s", "-e", "-f"},
+    "file": {"-m", "-e", "-F"},
+    "strings": {"-n", "-t", "-e"},
+}
+# The programs whose output is a slice of the file itself, as the scout's peek probe shows one (probes.ts peekProbe:
+# `file`, the first bytes in hex, the first and last lines, the line count): every other byte tool analyses the file
+# (objdump -d, readelf, strings, nm, ...). head and tail are reads; with -c they print a slice of bytes.
+SLICE_TOOLS = {"file", "xxd", "od", "hexdump"}
+HEX_VIEWERS = {"xxd", "od", "hexdump"}
+# cat flags that show control characters and line ends (-A is -vET): the coding model wanted the bytes, not the text.
+CAT_SHOWS_CONTROL = re.compile(r"^-[A-Za-z]*[AvEeTt][A-Za-z]*$")
 GREP_LIKE = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "zgrep"}
 GREP_VALUE_FLAGS = {"-A", "-B", "-C", "-m", "-f", "-d", "-D", "--include", "--exclude", "--exclude-dir", "--max-count", "-g", "-t", "--type"}  # fmt: skip
 PROCESS_TOOLS = {"ps", "pgrep", "pidof", "ss", "netstat", "lsof", "top", "fuser"}
@@ -164,7 +189,7 @@ def _file_intent(path: str, word: str, lines: tuple[int, int | None] | None = No
     """Showing a file's text: a read, unless the file is the OS release file (toolchain), a package's README
     under node_modules (docs) or a log (service)."""
     if path.endswith("os-release"):
-        return Intent("toolchain", "os-release", word=word)
+        return Intent("toolchain", "os-release", aspect="os", word=word)
     package = NPM_PACKAGE_PATH.search(path)
     if package and "readme" in _basename(path).lower():
         return Intent("docs", package.group(1), word=word)
@@ -175,7 +200,12 @@ def _file_intent(path: str, word: str, lines: tuple[int, int | None] | None = No
 
 def _cat_like(word: str, args: list[str], part: Part) -> PartResult:
     files = _plain_args(args)
-    return _file_intent(files[0], word) if files else OTHER
+    if not files:
+        return OTHER
+    if word == "cat" and any(CAT_SHOWS_CONTROL.match(arg) for arg in args):
+        # Control characters and line ends made visible: a look at the bytes, which no option shows this way.
+        return Intent("peek", files[0], word=word)
+    return _file_intent(files[0], word)
 
 
 def _head_tail(word: str, args: list[str], part: Part) -> PartResult:
@@ -186,7 +216,7 @@ def _head_tail(word: str, args: list[str], part: Part) -> PartResult:
     if word == "tail" and any(arg in ("-f", "-F", "--follow") for arg in args):
         return Intent("service", path, aspect="log", word=word)
     if any(arg == "-c" or re.fullmatch(r"-c\d+|--bytes(=.*)?", arg) for arg in args):
-        return Intent("peek", path, word=word)
+        return Intent("peek", path, aspect="slice", word=word)
     lines: tuple[int, int | None] | None = None
     if word == "head":
         count = None
@@ -217,24 +247,48 @@ def _data_tool(word: str, args: list[str], part: Part) -> PartResult:
     plain = _plain_args(args, {"-F", "-d", "-f", "-k", "-t", "-v"})
     if word in DATA_TOOLS_WITH_SCRIPT:
         plain = plain[1:]
-    return Intent("peek", plain[0], word=word) if plain else OTHER
+    if not plain:
+        return OTHER
+    # The peek probe counts one file's lines (`wc -l F`); counting several files, or anything else, analyses them.
+    counts_lines = word == "wc" and [arg for arg in args if arg.startswith("-")] == ["-l"] and len(plain) == 1
+    return Intent("peek", plain[0], aspect="slice" if counts_lines else "", word=word)
 
 
 def _peek_first_file(word: str, args: list[str], part: Part) -> PartResult:
-    plain = _plain_args(args, {"-n", "-l", "-s", "-c", "-t", "-N"})
-    return Intent("peek", plain[0], word=word) if plain else OTHER
+    plain = _plain_args(args, BYTE_TOOL_VALUE_FLAGS.get(word, set()))
+    return Intent("peek", plain[0], aspect="slice" if word in SLICE_TOOLS else "", word=word) if plain else OTHER
 
 
 def _pdftotext(word: str, args: list[str], part: Part) -> PartResult:
     plain = _plain_args(args, {"-f", "-l"})
-    return Intent("peek", plain[0], word=word) if len(plain) == 2 and plain[1] == "-" else OTHER
+    return Intent("peek", plain[0], aspect="slice", word=word) if len(plain) == 2 and plain[1] == "-" else OTHER
+
+
+SQL_SETTINGS = re.compile(r"^\.(?:headers|mode|width|nullvalue)\b", re.I)
+SQL_SCHEMA = re.compile(r"^\.(?:schema|tables|fullschema)\b|^SELECT\b.*\bFROM\s+sqlite_(?:master|schema)\b", re.I | re.S)
+SQL_ROWS = re.compile(r"^SELECT\b.*\bLIMIT\s+\d+\s*$", re.I | re.S)
+SQL_ANALYSIS = re.compile(r"\b(?:EXPLAIN|COUNT|SUM|AVG|MIN|MAX|GROUP_CONCAT|GROUP\s+BY|JOIN|DISTINCT)\b", re.I)
+
+
+def _sql_shows_a_slice(statements: list[str]) -> bool:
+    """Whether the SQL only lists the schema or the tables, or selects a limited number of rows without computing
+    anything: a slice of the database, as the scout's SQLite peek shows its schema. EXPLAIN, counts and other
+    aggregates, joins and selections without LIMIT are analyses."""
+    shown = False
+    for statement in (part.strip() for text in statements for part in re.split(r";|\n", text)):
+        if not statement or SQL_SETTINGS.match(statement):
+            continue
+        if SQL_ANALYSIS.search(statement) or not (SQL_SCHEMA.match(statement) or SQL_ROWS.match(statement)):
+            return False
+        shown = True
+    return shown
 
 
 def _sqlite(word: str, args: list[str], part: Part) -> PartResult:
     plain = _plain_args(args, {"-cmd", "-separator"})
     if not plain or WRITE_SQL.search(" ".join(plain[1:])) or part.heredoc is not None:
         return OTHER
-    return Intent("peek", plain[0], word=word)
+    return Intent("peek", plain[0], aspect="slice" if _sql_shows_a_slice(plain[1:]) else "", word=word)
 
 
 def _list(word: str, args: list[str], part: Part) -> PartResult:
@@ -300,7 +354,9 @@ def _find(word: str, args: list[str], part: Part) -> PartResult:
     for i, arg in enumerate(args[:-1]):
         if arg in ("-name", "-iname", "-path", "-ipath") and (i == 0 or args[i - 1] not in ("-not", "!")):
             return Intent("find", args[i + 1], aspect=arg, word=word, start=start)
-    return Intent("find", "", word=word, start=start)
+    types = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "-type" and (i == 0 or args[i - 1] not in ("-not", "!"))]
+    folders_only = bool(types) and all(set(value.split(",")) == {"d"} for value in types)
+    return Intent("find", "", aspect="-type d" if folders_only else "", word=word, start=start)
 
 
 FIND_RUNS_PROGRAM = {"-exec", "-execdir", "-ok", "-okdir"}
@@ -346,7 +402,7 @@ def _locate(word: str, args: list[str], part: Part) -> PartResult:
 
 def _which(word: str, args: list[str], part: Part) -> PartResult:
     names = tuple(_plain_args(args))
-    return Intent("toolchain", names[0], targets=names, word=word) if names else OTHER
+    return Intent("toolchain", names[0], targets=names, aspect="program", word=word) if names else OTHER
 
 
 def _command_builtin(word: str, args: list[str], part: Part) -> PartResult:
@@ -356,7 +412,29 @@ def _command_builtin(word: str, args: list[str], part: Part) -> PartResult:
 
 
 def _os_info(word: str, args: list[str], part: Part) -> PartResult:
-    return Intent("toolchain", "os", word=word)
+    # lsb_release names the distribution, as the toolchain probe's os-release lines do; uname shows the kernel and
+    # the machine, which no probe reports.
+    return Intent("toolchain", "os", aspect="os" if word == "lsb_release" else "other", word=word)
+
+
+def _filter_names(part: Part) -> tuple[str, ...]:
+    """The names a listing is filtered by: each grep stage's patterns, split at their alternatives (`grep -iE
+    'a|b'`, `grep 'a\\|b'`)."""
+    names: list[str] = []
+    for stage in part.filters:
+        word, text = first_word(stage)
+        if _basename(word) not in GREP_LIKE:
+            continue
+        args = _words(text)[1:]
+        names.extend(text for text in _search_texts(_basename(word), args, _grep_patterns(args)) if "|" not in text)
+    return tuple(names)
+
+
+def _installed(word: str, names: tuple[str, ...], part: Part) -> Intent:
+    """Whether packages are installed (`pip show X`, `pip list | grep X`, `dpkg -l X`): the names asked about, from
+    the arguments or else from a grep the listing goes through."""
+    names = names or _filter_names(part)
+    return Intent("toolchain", names[0] if names else "", targets=names, aspect="package", word=word)
 
 
 PIP_VALUE_FLAGS = {"-r", "-c", "-i", "--index-url", "--extra-index-url", "-t", "--target", "-f", "--find-links"}
@@ -373,21 +451,23 @@ def _pip(word: str, args: list[str], part: Part) -> PartResult:
         names = _package_names(args[args.index("install") + 1 :])
         return Intent("install", names[0], targets=names, word=word) if names else OTHER
     if args[:1] and args[0] in ("list", "show", "freeze"):
-        shown = _plain_args(args[1:])
-        return Intent("toolchain", shown[0] if shown else "", targets=tuple(shown), word=word)
+        return _installed(word, tuple(_plain_args(args[1:])), part)
     return OTHER
 
 
 def _apt(word: str, args: list[str], part: Part) -> PartResult:
-    if args[:1] == ["update"]:
-        return NEUTRAL
+    # `apt-get update` changes the package lists (it acts), so it is OTHER like any command outside the table.
     if "install" in args and word in ("apt-get", "apt", "apk", "yum", "dnf"):
         names = _package_names(args[args.index("install") + 1 :])
         return Intent("install", names[0], targets=names, word=word) if names else OTHER
-    if word in ("apt-cache", "dpkg", "dpkg-query") and not (word == "dpkg" and "-i" in args):
-        return Intent("toolchain", "", word=word)
-    if args[:1] and args[0] in ("list", "show", "policy", "search"):
-        return Intent("toolchain", "", word=word)
+    if word == "dpkg" and "-i" in args:
+        return OTHER
+    if (word == "dpkg" and args[:1] in (["-l"], ["-s"], ["--list"], ["--status"])) or (word == "dpkg-query" and "-W" in args):
+        return _installed(word, tuple(_plain_args(args[1:])), part)
+    if word == "apt" and args[:1] == ["list"]:
+        return _installed(word, tuple(_plain_args(args[1:])), part)
+    if word in ("apt-cache", "dpkg", "dpkg-query") or (args[:1] and args[0] in ("show", "policy", "search")):
+        return Intent("toolchain", "", aspect="other", word=word)
     return OTHER
 
 
@@ -397,7 +477,7 @@ def _npm(word: str, args: list[str], part: Part) -> PartResult:
     if args[:1] and args[0] in ("view", "info", "show") and len(args) > 1:
         return Intent("docs", args[1], word=word)
     if args[:1] and args[0] in ("ls", "list"):
-        return Intent("toolchain", "", word=word)
+        return Intent("toolchain", "", aspect="other", word=word)
     return OTHER
 
 
@@ -411,6 +491,15 @@ def _node(word: str, args: list[str], part: Part) -> PartResult:
             return OTHER
     plain = _plain_args(args)
     return Intent("run", plain[0], word=word) if plain else OTHER
+
+
+def _imported_modules(code: str) -> tuple[str, ...]:
+    """The top-level modules an import-only script's import statement names: `import a.b, c as d` gives a and c,
+    `from a.b import c` gives a."""
+    statement = code.split(";")[0].strip()
+    if statement.startswith("from"):
+        return (statement.split()[1].split(".")[0],)
+    return tuple(name.split()[0].split(".")[0] for name in statement.removeprefix("import").split(",") if name.strip())
 
 
 def _python(word: str, args: list[str], part: Part) -> PartResult:
@@ -431,7 +520,8 @@ def _python(word: str, args: list[str], part: Part) -> PartResult:
         code = args[args.index("-c") + 1]
         imported = PY_IMPORT_ONLY.match(code)
         if imported:
-            return Intent("toolchain", imported.group(1).split(".")[0], word=word)
+            modules = _imported_modules(code)
+            return Intent("toolchain", modules[0], targets=modules, aspect="module", word=word)
         if PY_WRITES.search(code):
             return OTHER
         loaded = PY_LOADERS.search(code)
@@ -531,6 +621,10 @@ INTENT_RULES: list[tuple[set[str], Callable[[str, list[str], Part], PartResult]]
 ]
 
 
+def _into_hex_viewer(part: Part) -> bool:
+    return any(_basename(first_word(stage)[0]) in HEX_VIEWERS for stage in part.filters)
+
+
 def part_intent(part: Part) -> PartResult:
     """What one command part does; see the module docstring. Table-driven: INTENT_RULES."""
     assigned = re.match(r"^\w+=\$\((.*)\)\s*$", part.head, re.DOTALL)
@@ -564,12 +658,16 @@ def part_intent(part: Part) -> PartResult:
     if any(arg in ("--help", "-help") for arg in args) or args == ["-h"]:
         return Intent("docs", base, word=base)
     if args and args[-1] in ("--version", "-version", "-V", "-dumpversion") or args == ["version"]:
-        return Intent("toolchain", base, word=base)
+        return Intent("toolchain", base, targets=(base,), aspect="program", word=base)
     if re.fullmatch(r"python[\d.]*", base):
         return _python(base, args, part)
     for programs, handler in INTENT_RULES:
         if base in programs:
-            return handler(base, args, part)
+            result = handler(base, args, part)
+            if isinstance(result, Intent) and result.kind in ("read", "peek") and _into_hex_viewer(part):
+                # `head -5 F | xxd`: the bytes of a slice of the file, as the peek probe's hex view shows them.
+                return Intent("peek", result.target, aspect="slice", word=base)
+            return result
     if word.startswith("./") or word.startswith("/"):
         return Intent("run", word, word=word)
     return OTHER
@@ -599,21 +697,65 @@ def command_is_neutral(command: str) -> bool:
 @dataclass(frozen=True)
 class _OptionTarget:
     """An option's target as read from its description: `form` is "path", "name", "find", "named" (an exact file
-    name), "port", "command" or
-    "markers" (one of the fixed command shapes in `needles`)."""
+    name), "port", "command", "toolchain" (the toolchain probe: the `programs` and Python `modules` it checks, read
+    from its command), "packages" (the installed-packages check: the `names` it filters by) or "markers" (one of
+    the fixed command shapes in `needles`)."""
 
     form: str
     value: str
     needles: tuple[str, ...] = ()
     package: str = ""
+    programs: tuple[str, ...] = ()
+    modules: tuple[str, ...] = ()
+    names: tuple[str, ...] = ()
 
 
 APT_PACKAGE = re.compile(r"\(package (.+)\)$")
 READ_SLICE = re.compile(r"^Read lines (\d+) to (\d+) of ")
 
 
+TOOLCHAIN_DESCRIPTION = "Check which tools and languages are installed:"
+PACKAGES_DESCRIPTION = "Check which installed packages match:"
+# probes.ts toolchainProbe: the program loop, and the Python module check after MODULES_HEADER.
+PROBE_PROGRAMS = re.compile(r"^for c in (.+?); do p=\$\(command -v \"\$c\"\)", re.M)
+PROBE_MODULES = re.compile(r"^echo '--- Python modules ---'\n.*?^python3 - (.+?) <<'PY'$", re.M | re.S)
+# probes.ts installedPackagesProbe: `apt list --installed ... | grep -iE 'a|b' | head -n 40`.
+PROBE_PACKAGES = re.compile(r"\| grep -iE ('[^']*') \| head -n 40")
+
+
+def _probe_command(option: ArgumentOption) -> str:
+    call = option["toolCall"]
+    if call["name"] != "bash" or not isinstance(call["arguments"].get("command"), str):
+        raise ValueError(f"the option {option['id']} is not a bash call with a command: {call!r}")
+    return call["arguments"]["command"]
+
+
+def _toolchain_target(option: ArgumentOption) -> _OptionTarget:
+    """What the toolchain probe of this option reports: its program list and its Python module list."""
+    command = _probe_command(option)
+    programs = PROBE_PROGRAMS.search(command)
+    if programs is None:
+        raise ValueError(f"the toolchain option {option['id']} has no program list in its command: {command[:200]!r}")
+    modules = PROBE_MODULES.search(command)
+    return _OptionTarget(
+        "toolchain", "", programs=tuple(shlex.split(programs.group(1))), modules=tuple(shlex.split(modules.group(1))) if modules else ()
+    )
+
+
+def _packages_target(option: ArgumentOption) -> _OptionTarget:
+    command = _probe_command(option)
+    pattern = PROBE_PACKAGES.search(command)
+    if pattern is None:
+        raise ValueError(f"the installed-packages option {option['id']} has no name filter in its command: {command[:200]!r}")
+    return _OptionTarget("packages", "", names=tuple(shlex.split(pattern.group(1))[0].split("|")))
+
+
 def _option_target(option: ArgumentOption) -> _OptionTarget:
     description = option["description"]
+    if description.startswith(TOOLCHAIN_DESCRIPTION):
+        return _toolchain_target(option)
+    if description.startswith(PACKAGES_DESCRIPTION):
+        return _packages_target(option)
     for pattern, build in DESCRIPTION_PATTERNS:
         match = pattern.fullmatch(description)
         if not match:
@@ -673,13 +815,17 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
             return False
         return _same_path(own.target, intent.target, cwd) if own.kind == "run" else own.target == intent.target
     if intent.kind == "read":
+        if kind == "peek":
+            # The first or last lines of a file are what the peek probe shows of a long text or a table.
+            return intent.word in ("head", "tail") and target.form == "path" and _same_path(intent.target, target.value, cwd)
         return kind == "read" and target.form == "path" and _same_path(intent.target, target.value, cwd)
     if intent.kind == "peek":
         if kind != "peek":
             return False
         if target.form == "markers":
             return intent.word == "file"
-        return target.form == "path" and _same_path(intent.target, target.value, cwd)
+        # Only a slice of the file itself, as the probe prints one; an analysis of the file is another step.
+        return intent.aspect == "slice" and target.form == "path" and _same_path(intent.target, target.value, cwd)
     if intent.kind == "list":
         return kind == "list" and target.form == "path" and _same_path(intent.target, target.value, cwd)
     if intent.kind == "search":
@@ -698,10 +844,10 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
         if kind == "find" and target.form == "path":
             # "Find the files under FOLDER" shows the first 50 files there: it matches a find that starts in that folder
             # and does not look for particular names or paths.
-            return not intent.target and _same_path(intent.start, target.value, cwd)
+            return not intent.target and intent.aspect != "-type d" and _same_path(intent.start, target.value, cwd)
         return kind == "toolchain" and target.form == "name" and intent.target.strip("*") == target.value
     if intent.kind == "toolchain":
-        return kind == "toolchain" and target.form == "markers"
+        return kind == "toolchain" and _probe_reports(intent, target)
     if intent.kind == "service":
         if kind != "service":
             return False
@@ -723,6 +869,24 @@ def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) 
             return False
         offered = {_package_key(target.value)} | ({_package_key(target.package)} if target.package else set())
         return any(_package_key(name) in offered for name in (intent.targets or (intent.target,)))
+    return False
+
+
+def _probe_reports(intent: Intent, target: _OptionTarget) -> bool:
+    """Whether a toolchain option reports everything the coding model's toolchain step asked about: every program
+    it looked for is in the probe's program list, every module it imported in the module list, every package it
+    asked about among the installed-packages check's names (case and -/_ ignored); the OS release is the toolchain
+    probe's first lines. Nothing else is reported."""
+    asked = intent.targets or (intent.target,)
+    if intent.aspect == "program":
+        return target.form == "toolchain" and all(name in target.programs for name in asked)
+    if intent.aspect == "module":
+        return target.form == "toolchain" and all(name in target.modules for name in asked)
+    if intent.aspect == "os":
+        return target.form == "toolchain"
+    if intent.aspect == "package":
+        offered = {_package_key(name) for name in target.names}
+        return target.form == "packages" and bool(intent.target) and all(_package_key(name) in offered for name in asked)
     return False
 
 
