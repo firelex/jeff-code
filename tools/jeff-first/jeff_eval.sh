@@ -13,8 +13,11 @@
 #   JEFF_URL        the Jeff service (jeff-serve) as the task containers reach it, e.g. http://192.168.2.10:8920
 #   STEP_ADAPTER    the step adapter's name at the service ("jeff" = the base model without an adapter)
 #   STEP_THRESHOLD  the probability from 0 to 1 Jeff's best option needs, or the scout hands over
-#   ROUTER          the thinking router: jeff:<router adapter> or fixed:<off|low|medium|xhigh>
-#   THRESHOLD       the router threshold from 0 to 1 (a level below xhigh needs it); "-" with a fixed router
+#   ROUTER          the thinking router: jeff:<router adapter>, jeff-off-unless:<router adapter>:<threshold> (off
+#                   unless the adapter's probability for xhigh is at least the threshold, then xhigh) or
+#                   fixed:<off|low|medium|xhigh>
+#   THRESHOLD       the jeff: router's threshold from 0 to 1 (a level below xhigh needs it); "-" with a fixed or a
+#                   jeff-off-unless: router (which holds its own)
 #   THINKING_LIMIT  the most thinking tokens one Qwen reply may use before it is cut and continued (8000 by the owner's
 #                   decision), or off (JEFF_FIRST_THINKING_LIMIT)
 #   OUT_FOLDER      where the Harbor jobs and logs go (created)
@@ -39,6 +42,7 @@ cd "$RUN_DIR"
 health=$(curl -sf --max-time 10 "$JEFF_URL/health") || { echo "the Jeff service at $JEFF_URL does not answer /health" >&2; exit 1; }
 adapters=("$STEP_ADAPTER")
 if [[ "$ROUTER" == jeff:* ]]; then adapters+=("${ROUTER#jeff:}"); fi
+if [[ "$ROUTER" == jeff-off-unless:* ]]; then off_unless=${ROUTER#jeff-off-unless:}; adapters+=("${off_unless%:*}"); fi
 : "${JEFF_FIRST_OUTPUT_TRIM:?set JEFF_FIRST_OUTPUT_TRIM (off, fixed:<choice> or jeff:<trimming adapter>)}"
 if [[ "$JEFF_FIRST_OUTPUT_TRIM" == jeff:* ]]; then adapters+=("${JEFF_FIRST_OUTPUT_TRIM#jeff:}"); fi
 for adapter in "${adapters[@]}"; do
@@ -52,7 +56,7 @@ export JEFF_FIRST_THINKING_LIMIT=$THINKING_LIMIT
 export JEFF_FIRST_JEFF_URL=$JEFF_URL JEFF_FIRST_JEFF_STEP_ADAPTER=$STEP_ADAPTER JEFF_FIRST_JEFF_STEP_THRESHOLD=$STEP_THRESHOLD
 case "$ROUTER" in
 	jeff:*) export JEFF_FIRST_JEFF_ROUTER_THRESHOLD=$ROUTER_THRESHOLD ;;
-	*) [ "$ROUTER_THRESHOLD" = - ] || { echo "a fixed router takes no threshold: give - instead of $ROUTER_THRESHOLD" >&2; exit 2; } ;;
+	*) [ "$ROUTER_THRESHOLD" = - ] || { echo "a fixed or jeff-off-unless: router takes no separate threshold: give - instead of $ROUTER_THRESHOLD" >&2; exit 2; } ;;
 esac
 mkdir -p "$OUT"
 bash tools/jeff-first/run_phase0.sh tasks.json "$TARBALL" "$QWEN_URL" "$OUT" "$CONCURRENCY" high bash qwen3.8-27b jeff 6 "$@"

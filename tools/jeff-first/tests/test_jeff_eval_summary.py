@@ -26,6 +26,8 @@ def test_counts_questions_cuts_and_abstentions_per_decision_kind(tmp_path, capsy
         {"kind": "decision", "levels": [level("teacher:glm")]},
         {"kind": "qwen_request", "router": "jeff:router", "attempt": 1, "router_cut": None, "router_abstained": CANNOT,
          "thinking_limit": 8000, "limit_cut": LIMIT_CUT},
+        {"kind": "qwen_request", "router": "jeff-off-unless:router:0.6", "attempt": 1, "router_cut": CUT,
+         "router_abstained": None, "thinking_limit": 8000, "limit_cut": None},
         {"kind": "qwen_request", "router": "jeff:router", "attempt": 2, "router_cut": None, "router_abstained": None,
          "thinking_limit": 8000, "limit_cut": None},
         {"kind": "qwen_request", "router": "fixed:xhigh", "attempt": 1, "router_cut": None, "router_abstained": None,
@@ -35,15 +37,15 @@ def test_counts_questions_cuts_and_abstentions_per_decision_kind(tmp_path, capsy
     ])
     summary = summarize(tmp_path)
     assert summary["counts"] == {"step": {"asked": 3, "cut": 1, "abstained": 1},
-                                 "router": {"asked": 1, "cut": 0, "abstained": 1},
+                                 "router": {"asked": 2, "cut": 1, "abstained": 1},
                                  "trim": {"asked": 1, "cut": 1, "abstained": 0}}
     assert [(a["kind"], a["tokens_least"]) for a in summary["abstentions"]] == [("step", 11268), ("router", 11268)]
-    assert summary["thinking_limit"] == {"limit": [8000], "requests": 3, "cut": 2,
+    assert summary["thinking_limit"] == {"limit": [8000], "requests": 4, "cut": 2,
                                          "continuation": {"tool_call": 1, "no_tool_call": 1}}
     main([str(tmp_path)])
     printed = capsys.readouterr().out
     assert "step: 3 questions, 1 cut to fit, 1 abstained" in printed
-    assert "Thinking limit [8000]: 2 of 3 Qwen requests cut and continued" in printed
+    assert "Thinking limit [8000]: 2 of 4 Qwen requests cut and continued" in printed
     assert json.loads((tmp_path / "jeff-decisions-summary.json").read_text())["counts"] == summary["counts"]
 
 

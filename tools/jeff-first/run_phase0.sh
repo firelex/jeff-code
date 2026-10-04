@@ -30,10 +30,13 @@
 #                probability from 0 to 1 Jeff's best option needs or the scout hands over, and JEFF_FIRST_RUN_APPROVAL
 #                and JEFF_FIRST_DRIVER_BUILD as in teacher mode); teacher, record and jeff also need
 #                JEFF_FIRST_THINKING_ROUTER, how hard Qwen thinks in each request: fixed:off, fixed:low, fixed:medium,
-#                fixed:xhigh, or jeff:<router adapter> (Jeff's router adapter chooses per request; needs
+#                fixed:xhigh, jeff:<router adapter> (Jeff's router adapter chooses per request; needs
 #                JEFF_FIRST_JEFF_URL and JEFF_FIRST_JEFF_ROUTER_THRESHOLD, the probability from 0 to 1 a level below
-#                xhigh needs) (it overrides THINKING per request; THINKING must not be off unless the router is
-#                fixed:off, since pi then marks the model as unable to think); and JEFF_FIRST_OUTPUT_TRIM, how much of
+#                xhigh needs), or jeff-off-unless:<router adapter>:<threshold> (off unless the adapter's probability
+#                for xhigh is at least the threshold, then xhigh; needs JEFF_FIRST_JEFF_URL and no
+#                JEFF_FIRST_JEFF_ROUTER_THRESHOLD) (it overrides THINKING per request; THINKING must not be off unless
+#                the router is fixed:off, since pi then marks the model as unable to think); and
+#                JEFF_FIRST_OUTPUT_TRIM, how much of
 #                each new output over 40 lines Qwen sees: off, fixed:all, fixed:last200, fixed:last40, fixed:first40,
 #                fixed:first20last20, or jeff:<trimming adapter> (needs JEFF_FIRST_JEFF_URL and
 #                JEFF_FIRST_JEFF_TRIM_THRESHOLD, the probability from 0 to 1 a cut needs); and
@@ -84,7 +87,12 @@ check_router() {
       [ -n "${JEFF_FIRST_JEFF_URL:-}" ] || { echo "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER needs JEFF_FIRST_JEFF_URL (the Jeff service as containers reach it)" >&2; exit 2; }
       check_threshold JEFF_FIRST_JEFF_ROUTER_THRESHOLD "${JEFF_FIRST_JEFF_ROUTER_THRESHOLD:-}"
       ;;
-    *) echo "MODE $mode needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium, fixed:xhigh or jeff:<router adapter>" >&2; exit 2 ;;
+    jeff-off-unless:?*:*)
+      [ -n "${JEFF_FIRST_JEFF_URL:-}" ] || { echo "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER needs JEFF_FIRST_JEFF_URL (the Jeff service as containers reach it)" >&2; exit 2; }
+      check_threshold "the threshold in JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER" "${JEFF_FIRST_THINKING_ROUTER##*:}"
+      [ -z "${JEFF_FIRST_JEFF_ROUTER_THRESHOLD:-}" ] || { echo "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER holds its own threshold; JEFF_FIRST_JEFF_ROUTER_THRESHOLD must not be set with it" >&2; exit 2; }
+      ;;
+    *) echo "MODE $mode needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium, fixed:xhigh, jeff:<router adapter> or jeff-off-unless:<router adapter>:<threshold>" >&2; exit 2 ;;
   esac
 }
 # How much of a long new output Qwen sees (teacher, record and jeff modes).
@@ -234,11 +242,16 @@ run_one() {
     [ "$mode" = jeff ] || command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
     command+=(--ae "JEFF_FIRST_JEFF_ROUTER_THRESHOLD=$JEFF_FIRST_JEFF_ROUTER_THRESHOLD")
   fi
+  # The flipped Jeff router holds its threshold in its value; it needs only the service.
+  if [[ "$mode" != shadow && "$mode" != jeff && "$JEFF_FIRST_THINKING_ROUTER" == jeff-off-unless:* ]]; then
+    command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
+  fi
   if [ "$mode" != shadow ]; then
     command+=(--ae "JEFF_FIRST_OUTPUT_TRIM=$JEFF_FIRST_OUTPUT_TRIM" --ae "JEFF_FIRST_THINKING_LIMIT=$JEFF_FIRST_THINKING_LIMIT")
     # Jeff trimming needs the service (unless jeff mode or a Jeff router already passes it) and its threshold.
     if [[ "$JEFF_FIRST_OUTPUT_TRIM" == jeff:* ]]; then
-      [ "$mode" = jeff ] || [[ "$JEFF_FIRST_THINKING_ROUTER" == jeff:* ]] || command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
+      [ "$mode" = jeff ] || [[ "$JEFF_FIRST_THINKING_ROUTER" == jeff:* || "$JEFF_FIRST_THINKING_ROUTER" == jeff-off-unless:* ]] \
+        || command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
       command+=(--ae "JEFF_FIRST_JEFF_TRIM_THRESHOLD=$JEFF_FIRST_JEFF_TRIM_THRESHOLD")
     fi
   fi

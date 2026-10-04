@@ -165,6 +165,37 @@ def test_jeff_mode_stops_without_a_required_setting(tmp_path, missing, message):
     assert result.stdout == ""
 
 
+def test_jeff_mode_with_the_flipped_router_forwards_it_without_a_separate_threshold(tmp_path):
+    env = {**JEFF_ENV, "JEFF_FIRST_THINKING_ROUTER": "jeff-off-unless:jeff-router:0.6", "JEFF_FIRST_JEFF_ROUTER_THRESHOLD": ""}
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], env, mode="jeff")
+    assert result.returncode == 0, result.stderr
+    assert "--ae JEFF_FIRST_THINKING_ROUTER=jeff-off-unless:jeff-router:0.6 " in result.stdout
+    assert result.stdout.count("JEFF_FIRST_JEFF_URL=") == 1
+    assert "JEFF_FIRST_JEFF_ROUTER_THRESHOLD" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("router", "threshold", "message"),
+    [
+        ("jeff-off-unless:jeff-router:1.5", "", "must be a number from 0 to 1"),
+        ("jeff-off-unless:jeff-router:", "", "must be a number from 0 to 1"),
+        ("jeff-off-unless:jeff-router", "", "needs JEFF_FIRST_THINKING_ROUTER"),
+        ("jeff-off-unless:jeff-router:0.6", "0.4", "holds its own threshold"),
+    ],
+)
+def test_the_flipped_router_is_checked(tmp_path, router, threshold, message):
+    env = {**JEFF_ENV, "JEFF_FIRST_THINKING_ROUTER": router, "JEFF_FIRST_JEFF_ROUTER_THRESHOLD": threshold}
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], env, mode="jeff")
+    assert result.returncode == 2 and message in result.stderr, result.stderr
+
+
+def test_the_flipped_router_in_record_mode_passes_the_service(tmp_path):
+    env = {"JEFF_FIRST_THINKING_ROUTER": "jeff-off-unless:r:0.7", "JEFF_FIRST_JEFF_URL": "http://192.168.2.10:8920"}
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], env)
+    assert result.returncode == 0, result.stderr
+    assert "--ae JEFF_FIRST_JEFF_URL=http://192.168.2.10:8920 " in result.stdout
+
+
 def test_the_jeff_router_in_record_mode_needs_the_service(tmp_path):
     env = {"JEFF_FIRST_THINKING_ROUTER": "jeff:jeff-router", "JEFF_FIRST_JEFF_ROUTER_THRESHOLD": "0.4"}
     result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], env)

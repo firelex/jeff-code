@@ -5,7 +5,8 @@ fit its 8,192-token limit, and how many it abstained on because they could not b
 It reads every trace (<run folder>/**/agent/jeff-first-trace.jsonl, as run_phase0.sh places them):
 - step: each question ("levels" entry) of a "decision" line whose chooser is Jeff (jeff:<adapter>); fields jeff_cut and
   jeff_abstained;
-- router: each attempt-1 "qwen_request" line whose router is Jeff; fields router_cut and router_abstained;
+- router: each attempt-1 "qwen_request" line whose router is Jeff (jeff:<adapter> or jeff-off-unless:<adapter>:<threshold>);
+  fields router_cut and router_abstained;
 - trim: each "output_trim" line whose trimmer is Jeff; fields jeff_cut and jeff_abstained.
 Also the thinking limit: every "qwen_request" line (any attempt) says the limit (thinking_limit) and, when the reply's
 thinking reached it, limit_cut; the summary counts the requests, the cuts, and the cuts by how the continuation
@@ -54,7 +55,7 @@ def summarize(folder: Path) -> dict:
                     thinking["cut"] += 1
                     outcome = line["limit_cut"]["continuation"]["outcome"]
                     thinking["continuation"][outcome] = thinking["continuation"].get(outcome, 0) + 1
-                if line["router"].startswith("jeff:") and line["attempt"] == 1:
+                if line["router"].startswith(("jeff:", "jeff-off-unless:")) and line["attempt"] == 1:
                     count("router", line["router_cut"], line["router_abstained"], where)
             elif line["kind"] == "output_trim":
                 if line["trimmer"].startswith("jeff:"):
