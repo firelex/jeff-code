@@ -105,6 +105,14 @@ class JeffPi(Pi):
         return models_json
 
     @override
+    def build_cli_flags(self) -> str:
+        # Harbor puts the task instruction right after these flags. An instruction that starts with "-" (e.g. TB2
+        # pytorch-model-recovery: "- You are given ...") was read by pi as an unknown option and the session never
+        # started; "--" ends pi's options, so the instruction is always the message.
+        flags = super().build_cli_flags()
+        return f"{flags} --" if flags else "--"
+
+    @override
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         if self.options.allowed_hosts is None:
             await super().run(instruction, environment, context)

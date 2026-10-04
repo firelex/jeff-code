@@ -134,6 +134,12 @@ def test_leaves_pi_default_tools_when_no_list_is_given(tmp_path):
     assert "--tools" not in agent.build_cli_flags()
 
 
+def test_ends_pi_options_before_the_instruction(tmp_path):
+    # An instruction starting with "-" (TB2 pytorch-model-recovery) was read by pi as an unknown option.
+    assert make_agent(tmp_path, tarball="x.tgz", tools="bash").build_cli_flags().endswith(" --")
+    assert make_agent(tmp_path, tarball="x.tgz").build_cli_flags().endswith("--")
+
+
 SAMPLE = {"providers": {"harbor-endpoint": {"baseUrl": "http://x/v1", "apiKey": "$K", "api": "openai-completions", "models": [{"id": "qwen3.8-27b"}]}}}
 
 
