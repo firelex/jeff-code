@@ -1,6 +1,6 @@
 import json
 
-from imitation.pi_replay_stats import stats_markdown, summarize
+from imitation.pi_replay_stats import merged, stats_markdown, summarize
 
 
 def write(folder, name, records):
@@ -66,7 +66,7 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
             {**command, "session": "b", "command": "pwd", "information": True, "recorded_output": "/", "replay_output": "/x", "mismatch": True},
         ],
     )
-    summary = summarize(tmp_path)
+    summary = summarize(merged([tmp_path]))
     assert summary["trials_failed"] == 1 and summary["sessions"] == 2 and summary["sessions_excluded"] == ["b"]
     assert summary["rows"] == 3 and summary["decisions"] == 2 and summary["stint_decisions"] == 1 and summary["stint_rows"] == 1
     assert summary["hand_over_share"] == 0.5
@@ -84,3 +84,22 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
     }
     markdown = stats_markdown(summary)
     assert "| list | 1 | 50.0% |" in markdown and "Read the file /app/x" in markdown
+
+
+def test_a_later_run_replaces_an_earlier_runs_trials(tmp_path):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    write(first, "sessions", [session("a", True, 5, 5), session("c", False, 4, 0)])
+    write(first, "rows", [tool_row("c", 0, "hand_over")])
+    write(second, "sessions", [session("a", False, 10, 0)])
+    write(second, "rows", [tool_row("a", 0, "list"), tool_row("a", 0, "list-1", "argument")])
+    for folder in (first, second):
+        write(folder, "decisions", [])
+        write(folder, "menu-checks", [])
+        write(folder, "commands", [])
+    data = merged([first, second])
+    assert sorted(record["session"] for record in data["sessions"]) == ["a", "c"]
+    assert [(row["session"], row["label"]) for row in data["rows"]] == [("c", "hand_over"), ("a", "list"), ("a", "list-1")]
+    summary = summarize(data)
+    assert summary["sessions_excluded"] == [] and summary["menus"]["equal"] == 14

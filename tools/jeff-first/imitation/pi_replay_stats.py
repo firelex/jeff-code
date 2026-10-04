@@ -6,7 +6,8 @@ fidelity numbers: before-turn menus built in the container that equal the logged
 that differ from pi's recorded ones.
 
 Usage (from tools/jeff-first):
-    uv run python -m imitation.pi_replay_stats OUT_DIR --summary summary.json --stats ../../results/imitation/stage3-stats.md
+    uv run python -m imitation.pi_replay_stats OUT_DIR [SECOND_PASS_DIR ...] --rows stage3-rows.jsonl --summary summary.json \
+        --stats ../../results/imitation/stage3-stats.md
 """
 
 import argparse
@@ -47,20 +48,40 @@ def _outputs(commands: list[dict]) -> dict:
     }
 
 
-def summarize(folder: Path) -> dict:
-    records = _lines(folder, "sessions")
+FILES = ("sessions", "rows", "decisions", "commands", "menu-checks")
+
+
+def merged(folders: list[Path]) -> dict[str, list[dict]]:
+    """The records of one or more replay runs: a trial replayed again in a later run (a second pass) takes that run's
+    records, whatever the earlier run had for it."""
+    chosen: dict[str, tuple[int, list[dict]]] = {}
+    for number, folder in enumerate(folders):
+        by_trial: dict[str, list[dict]] = {}
+        for record in _lines(folder, "sessions"):
+            by_trial.setdefault(record["trial"], []).append(record)
+        for trial, records in by_trial.items():
+            chosen[trial] = (number, records)
+    keep = {(number, record["session"]) for number, records in chosen.values() for record in records if "failed" not in record}
+    data: dict[str, list[dict]] = {"sessions": [record for _, records in chosen.values() for record in records]}
+    for name in FILES[1:]:
+        data[name] = [line for number, folder in enumerate(folders) for line in _lines(folder, name) if (number, line["session"]) in keep]
+    return data
+
+
+def summarize(data: dict[str, list[dict]]) -> dict:
+    records = data["sessions"]
     failed = [record for record in records if "failed" in record]
     sessions = [record for record in records if "failed" not in record]
     excluded = {record["session"] for record in sessions if record["excluded"]}
     kept = [record for record in sessions if not record["excluded"]]
-    rows = _lines(folder, "rows")
+    rows = data["rows"]
     if {row["session"] for row in rows} & excluded:
         raise ValueError("the rows file holds rows of an excluded session")
-    stints = {(d["session"], d["decision"]) for d in _lines(folder, "decisions") if d["stint"] and d["session"] not in excluded}
+    stints = {(d["session"], d["decision"]) for d in data["decisions"] if d["stint"] and d["session"] not in excluded}
     tool_rows = [row for row in rows if row["level"] == "tool" and row["label"] != "show_more"]
     labels = Counter(row["label"] for row in tool_rows)
     stint_labels = Counter(row["label"] for row in tool_rows if (row["session"], row["decision"]) in stints)
-    checks = _lines(folder, "menu-checks")
+    checks = data["menu-checks"]
     differing = [check for check in checks if not check["equal"]]
     kinds: Counter = Counter()
     for check in differing:
@@ -86,7 +107,7 @@ def summarize(folder: Path) -> dict:
         },
         "menu_difference_kinds": dict(kinds.most_common()),
         "menu_difference_examples": differing[:DIFFERENCE_EXAMPLES],
-        "outputs": _outputs(_lines(folder, "commands")),
+        "outputs": _outputs(data["commands"]),
         "rows_by_machine": dict(Counter(row["machine"] for row in rows).most_common()),
         "sessions_by_task": dict(sorted(Counter(record["task"] for record in kept).items())),
     }
@@ -165,11 +186,16 @@ def stats_markdown(summary: dict) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("folder", type=Path, help="pi_replay.py output folder")
+    parser.add_argument("folders", type=Path, nargs="+", help="pi_replay.py output folders; a later one replaces an earlier one's trials")
+    parser.add_argument("--rows", type=Path, required=True, help="Output: the rows of the sessions kept, one JSON object per line")
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--stats", type=Path, required=True)
     args = parser.parse_args(argv)
-    summary = summarize(args.folder)
+    data = merged(args.folders)
+    summary = summarize(data)
+    with open(args.rows, "x") as out:
+        for row in data["rows"]:
+            out.write(json.dumps(row) + "\n")
     args.summary.write_text(json.dumps(summary, indent=1) + "\n")
     args.stats.write_text(stats_markdown(summary))
     print(json.dumps({key: value for key, value in summary.items() if key not in ("menu_difference_examples", "failures")}, indent=1))
