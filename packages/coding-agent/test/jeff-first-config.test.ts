@@ -50,6 +50,7 @@ describe("readJeffFirstConfig", () => {
 				JEFF_FIRST_TEACHER_MODEL: "scissero-glm-5.3",
 				JEFF_FIRST_RUN_APPROVAL: "all",
 				JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
+				JEFF_FIRST_THINKING_ROUTER: "fixed:medium",
 			}),
 		).toEqual({
 			mode: "teacher",
@@ -59,6 +60,7 @@ describe("readJeffFirstConfig", () => {
 			teacherModel: "scissero-glm-5.3",
 			runApproval: "all",
 			driverBuild: "qwen3.8-27b-nvfp4@spark-head",
+			thinkingRouter: { kind: "fixed", level: "medium" },
 		});
 	});
 
@@ -95,6 +97,7 @@ describe("readJeffFirstConfig", () => {
 		JEFF_FIRST_TEACHER_URL: "http://t",
 		JEFF_FIRST_TEACHER_MODEL: "m",
 		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
+		JEFF_FIRST_THINKING_ROUTER: "fixed:xhigh",
 	};
 
 	it("rejects teacher mode without a run-approval setting, naming the three values", () => {
@@ -118,6 +121,7 @@ describe("readJeffFirstConfig", () => {
 		JEFF_FIRST_TASK_ID: "fix-git",
 		JEFF_FIRST_RUN_APPROVAL: "all",
 		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
+		JEFF_FIRST_THINKING_ROUTER: "fixed:off",
 	};
 
 	it("reads a full record config", () => {
@@ -127,7 +131,46 @@ describe("readJeffFirstConfig", () => {
 			taskId: "fix-git",
 			runApproval: "all",
 			driverBuild: "qwen3.8-27b-nvfp4@spark-head",
+			thinkingRouter: { kind: "fixed", level: "off" },
 		});
+	});
+
+	it("reads each fixed thinking level", () => {
+		for (const level of ["off", "low", "medium", "xhigh"]) {
+			expect(readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_THINKING_ROUTER: `fixed:${level}` })).toMatchObject({
+				thinkingRouter: { kind: "fixed", level },
+			});
+		}
+	});
+
+	it("rejects record and teacher mode without a thinking router", () => {
+		const { JEFF_FIRST_THINKING_ROUTER: _, ...record } = recordEnv;
+		expect(() => readJeffFirstConfig(record)).toThrow(/JEFF_FIRST_THINKING_ROUTER.*fixed:off/);
+		const { JEFF_FIRST_THINKING_ROUTER: __, ...teacher } = teacherEnv;
+		expect(() => readJeffFirstConfig({ ...teacher, JEFF_FIRST_RUN_APPROVAL: "all" })).toThrow(
+			/JEFF_FIRST_THINKING_ROUTER/,
+		);
+	});
+
+	it("rejects a malformed thinking router", () => {
+		for (const value of ["medium", "fixed:", "fixed:high", "fixed:medium:x", "Fixed:low", "jeff"]) {
+			expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_THINKING_ROUTER: value })).toThrow(
+				new RegExp(
+					`JEFF_FIRST_THINKING_ROUTER must be fixed:off, fixed:low, fixed:medium or fixed:xhigh, got "${value}"`,
+				),
+			);
+		}
+	});
+
+	it("leaves shadow mode without a thinking router", () => {
+		expect(
+			readJeffFirstConfig({
+				JEFF_FIRST_MODE: "shadow",
+				JEFF_FIRST_TRACE_FILE: "/tmp/t.jsonl",
+				JEFF_FIRST_TASK_ID: "fix-git",
+				JEFF_FIRST_THINKING_ROUTER: "fixed:off",
+			}),
+		).toEqual({ mode: "shadow", traceFile: "/tmp/t.jsonl", taskId: "fix-git" });
 	});
 
 	it("rejects record mode without a run-approval setting", () => {

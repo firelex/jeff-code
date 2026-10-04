@@ -7,6 +7,7 @@ import type { ArgumentOption, ToolKind, ToolOption } from "./lists.ts";
 import type { MenuMatch, MenuOption, MenuToolCall } from "./menu.ts";
 import type { JeffState } from "./state.ts";
 import type { ShownOption } from "./teacher-prompt.ts";
+import type { QwenThinkingLevel } from "./thinking.ts";
 
 /** One line per large-model turn in phase 0 (shadow mode). Field names are snake_case for the Python tools that read the traces. */
 export interface ShadowRecord {
@@ -162,7 +163,60 @@ export class TraceWriter {
 		this.path = path;
 	}
 
-	append(record: TraceRecord): void {
+	append(record: TraceRecord | QwenRequestRecord): void {
 		appendFileSync(this.path, `${JSON.stringify(record)}\n`);
 	}
+}
+
+/** Why the thinking control discarded a reply and asked again (see loop-guard.ts and runaway.ts). */
+export type GuardTrigger =
+	| {
+			trigger: "loop";
+			/** The tool calls the reply repeated. */
+			repeated_action: Array<{ name: string; arguments: JsonObject }>;
+			/** 1 when the reply repeated Qwen's latest action, 2 for the one before. */
+			turns_back: number;
+	  }
+	| {
+			trigger: "runaway";
+			/** Which part of the reply ran away; the generation was stopped there. */
+			where: "thinking" | "text";
+			rule: "repeated_piece" | "repeated_line";
+			/** The piece or line that repeated, and how often. */
+			repeated: string;
+			count: number;
+	  };
+
+/**
+ * Schema "jeff-first-trace/6" adds this line kind; the other kinds keep their schema. One line per request to the
+ * coding model (Qwen) in teacher and record modes, written before that turn's model_turn or record line: the thinking
+ * level the router (or the guard) chose, what pi sent for it, and what came back. A turn has a second request
+ * (attempt 2, always at "xhigh") only when the first reply was discarded: it repeated a recent action at thinking
+ * "off" or "low" (guard.trigger "loop"), or it ran away (guard.trigger "runaway"). A discarded reply never enters the
+ * session. A guard on a kept attempt-1 line means the user aborted the request while the guard fired.
+ */
+export interface QwenRequestRecord {
+	schema: "jeff-first-trace/6";
+	kind: "qwen_request";
+	task_id: string;
+	session_id: string;
+	/** Counts the session's Qwen turns from 1, as the model_turn and record lines do. */
+	turn: number;
+	attempt: 1 | 2;
+	driver: string;
+	/** The router's name, for example "fixed:medium". */
+	router: string;
+	thinking_level: QwenThinkingLevel;
+	/** chat_template_kwargs as sent (format qwen-chat-template); null where the request had no such field. */
+	sent: { enable_thinking: boolean | null; reasoning_effort: string | null };
+	/** "kept": the reply went to the session; "discarded": asked again; "turn_ended": the re-ask ran away too. */
+	outcome: "kept" | "discarded" | "turn_ended";
+	guard: GuardTrigger | null;
+	stop_reason: StopReason;
+	error_message: string | null;
+	/** Characters of thinking in the reply (up to the stop, for a runaway). */
+	thinking_chars: number;
+	/** thinking_tokens is null when the server reported no separate reasoning count; output includes them. */
+	usage: { input: number; output: number; thinking_tokens: number | null; cache_read: number; cache_write: number };
+	timings_ms: { model: number };
 }

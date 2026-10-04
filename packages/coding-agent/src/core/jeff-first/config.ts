@@ -1,3 +1,5 @@
+import { readThinkingRouterSpec, type ThinkingRouterSpec } from "./thinking.ts";
+
 /**
  * JeffFirst settings, read from the environment so the benchmark harness can set them per task.
  * Unset JEFF_FIRST_MODE means plain pi.
@@ -16,6 +18,7 @@ export type JeffFirstConfig =
 			teacherModel: string;
 			runApproval: RunApproval;
 			driverBuild: string;
+			thinkingRouter: ThinkingRouterSpec;
 	  }
 	| {
 			mode: "record";
@@ -23,6 +26,7 @@ export type JeffFirstConfig =
 			taskId: string;
 			runApproval: RunApproval;
 			driverBuild: string;
+			thinkingRouter: ThinkingRouterSpec;
 	  };
 
 function required(env: NodeJS.ProcessEnv, mode: string, name: string, meaning: string): string {
@@ -67,7 +71,7 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 			"JEFF_FIRST_DRIVER_BUILD",
 			"the exact build of the large model, for example qwen3.8-27b-nvfp4@spark-head",
 		);
-		return { mode, traceFile, taskId, runApproval, driverBuild };
+		return { mode, traceFile, taskId, runApproval, driverBuild, thinkingRouter: readThinkingRouterSpec(env, mode) };
 	}
 	const teacherUrl = required(
 		env,
@@ -88,5 +92,14 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 		"JEFF_FIRST_DRIVER_BUILD",
 		"the exact build of the large model, for example qwen3.8-27b-nvfp4@spark-head",
 	);
-	return { mode, traceFile, taskId, teacherUrl, teacherModel, runApproval, driverBuild };
+	return {
+		mode,
+		traceFile,
+		taskId,
+		teacherUrl,
+		teacherModel,
+		runApproval,
+		driverBuild,
+		thinkingRouter: readThinkingRouterSpec(env, mode),
+	};
 }

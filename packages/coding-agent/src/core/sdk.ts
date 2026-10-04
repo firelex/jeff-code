@@ -20,6 +20,8 @@ import { readJeffFirstConfig } from "./jeff-first/config.ts";
 import { createRecorder, type Recorder } from "./jeff-first/record.ts";
 import { createScoutStreamFn } from "./jeff-first/scout.ts";
 import { createShadowStreamFn } from "./jeff-first/stream.ts";
+import { createThinkingRouter, type ThinkingRouterSpec } from "./jeff-first/thinking.ts";
+import { createThinkingControlStreamFn } from "./jeff-first/thinking-control.ts";
 import { TraceWriter } from "./jeff-first/trace.ts";
 import { convertToLlm } from "./messages.ts";
 import { findInitialModel } from "./model-resolver.ts";
@@ -412,6 +414,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// JeffFirst fork: shadow mode logs the menu at every model turn; record mode logs the scout's full option lists
 	// at every model turn without acting on them; teacher mode lets the teacher model scout first.
 	const isSessionTurn = (sessionId: string | undefined) => sessionId === sessionManager.getSessionId();
+	// Teacher and record modes: the thinking router sets each Qwen request's thinking level, with the loop guard and
+	// the runaway cut-off around it.
+	const thinkingControlled = (config: { taskId: string; traceFile: string; thinkingRouter: ThinkingRouterSpec }) =>
+		createThinkingControlStreamFn({
+			inner: sessionStreamFn,
+			taskId: config.taskId,
+			trace: new TraceWriter(config.traceFile),
+			router: createThinkingRouter(config.thinkingRouter),
+			isSessionTurn,
+		});
 	let recorder: Recorder | undefined;
 	let streamFn: StreamFn;
 	if (jeffFirst.mode === "off") {
@@ -426,7 +438,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		});
 	} else if (jeffFirst.mode === "record") {
 		recorder = createRecorder({
-			inner: sessionStreamFn,
+			inner: thinkingControlled(jeffFirst),
 			cwd,
 			taskId: jeffFirst.taskId,
 			trace: new TraceWriter(jeffFirst.traceFile),
@@ -437,7 +449,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		streamFn = recorder.streamFn;
 	} else {
 		streamFn = createScoutStreamFn({
-			inner: sessionStreamFn,
+			inner: thinkingControlled(jeffFirst),
 			cwd,
 			taskId: jeffFirst.taskId,
 			trace: new TraceWriter(jeffFirst.traceFile),

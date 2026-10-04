@@ -132,13 +132,31 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
 		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
+		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
 		const { session } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
 		session.dispose();
-		const lines = readFileSync(join(traceDir, "trace.jsonl"), "utf8")
+		const all = readFileSync(join(traceDir, "trace.jsonl"), "utf8")
 			.trimEnd()
 			.split("\n")
 			.map((l) => JSON.parse(l));
+		// The thinking control logs each Qwen request before the turn's record line.
+		expect(all.map((l) => `${l.kind}:${l.turn}`)).toEqual([
+			"qwen_request:1",
+			"record:1",
+			"qwen_request:2",
+			"record:2",
+		]);
+		expect(all[0]).toMatchObject({
+			schema: "jeff-first-trace/6",
+			router: "fixed:off",
+			thinking_level: "off",
+			attempt: 1,
+			outcome: "kept",
+		});
+		const answers = session.messages.filter((message) => message.role === "assistant");
+		expect(answers.map((message) => message.thinkingLevel)).toEqual(["off", "off"]);
+		const lines = all.filter((l) => l.kind !== "qwen_request");
 		expect(lines.map((l) => l.turn)).toEqual([1, 2]);
 		expect(lines[0]).toMatchObject({
 			schema: "jeff-first-trace/5",
@@ -157,6 +175,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
 		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
+		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
 		const { session } = await startSession([
 			{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "printf 'see notes.md' > notes.md && ls" } },
 			{ type: "toolCall", id: "b2", name: "bash", arguments: { command: "cat notes.md" } },
@@ -166,7 +185,8 @@ describe("JeffFirst through createAgentSession", () => {
 		const lines = readFileSync(join(traceDir, "trace.jsonl"), "utf8")
 			.trimEnd()
 			.split("\n")
-			.map((l) => JSON.parse(l));
+			.map((l) => JSON.parse(l))
+			.filter((l) => l.kind !== "qwen_request");
 		expect(lines.map((l) => `${l.kind}:${l.turn}:${l.step ?? "-"}`)).toEqual([
 			"record:1:-",
 			"record_step:1:1",
@@ -198,6 +218,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_TEACHER_MODEL", "glm-test");
 		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
+		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
 		const { session, provider } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
 		session.dispose();
@@ -206,11 +227,13 @@ describe("JeffFirst through createAgentSession", () => {
 			.trimEnd()
 			.split("\n")
 			.map((l) => JSON.parse(l));
-		expect(lines.map((l) => `${l.kind}:${l.action.kind ?? l.action.stop_reason}`)).toEqual([
+		expect(lines.map((l) => `${l.kind}:${l.action?.kind ?? l.action?.stop_reason ?? l.thinking_level}`)).toEqual([
 			"decision:step",
 			"decision:hand_over",
+			"qwen_request:off",
 			"model_turn:toolUse",
 			"decision:hand_over",
+			"qwen_request:off",
 			"model_turn:stop",
 		]);
 		expect(lines[0].schema).toBe("jeff-first-trace/3");
