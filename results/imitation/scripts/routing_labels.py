@@ -69,6 +69,8 @@ SKIP_REASONS = {"length": "reply hit the output cap (length)", "error": "the req
                 "aborted": "the request was aborted"}
 JUDGE_CHECK_RATE = 0.05  # share of judge calls whose full prompt is stored (for the hand check)
 CALIBRATION_SEED = "routing-calibration-20261004"
+# Qwen (NVFP4) sometimes calls a tool that does not exist; ceiling.py's turn classifier raises on such a session.
+OTHER_TOOL = "a reply calls a tool other than bash (the trial is left out: ceiling.py cannot classify it)"
 
 # ------------------------------------------------------------------------------------------------ judge prompt
 
@@ -297,6 +299,10 @@ def recorded_turns(trial):
         lines = lines[:-1]  # the trace line of a reply the stopped session never saved
     if len(lines) != len(assistants):
         raise ValueError(f"{trial}: {len(assistants)} assistant replies but {len(lines)} qwen_request lines")
+    calls = [part for e in entries if e["type"] == "message" and e["message"]["role"] == "assistant"
+             for part in e["message"]["content"] if part["type"] == "toolCall"]
+    if any(call["name"] != "bash" for call in calls):
+        return [], {OTHER_TOOL: len(assistants)}
     turns = []
     skipped = collections.Counter()
     for line, entry in zip(lines, assistants):
@@ -311,8 +317,6 @@ def recorded_turns(trial):
             skipped[SKIP_REASONS.get(message["stopReason"], message["stopReason"])] += 1
             continue
         calls = [part for part in message["content"] if part["type"] == "toolCall"]
-        if any(call["name"] != "bash" for call in calls):
-            raise ValueError(f"{trial}: turn {line['turn']} calls a tool other than bash")
         commands = [c["arguments"]["command"] if isinstance(c["arguments"].get("command"), str)
                     else json.dumps(c["arguments"]) for c in calls]
         text = "".join(part["text"] for part in message["content"] if part["type"] == "text")
@@ -547,7 +551,8 @@ class TurnAsker:
         what = f"{self.turn['id']} judge {key}"
         reply = await self.labeller.judge_client.ask(messages, what)
         verdict, reason = parse_verdict(reply["content"])
-        result = {"key": key, "model": reply["model"], "backend": reply["backend"], "verdict": verdict,
+        # The judge service always asks with thinking off and temperature 0.
+        result = {"key": key, "model": f"{reply['model']} ({reply['backend']}, thinking off)", "verdict": verdict,
                   "reason": reason, "prompt_tokens": reply["usage"].get("prompt_tokens"),
                   "completion_tokens": reply["usage"].get("completion_tokens"), "finish_reason": reply["finish_reason"],
                   "seconds": reply["seconds"], "reply": reply["content"]}
@@ -595,7 +600,7 @@ class Labeller:
     def __init__(self, options):
         self.options = options
         self.family = options.family
-        self.sources = dict(item.split("=", 1) for item in options.source)
+        self.sources = [tuple(item.split("=", 1)) for item in options.source]  # (host name, collection folder)
         self.out_dir = Path(options.out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.servers = [Server(url, options.machine, options.per_server, options.max_waiting)
@@ -615,7 +620,7 @@ class Labeller:
         self.limit = options.max_turns
 
     def load_done(self):
-        for name in self.sources:
+        for name in dict(self.sources):
             path = self.out_dir / f"routing-labels-{name}.jsonl"
             if path.exists():
                 for line in path.read_text().splitlines():
@@ -632,7 +637,7 @@ class Labeller:
 
     def discover(self):
         added = 0
-        for source, root in self.sources.items():
+        for source, root in self.sources:
             for trial in finished_trials(Path(root)):
                 key = str(trial)
                 if key in self.done_trials or key in self.trial_info:
@@ -955,7 +960,8 @@ async def rejudge(pairs, client):
         for pair in pairs:
             reply = await client.ask(pair["messages"], pair["pair"])
             verdict, reason = parse_verdict(reply["content"])
-            out.append({**pair, "model": reply["model"], "verdict": "YES" if verdict else "NO", "reason": reason})
+            out.append({**pair, "model": f"{reply['model']} ({reply['backend']}, thinking off)",
+                        "verdict": "YES" if verdict else "NO", "reason": reason})
         return out
 
 
@@ -963,7 +969,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="step", required=True)
     r = sub.add_parser("run")
-    r.add_argument("--source", action="append", required=True, help="NAME=COLLECTION_DIR (repeatable)")
+    r.add_argument("--source", action="append", required=True,
+                   help="HOST=COLLECTION_DIR (repeatable; one output file per HOST, several folders may share a HOST)")
     r.add_argument("--family", required=True, choices=["fp8", "nvfp4"], help="model format of the sessions and servers")
     r.add_argument("--servers", required=True, help="comma-separated chat-completions URLs of that format")
     r.add_argument("--machine", required=True, help="replay machine tag of --servers, e.g. casdgx01-h100")

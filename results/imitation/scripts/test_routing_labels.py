@@ -256,6 +256,20 @@ def test_recorded_turns_use_the_kept_attempt(tmp_path):
     assert len(turns) == 1 and turns[0]["turn"] == 1
 
 
+def test_a_trial_with_a_call_to_another_tool_is_left_out(tmp_path):
+    # Qwen on NVFP4 sometimes names a tool that does not exist (seen: "bbyte"); pi answers with an error. ceiling.py's
+    # turn classifier raises on such a session, so the whole trial is left out (counted).
+    trial = _trial(tmp_path, [("toolUse", ["ls"], 100), ("toolUse", ["pwd"], 200)],
+                   [_line(1, "toolUse", 100), _line(2, "toolUse", 200)])
+    session = next((trial / "agent" / "pi" / "sessions").glob("*.jsonl"))
+    entries = [json.loads(line) for line in session.read_text().splitlines()]
+    entries[-1]["message"]["content"][1]["name"] = "bbyte"
+    session.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    turns, skipped = rl.recorded_turns(trial)
+    assert turns == []
+    assert skipped == {rl.OTHER_TOOL: 2}
+
+
 def test_recorded_turns_mismatch_raises(tmp_path):
     trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 999)])
     with pytest.raises(ValueError):
