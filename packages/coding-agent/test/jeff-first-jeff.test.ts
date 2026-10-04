@@ -5,7 +5,7 @@ import { JeffChooser } from "../src/core/jeff-first/chooser.ts";
 import { JeffService, type JeffServicePolicy } from "../src/core/jeff-first/jeff-service.ts";
 import type { ArgumentOption, Lists, ToolKind, ToolOption } from "../src/core/jeff-first/lists.ts";
 import { argumentPage, toolPage } from "../src/core/jeff-first/pages.ts";
-import { ROUTER_OPTIONS, ROUTER_OPTIONS_OFF_XHIGH, ROUTER_QUESTION } from "../src/core/jeff-first/router-question.ts";
+import { ROUTER_OPTIONS, ROUTER_QUESTION } from "../src/core/jeff-first/router-question.ts";
 import type { JeffState } from "../src/core/jeff-first/state.ts";
 import { renderState } from "../src/core/jeff-first/teacher-prompt.ts";
 import { jeffOffUnlessRouter, jeffRouter } from "../src/core/jeff-first/thinking.ts";
@@ -426,34 +426,36 @@ describe("jeffOffUnlessRouter (the flipped rule)", () => {
 		jeff = undefined;
 	});
 
-	it("asks the router question with the two options off and xhigh, and names itself with the adapter and threshold", async () => {
-		jeff = await startFakeJeff((sent) => answer(sent.model, { off: 0.3, xhigh: 0.7 }));
+	it("asks the four-option router question, reads P(xhigh) of all four, and names itself with the adapter and threshold", async () => {
+		jeff = await startFakeJeff((sent) => answer(sent.model, { off: 0.1, low: 0.1, medium: 0.1, xhigh: 0.7 }));
 		const router = jeffOffUnlessRouter(new JeffService(jeff.url, FAST), "jeff-router", 0.6);
 		expect(router.name).toBe("jeff-off-unless:jeff-router:0.6");
 		expect(await router.levelFor(state)).toEqual({
 			level: "xhigh",
-			probabilities: { off: 0.3, xhigh: 0.7 },
+			probabilities: { off: 0.1, low: 0.1, medium: 0.1, xhigh: 0.7 },
 			cut: null,
 			abstained: null,
 		});
-		expect(ROUTER_OPTIONS_OFF_XHIGH).toEqual({ off: ROUTER_OPTIONS.off, xhigh: ROUTER_OPTIONS.xhigh });
 		expect(jeff.requests).toEqual([
 			{
 				model: "jeff-router",
 				state: renderState(state),
-				questions: { q: { type: "choice", instructions: ROUTER_QUESTION, criteria: ROUTER_OPTIONS_OFF_XHIGH } },
+				questions: { q: { type: "choice", instructions: ROUTER_QUESTION, criteria: ROUTER_OPTIONS } },
 			},
 		]);
 	});
 
 	it.each([
-		// xhigh at or above the threshold: xhigh.
-		[{ off: 0.3, xhigh: 0.7 }, 0.7, "xhigh"],
-		[{ off: 0.3, xhigh: 0.7 }, 0.6, "xhigh"],
-		// Below the threshold: off, even when xhigh is the more likely level.
-		[{ off: 0.3, xhigh: 0.7 }, 0.71, "off"],
-		[{ off: 0.45, xhigh: 0.55 }, 0.6, "off"],
-		[{ off: 0.9, xhigh: 0.1 }, 0, "xhigh"],
+		// P(xhigh) of all four at or above the threshold: xhigh.
+		[{ off: 0.1, low: 0.1, medium: 0.1, xhigh: 0.7 }, 0.7, "xhigh"],
+		[{ off: 0.1, low: 0.1, medium: 0.1, xhigh: 0.7 }, 0.6, "xhigh"],
+		// Below: off, even when xhigh is the most likely level, and never low or medium. P(xhigh) is not renormalised
+		// over off and xhigh (0.5 / (0.3 + 0.5) = 0.625 would pass 0.6).
+		[{ off: 0.1, low: 0.1, medium: 0.1, xhigh: 0.7 }, 0.71, "off"],
+		[{ off: 0.3, low: 0.1, medium: 0.1, xhigh: 0.5 }, 0.6, "off"],
+		[{ off: 0.05, low: 0.05, medium: 0.8, xhigh: 0.1 }, 0.6, "off"],
+		[{ off: 0.05, low: 0.8, medium: 0.05, xhigh: 0.1 }, 0.6, "off"],
+		[{ off: 0.9, low: 0, medium: 0, xhigh: 0.1 }, 0, "xhigh"],
 	] as const)("with probabilities %j and threshold %s chooses %s", async (probabilities, threshold, level) => {
 		jeff = await startFakeJeff((sent) => answer(sent.model, probabilities));
 		const choice = await jeffOffUnlessRouter(new JeffService(jeff.url, FAST), "r", threshold).levelFor(state);
@@ -464,7 +466,7 @@ describe("jeffOffUnlessRouter (the flipped rule)", () => {
 	it("uses xhigh when Jeff abstains because the router question cannot fit", async () => {
 		const cannotFit = { tokens_before: 12000, tokens_least: 9000, limit: 8192 };
 		jeff = await startFakeJeff(
-			(sent) => answer(sent.model, { off: 1, xhigh: 0 }),
+			(sent) => answer(sent.model, { off: 1, low: 0, medium: 0, xhigh: 0 }),
 			() => ({ status: 200, body: JSON.stringify({ cannot_fit: { ...cannotFit, reason: "too long" } }) }),
 		);
 		const choice = await jeffOffUnlessRouter(new JeffService(jeff.url, FAST), "r", 0.6).levelFor(state);

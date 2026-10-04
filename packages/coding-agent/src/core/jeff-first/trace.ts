@@ -220,9 +220,8 @@ export interface QwenRequestRecord {
 	driver: string;
 	/** The router's name, for example "fixed:medium" or "jeff:jeff-router". */
 	router: string;
-	/** The trained router's probability per level asked on attempt 1 (four levels for jeff:, off and xhigh for
-	 * jeff-off-unless:); null for a fixed router and on attempt 2. */
-	router_probabilities: Partial<Record<QwenThinkingLevel, number>> | null;
+	/** The trained router's probability per level on attempt 1; null for a fixed router and on attempt 2. */
+	router_probabilities: Record<QwenThinkingLevel, number> | null;
 	/** How the trained router's question was cut to fit Jeff's token limit, on attempt 1; null when it fit, for a fixed
 	 * router and on attempt 2. */
 	router_cut: JeffCut | null;

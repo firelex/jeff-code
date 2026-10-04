@@ -1,5 +1,5 @@
 import { JEFF_SERVICE_POLICY, type JeffCannotFit, type JeffCut, JeffService } from "./jeff-service.ts";
-import { ROUTER_OPTIONS, ROUTER_OPTIONS_OFF_XHIGH, ROUTER_QUESTION } from "./router-question.ts";
+import { ROUTER_OPTIONS, ROUTER_QUESTION } from "./router-question.ts";
 import type { JeffState } from "./state.ts";
 import { renderState } from "./teacher-prompt.ts";
 
@@ -11,11 +11,10 @@ import { renderState } from "./teacher-prompt.ts";
 export type QwenThinkingLevel = "off" | "low" | "medium" | "xhigh";
 export const QWEN_THINKING_LEVELS: readonly QwenThinkingLevel[] = ["off", "low", "medium", "xhigh"];
 
-/** A router's answer: the level, and the probability of each level asked when the trained router chose it (all four
- * for the jeff: rule, off and xhigh for the jeff-off-unless: rule). */
+/** A router's answer: the level, and the probability of each level when the trained router chose it. */
 export interface RouterChoice {
 	level: QwenThinkingLevel;
-	probabilities: Partial<Record<QwenThinkingLevel, number>> | null;
+	probabilities: Record<QwenThinkingLevel, number> | null;
 	/** How the trained router's question was cut to fit Jeff's token limit; null when it fit, and for a fixed level. */
 	cut: JeffCut | null;
 	/** Set when the trained router abstained because its question cannot be cut to fit (the level is then xhigh). */
@@ -97,17 +96,18 @@ export function jeffRouter(service: JeffService, adapter: string, threshold: num
 }
 
 /**
- * The flipped rule: Jeff's router adapter is asked the router question with two options, off and xhigh
- * (ROUTER_OPTIONS_OFF_XHIGH, as its training rows ask it), and the request runs at "xhigh" when the adapter's
- * probability for "xhigh" is at least `threshold`, else at "off" ("low" and "medium" are not used). When Jeff
- * abstains (the question cannot be cut to fit), the request runs at "xhigh".
+ * The flipped rule: Jeff's router adapter is asked the same four-option router question as the jeff: rule (owner
+ * ruling 2026-10-04: tonight's router adapters were trained on four-option rows, and the thresholds were set on that
+ * P(xhigh)), and the request runs at "xhigh" when the adapter's probability for "xhigh" (of all four) is at least
+ * `threshold`, else at "off" ("low" and "medium" are not used). When Jeff abstains (the question cannot be cut to
+ * fit), the request runs at "xhigh".
  */
 export function jeffOffUnlessRouter(service: JeffService, adapter: string, threshold: number): ThinkingRouter {
 	checkThreshold(threshold);
 	return {
 		name: `jeff-off-unless:${adapter}:${threshold}`,
 		levelFor: async (state) => {
-			const answer = await askRouter(service, adapter, state, ROUTER_OPTIONS_OFF_XHIGH);
+			const answer = await askRouter(service, adapter, state, ROUTER_OPTIONS);
 			if (answer.kind === "abstain") {
 				return { level: "xhigh", probabilities: null, cut: null, abstained: answer.cannotFit };
 			}
