@@ -91,20 +91,24 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
     assert "| list | 1 | 50.0% |" in markdown and "Read the file /app/x" in markdown
 
 
-def test_a_later_run_replaces_an_earlier_runs_trials(tmp_path):
+def test_per_trial_the_more_faithful_run_is_kept(tmp_path):
     first, second = tmp_path / "first", tmp_path / "second"
     first.mkdir()
     second.mkdir()
-    write(first, "sessions", [session("a", True, 5, 5), session("c", False, 4, 0)])
-    write(first, "rows", [tool_row("c", 0, "hand_over")])
-    write(second, "sessions", [session("a", False, 10, 0)])
+    # a: the second pass matched more logged menus. d: the first did (the second's environment differed more).
+    # e: the second pass failed. c: only in the first run.
+    write(first, "sessions", [session("a", True, 5, 5), session("c", False, 4, 0), session("d", False, 19, 1), session("e", False, 3, 0)])
+    write(first, "rows", [tool_row("c", 0, "hand_over"), tool_row("d", 0, "hand_over"), tool_row("e", 0, "hand_over")])
+    write(second, "sessions", [session("a", False, 10, 0), session("d", True, 10, 10), {"trial": "/runs/e", "task": "fix-bug", "failed": "boom"}])
     write(second, "rows", [tool_row("a", 0, "list"), tool_row("a", 0, "list-1", "argument")])
     for folder in (first, second):
         write(folder, "decisions", [])
         write(folder, "menu-checks", [])
         write(folder, "commands", [])
     data = merged([first, second])
-    assert sorted(record["session"] for record in data["sessions"]) == ["a", "c"]
-    assert [(row["session"], row["label"]) for row in data["rows"]] == [("c", "hand_over"), ("a", "list"), ("a", "list-1")]
+    assert sorted(record["session"] for record in data["sessions"]) == ["a", "c", "d", "e"]
+    assert [(row["session"], row["label"]) for row in data["rows"]] == [
+        ("c", "hand_over"), ("d", "hand_over"), ("e", "hand_over"), ("a", "list"), ("a", "list-1")
+    ]
     summary = summarize(data)
-    assert summary["sessions_excluded"] == [] and summary["menus"]["equal"] == 14
+    assert summary["sessions_excluded"] == [] and summary["menus"]["equal"] == 36

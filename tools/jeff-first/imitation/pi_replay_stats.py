@@ -51,16 +51,27 @@ def _outputs(commands: list[dict]) -> dict:
 FILES = ("sessions", "rows", "decisions", "commands", "menu-checks")
 
 
+def _fidelity(records: list[dict]) -> float:
+    """The share of a trial's before-turn menus that the replay built equal to the logged ones; a failed replay has
+    none."""
+    if any("failed" in record for record in records):
+        return -1.0
+    equal = sum(record["menus_equal"] for record in records)
+    return equal / (equal + sum(record["menus_differing"] for record in records))
+
+
 def merged(folders: list[Path]) -> dict[str, list[dict]]:
-    """The records of one or more replay runs: a trial replayed again in a later run (a second pass) takes that run's
-    records, whatever the earlier run had for it."""
+    """The records of one or more replay runs of the same trials (a second pass replays some again). Per trial the
+    run whose replay built more before-turn menus equal to the logged ones is kept (the environment of a replay, such
+    as package mirror speed, differs from run to run); on a tie the later run."""
     chosen: dict[str, tuple[int, list[dict]]] = {}
     for number, folder in enumerate(folders):
         by_trial: dict[str, list[dict]] = {}
         for record in _lines(folder, "sessions"):
             by_trial.setdefault(record["trial"], []).append(record)
         for trial, records in by_trial.items():
-            chosen[trial] = (number, records)
+            if trial not in chosen or _fidelity(records) >= _fidelity(chosen[trial][1]):
+                chosen[trial] = (number, records)
     keep = {(number, record["session"]) for number, records in chosen.values() for record in records if "failed" not in record}
     data: dict[str, list[dict]] = {"sessions": [record for _, records in chosen.values() for record in records]}
     for name in FILES[1:]:
@@ -189,7 +200,7 @@ def stats_markdown(summary: dict) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("folders", type=Path, nargs="+", help="pi_replay.py output folders; a later one replaces an earlier one's trials")
+    parser.add_argument("folders", type=Path, nargs="+", help="pi_replay.py output folders (see merged: the more faithful replay of a trial is kept)")
     parser.add_argument("--rows", type=Path, required=True, help="Output: the rows of the sessions kept, one JSON object per line")
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--stats", type=Path, required=True)
