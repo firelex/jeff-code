@@ -2,20 +2,24 @@
 # Tonight's Jeff training data and trainings (2026-10-04), one command per step, run from the Mac in this order:
 #
 #   tonight.sh convert   stage 3 rows from every collection folder of builds 6498fcf8d and 8db5381f3 (same menu code)
-#                        on both hosts, in parallel, on CPUs (nice 10); waits for: the collection to have ended (or
-#                        accepts a snapshot: unfinished trials are converted as "cut"). ~5 min.
-#   tonight.sh export    pulls the routing and trim label files, joins them onto the stage 3 rows, and exports the step
-#                        (stage 3), router and trim rows; waits for: convert, and the labelling cut-off (the labellers
-#                        may keep running; whatever is labelled when this runs is used).
+#                        on both hosts, in parallel, on CPUs (nice 10), then copied and merged on the Mac; waits for:
+#                        the collection to have ended (a snapshot also works: unfinished trials are converted as "cut").
+#                        Trial run 17:30: 1 min per host, ~3 min copy.
+#   tonight.sh export    pulls the routing and trim label files, joins them onto the stage 3 states, and exports the
+#                        step (stage 3), router and trim rows; waits for: convert and the labelling cut-off (whatever is
+#                        labelled when it runs is used; the labellers may keep running). ~1 min.
 #   tonight.sh cut       cuts stage 2, stage 3, router and trim exports to Jeff's 8,192 tokens (jeff_prompt.py
-#                        fit-examples --unfittable leave-out); waits for: export.
+#                        fit-examples --unfittable leave-out); waits for: export. ~1.5 min.
 #   tonight.sh build     the training files (tonight_training_files.py) and their copy to the B200; waits for: cut.
+#                        ~1.5 min.
 #   tonight.sh train RUN GPU
-#                        starts one training on the B200 in tmux (-L default, session train-RUN); RUN is one of
+#                        starts one training on the B200 in tmux (default server, session train-RUN); RUN is one of
 #                        step-curriculum, step-stage3, router, trim, full-2e-6, full-5e-6, full-1e-5; waits for: build
-#                        and a free GPU (a stopped jeff-qwen-b200-N container).
+#                        and a free GPU (its jeff-qwen-b200-GPU container stopped; the script refuses a GPU with more
+#                        than 20 GB in use).
 #   tonight.sh check RUN GPU
-#                        one optimizer step of RUN (train.py --stop-after 1) with timing; same inputs as train.
+#                        the same training stopped after CHECK_STEPS optimizer steps (default 3; train.py --stop-after),
+#                        with the evaluations before and after: gives the time per step and per evaluation.
 #
 # Everything lands in $T on the Mac and in tonight/ folders on the hosts. Nothing is overwritten: each step refuses to
 # run when its output exists (delete it by hand to redo a step).
