@@ -658,6 +658,9 @@ class Labeller:
         self.options = options
         self.family = options.family
         self.sources = [tuple(item.split("=", 1)) for item in options.source]  # (host name, collection folder)
+        missing = [root for _, root in self.sources if not Path(root).is_dir()]
+        if missing:
+            raise ValueError(f"collection folders that do not exist: {missing}")
         self.out_dir = Path(options.out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.servers = [Server(url, options.machine, options.per_server, options.max_waiting)
