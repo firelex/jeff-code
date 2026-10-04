@@ -170,6 +170,15 @@ def test_replayed_own_sessions_have_their_own_quality():
     assert row.quality == "exact-replayed"
 
 
+def test_replayed_public_sessions_have_their_own_quality():
+    # Stage 1 replay: public Terminus-2 sessions replayed in a rebuilt task environment, every menu built there.
+    row = Row(
+        source="ukisai", stage=1, quality="replayed", task="t", session="s", decision=0, turn=1, level="tool", page=1,
+        state="Task:\nt", options=[{"id": "hand_over", "description": "Hand over"}], label="hand_over", tool_description=None,
+    )  # fmt: skip
+    assert row.quality == "replayed"
+
+
 def test_an_argument_level_carries_the_chosen_tools_own_description():
     # teacher-prompt.ts asks "You have decided that the next step is: <tool.description>." with the tool's own short
     # description from the menu, not the tool page's longer text with the options written out.

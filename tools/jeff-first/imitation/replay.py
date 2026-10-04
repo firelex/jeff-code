@@ -184,9 +184,12 @@ def _limits(session: TerminusSession) -> dict[tuple[int, int], tuple[float, floa
     return limits
 
 
-def replay_session(meta: RowSource, session: TerminusSession, container: Container) -> SessionReplay:
-    """Label every decision point of one session with menus built in the container; see the module docstring."""
-    labeler = SessionLabeler(_label_turns(session.turns), follow_stints=True, drop_unmatched_information=True)
+def replay_session(meta: RowSource, session: TerminusSession, container: Container, *, drop_unmatched_information: bool) -> SessionReplay:
+    """Label every decision point of one session with menus built in the container; see the module docstring.
+    `drop_unmatched_information` is labels.SessionLabeler's: True gives no row where the coding model's next command
+    only gathers information that no option matches (stage 2 does so, as stage 1's approximate conversion does);
+    False labels it "hand over" (the stage 1 replay, whose menus are all built in the container)."""
+    labeler = SessionLabeler(_label_turns(session.turns), follow_stints=True, drop_unmatched_information=drop_unmatched_information)
     order = [(t, c) for t, turn in enumerate(session.turns) for c in range(len(turn.commands))]
     limits = _limits(session)
     replayed: list[ReplayedCommand] = []
@@ -403,7 +406,7 @@ def replay_trial(trial: Trial, task_table: dict, scout: Path, machine: str) -> t
         container = DockerContainer(f"stage2-{trial.session}", spec["docker_image"], spec["cpus"], spec["memory"], session.cwd, scout)
         try:
             container.start()
-            replay = replay_session(meta, session, container)
+            replay = replay_session(meta, session, container, drop_unmatched_information=True)
         finally:
             container.remove()
     except Exception as error:

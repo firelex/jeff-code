@@ -137,7 +137,7 @@ def test_task_of_reads_the_task_folder_name():
 
 def test_menus_are_built_in_the_container_before_each_point_and_commands_replayed_in_between():
     container = FakeContainer(outputs={"ls": "main.py\n", "cat main.py": "print(1/0)\n"})
-    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container)
+    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container, drop_unmatched_information=True)
     # Point before turn 1 (List), after ls (Read; a stint), before turn 2 (hand over: it writes), before turn 3.
     assert container.log == [
         "menu",
@@ -168,7 +168,7 @@ def test_menus_are_built_in_the_container_before_each_point_and_commands_replaye
 
 def test_each_command_waits_its_session_duration_and_runs_under_the_cap():
     container = FakeContainer(seconds=0.5)
-    replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container)
+    replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container, drop_unmatched_information=True)
     assert container.timeouts == [COMMAND_CAP_SECONDS] * 4
     # ls and cat waited 0.1 s in the session but took 0.5 s here: no extra wait; python3 waited 2 s.
     assert container.slept == [1.5]
@@ -184,7 +184,7 @@ def test_a_command_the_session_interrupted_with_c_c_runs_only_for_its_wait():
         agent([{"tool_call_id": "d", "function_name": "mark_task_complete", "arguments": {}}], "New Terminal Output:\n\nroot@abc123:/app#\n"),
     )
     container = FakeContainer()
-    replay_session(META, parse_terminus(conversation_from_atif(steps)), container)
+    replay_session(META, parse_terminus(conversation_from_atif(steps)), container, drop_unmatched_information=True)
     assert container.timeouts == [5.0, COMMAND_CAP_SECONDS]
 
 
@@ -195,13 +195,13 @@ def test_a_wait_only_reply_adds_to_the_wait_of_the_command_before_it():
         agent([call("ls\n")], "New Terminal Output:\n\nroot@abc123:/app# ls\nmain.py\nroot@abc123:/app#\n"),
     )
     container = FakeContainer(seconds=1.0)
-    replay_session(META, parse_terminus(conversation_from_atif(steps)), container)
+    replay_session(META, parse_terminus(conversation_from_atif(steps)), container, drop_unmatched_information=True)
     assert container.slept == [39.0]
 
 
 def test_replayed_outputs_are_recorded_and_information_mismatches_counted():
     container = FakeContainer(outputs={"ls": "main.py\n  \n", "cat main.py": "print(2/0)\n", "python3 main.py": "2\n"})
-    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container)
+    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container, drop_unmatched_information=True)
     by_command = {c.command.splitlines()[0]: c for c in replay.commands}
     assert by_command["ls"].transcript_output == "main.py" and by_command["ls"].replay_output == "main.py\n  \n"
     assert not by_command["ls"].mismatch
@@ -222,14 +222,14 @@ def test_replay_stops_at_the_last_point():
         agent([call("ls\n")], "New Terminal Output:\n\nroot@abc123:/app# ls\nmain.py\nroot@abc123:/app#\n"),
     )
     container = FakeContainer()
-    replay_session(META, parse_terminus(conversation_from_atif(steps)), container)
+    replay_session(META, parse_terminus(conversation_from_atif(steps)), container, drop_unmatched_information=True)
     # The only point is before turn 1; ls is its label and nothing after it needs a menu.
     assert container.log == ["menu"]
 
 
 def test_rows_carry_the_machine():
     container = FakeContainer()
-    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container)
+    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container, drop_unmatched_information=True)
     row = json.loads(row_json(replay.rows[0], "casdgx01"))
     assert row["machine"] == "casdgx01" and row["stage"] == 2 and row["quality"] == "near-exact"
     assert row["source"] == "openguardrails" and row["label"] == "list"
@@ -244,7 +244,7 @@ def test_the_batch_stops_once_failures_reach_five_percent():
 
 def test_argument_rows_carry_the_tool_description_and_decisions_keep_their_full_menus():
     container = FakeContainer(outputs={"ls": "main.py\n"})
-    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container)
+    replay = replay_session(META, parse_terminus(conversation_from_atif(SESSION)), container, drop_unmatched_information=True)
     argument = json.loads(row_json(replay.rows[1], "casdgx01"))
     assert argument["level"] == "argument" and argument["tool_description"] == "List a folder"
     records = [json.loads(line) for line in decision_lines(replay, "casdgx01")]
@@ -255,3 +255,16 @@ def test_argument_rows_carry_the_tool_description_and_decisions_keep_their_full_
         (3, 3, None, None),
     ]
     assert records[0]["menu"] == MENU and records[0]["session"] == "trial-1" and records[0]["machine"] == "casdgx01"
+
+
+def test_without_dropping_an_unmatched_information_command_is_a_hand_over():
+    # Turn 2 of this session starts with `cat other.py`, an information command no option on MENU matches.
+    steps = trajectory(
+        agent([call("ls\n")], "New Terminal Output:\n\nroot@abc123:/app# ls\nmain.py\nroot@abc123:/app#\n"),
+        agent([call("cat other.py\n")], "New Terminal Output:\n\nroot@abc123:/app# cat other.py\nx\nroot@abc123:/app#\n"),
+    )
+    session = parse_terminus(conversation_from_atif(steps))
+    dropped = replay_session(META, session, FakeContainer(), drop_unmatched_information=True)
+    assert [(d.turn, d.choice.kind) for d in dropped.decisions] == [(1, "list")] and dropped.dropped_turns == [2]
+    kept = replay_session(META, session, FakeContainer(), drop_unmatched_information=False)
+    assert [(d.turn, d.choice.kind) for d in kept.decisions] == [(1, "list"), (2, None)] and kept.dropped_turns == []
