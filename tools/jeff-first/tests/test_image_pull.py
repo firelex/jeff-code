@@ -72,3 +72,15 @@ def test_remove_deletes_the_image_and_keeps_one_still_in_use(tmp_path):
     assert result.returncode == 0 and "in use" in result.stdout
     env = fake_docker(tmp_path, rm_output="Error: something else", rm_status=1)
     assert run(tmp_path, env, "remove", IMAGE).returncode == 1
+
+
+def test_a_slow_pull_does_not_hold_back_the_next_one(tmp_path):
+    env = fake_docker(tmp_path)
+    slow = Path(env["PATH"].split(":")[0]) / "docker"
+    slow.write_text(slow.read_text().replace('"pull "*) echo', '"pull "*) sleep 3; echo'))
+    lock = tmp_path / "lock"
+    start = time.monotonic()
+    first = subprocess.Popen([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(lock), "0.5"], env=env)
+    second = subprocess.Popen([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(lock), "0.5"], env=env)
+    assert first.wait() == 0 and second.wait() == 0
+    assert time.monotonic() - start < 5.5  # side by side: about 3.5 s, not 6

@@ -3,7 +3,7 @@ host before a session, spaced so a host stays under Docker Hub's pull limits, an
 
     python3 image_pull.py pull IMAGE LOCK_DIR MIN_INTERVAL_SEC
         An image already present is not pulled (a pull of a present image still counts against Docker Hub's limit).
-        Pulls on one host take turns (file lock in LOCK_DIR) and start at least MIN_INTERVAL_SEC apart.
+        Pulls on one host start at least MIN_INTERVAL_SEC apart (file lock in LOCK_DIR) and then run side by side.
         Exit 75 on Docker Hub's rate-limit error (the caller releases its claim without counting a run and waits);
         exit 1 on any other pull error.
     python3 image_pull.py remove IMAGE
@@ -25,6 +25,8 @@ def pull(image: str, lock_dir: Path, min_interval: float) -> int:
         print(f"{image} is present")
         return 0
     lock_dir.mkdir(parents=True, exist_ok=True)
+    # The lock only spaces the starts of pulls; the pulls themselves run side by side (a 1-2 GB pull takes longer
+    # than MIN_INTERVAL_SEC, and holding the lock through it made pulls, not the interval, the limit).
     with open(lock_dir / "pull.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         last_path = lock_dir / "last-pull"
@@ -33,7 +35,7 @@ def pull(image: str, lock_dir: Path, min_interval: float) -> int:
         if wait > 0:
             time.sleep(wait)
         last_path.write_text(str(time.time()))
-        result = subprocess.run(["docker", "pull", image], capture_output=True, text=True)
+    result = subprocess.run(["docker", "pull", image], capture_output=True, text=True)
     output = (result.stdout + result.stderr).strip()
     if result.returncode == 0:
         print(f"pulled {image}")
