@@ -2,6 +2,8 @@ import json
 
 from imitation.pi_replay_stats import merged, stats_markdown, summarize
 
+markdown_of = stats_markdown
+
 
 def write(folder, name, records):
     (folder / f"stage3-replay-{name}.jsonl").write_text("".join(json.dumps(record) + "\n" for record in records))
@@ -74,6 +76,8 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
     assert summary["stint_labels"] == {"hand_over": 1}
     assert summary["menus"] == {"equal": 15, "differing": 5, "equal_kept": 10, "differing_kept": 0}
     assert summary["menu_difference_kinds"] == {"read": 2}
+    assert summary["excluded_by_task"] == {"fix-bug": 1}
+    assert "Excluded (before-turn menus differ" in markdown_of(summary) and "fix-bug 1" in markdown_of(summary)
     assert summary["outputs"] == {
         "commands": 5,
         "compared": 4,

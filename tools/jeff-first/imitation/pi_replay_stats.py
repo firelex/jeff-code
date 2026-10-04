@@ -91,6 +91,7 @@ def summarize(data: dict[str, list[dict]]) -> dict:
         "failures": [{"trial": record["trial"], "reason": record["failed"][:300]} for record in failed],
         "sessions": len(sessions),
         "sessions_excluded": sorted(excluded),
+        "excluded_by_task": dict(sorted(Counter(record["task"] for record in sessions if record["excluded"]).items())),
         "rows": len(rows),
         "decisions": len(tool_rows),
         "stint_decisions": len(stints),
@@ -132,7 +133,9 @@ def stats_markdown(summary: dict) -> str:
         "",
         f"- Replayed: {summary['sessions']}; trials failed: {summary['trials_failed']}.",
         f"- Excluded (before-turn menus differ from the logged ones in more than {MENU_DIFFERENCE_LIMIT:.0%} of turns): "
-        f"{len(summary['sessions_excluded'])}" + (f" ({', '.join(summary['sessions_excluded'])})" if summary["sessions_excluded"] else "") + ".",
+        f"{len(summary['sessions_excluded'])}"
+        + (f" (by task: {', '.join(f'{task} {count}' for task, count in summary['excluded_by_task'].items())})" if summary["excluded_by_task"] else "")
+        + ".",
         "",
         "## Rows and decisions",
         "",
