@@ -467,3 +467,5 @@ def test_task_id_of_a_hub_trial(tmp_path):
     (trial / "config.json").write_text(json.dumps(config))
     turns, _ = rl.recorded_turns(trial)
     assert turns[0]["task"] == "terminal-bench-science/terminal-bench-science:onsager-ising-lean"
+    tokenizer = rl.Tokenizer.from_file("/private/tmp/claude-501/stage3/tokenizer/Qwen3.5-0.8B/tokenizer.json")
+    assert rl.ceiling.read_trial(trial, tokenizer)["task"] == "terminal-bench-science/onsager-ising-lean"

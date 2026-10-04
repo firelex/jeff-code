@@ -560,7 +560,8 @@ def ms(iso):
 
 def read_trial(trial, tokenizer):
     config = json.loads((trial / "config.json").read_text())
-    task = config["task"]["path"]
+    # Terminal-Bench 2.0 trials name the task by path; Harbor hub dataset trials (path None) by package name.
+    task = config["task"]["path"] if config["task"].get("path") is not None else config["task"]["name"]
     machine = config["agent"]["env"]["JEFF_FIRST_DRIVER_BUILD"]
     result_path = trial / "result.json"
     result = json.loads(result_path.read_text()) if result_path.exists() else None

@@ -812,6 +812,16 @@ class Labeller:
             queue.task_done()
 
     async def run(self):
+        try:
+            await self._run()
+        except BaseException:  # noqa: BLE001 - not swallowed: printed, then the process ends with code 1
+            # Exiting here, inside the event loop: asyncio's own shutdown can wait forever on cancelled tasks.
+            traceback.print_exc()
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(1)
+
+    async def _run(self):
         self.load_done()
         timeout = aiohttp.ClientTimeout(total=None, sock_read=1800)
         async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(limit=0)) as http:
