@@ -20,6 +20,7 @@
 #   tonight.sh check RUN GPU
 #                        the same training stopped after CHECK_STEPS optimizer steps (default 3; train.py --stop-after),
 #                        with the evaluations before and after: gives the time per step and per evaluation.
+#                        SHARED_GPU_CHECK=1 lets a check run next to a Qwen server (timing then overstated).
 #
 # Everything lands in $T on the Mac and in tonight/ folders on the hosts. Nothing is overwritten: each step refuses to
 # run when its output exists (delete it by hand to redo a step).
@@ -191,7 +192,7 @@ start_training() {  # RUN GPU MODE (train or check)
   if [ "$mode" = check ]; then name=check-$run-$(date +%H%M); extra="--stop-after ${CHECK_STEPS:-3}"; fi
   ssh "$B200" "test ! -e $TRAIN_W/runs/$name || { echo '$TRAIN_W/runs/$name exists' >&2; exit 1; }
     used=\$(nvidia-smi -i $gpu --query-gpu=memory.used --format=csv,noheader,nounits)
-    if [ \$used -gt 20000 ]; then echo \"GPU $gpu is busy (\$used MiB used; stop its jeff-qwen-b200-$gpu first)\" >&2; exit 1; fi
+    if [ \$used -gt 20000 ] && [ '$mode${SHARED_GPU_CHECK:-}' != check1 ]; then echo \"GPU $gpu is busy (\$used MiB used; stop its jeff-qwen-b200-$gpu first)\" >&2; exit 1; fi
     mkdir -p $TRAIN_W/runs/$name $TRAIN_W/checkpoints && cd $JD && tmux new-session -d -s train-$name \"
     CUDA_VISIBLE_DEVICES=$gpu LD_LIBRARY_PATH=/raid/work/jeff-first/cuda-compat PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/raid/work/jeff-first/hf-home JEFF_EVENTS=$TRAIN_W/runs/$name/events.jsonl \
