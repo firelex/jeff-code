@@ -216,16 +216,19 @@ def bundle(tmp_path):
     return folder, turns
 
 
-def write_fit_report(folder, cut_ids):
+def write_fit_report(folder, cut_ids, left_out_ids=None):
     """BUNDLE/cut/fit-report.json as jeff_prompt.py fit-examples writes it, for the bundle's question files."""
     files = {}
     for decision in os_.DECISIONS:
         path = folder / f"questions-{decision}.jsonl"
         ids = cut_ids.get(decision, [])
+        left_out = (left_out_ids or {}).get(decision, [])
         files[path.name] = {"input": str(path), "input_sha256": os_.sha256_file(path), "rows": len(os_.read_jsonl(path)),
                             "rows_cut": len(ids), "longest_before": 9000, "longest_after": 8100,
                             "cut": [{"id": i, "tokens_before": 9000, "tokens_after": 8100, "lines_left_out": 40}
-                                    for i in ids]}
+                                    for i in ids],
+                            "rows_left_out": len(left_out),
+                            "left_out": [{"id": i, "tokens_before": 20000, "error": "too long"} for i in left_out]}
     (folder / "cut").mkdir(exist_ok=True)
     (folder / "cut" / "fit-report.json").write_text(json.dumps({"limit": 8192, "files": files}))
 
@@ -297,13 +300,17 @@ def test_predictions_must_cover_every_question_with_its_options(tmp_path):
     q = [question("q1", ["a", "b"], "a")]
     path = tmp_path / "p.jsonl"
     os_.write_jsonl(path, [{"id": "q1", "options": ["b", "a"], "probabilities": [0.3, 0.7]}])
-    assert os_.read_predictions(path, q) == {"q1": (["a", "b"], [0.7, 0.3])}
+    assert os_.read_predictions(path, q, frozenset()) == {"q1": (["a", "b"], [0.7, 0.3])}
+    # a question Jeff abstains on must have no prediction
+    with pytest.raises(ValueError):
+        os_.read_predictions(path, q, frozenset({"q1"}))
     os_.write_jsonl(path, [{"id": "q1", "options": ["a", "c"], "probabilities": [0.3, 0.7]}])
     with pytest.raises(ValueError):
-        os_.read_predictions(path, q)
+        os_.read_predictions(path, q, frozenset())
     os_.write_jsonl(path, [])
     with pytest.raises(ValueError):
-        os_.read_predictions(path, q)
+        os_.read_predictions(path, q, frozenset())
+    assert os_.read_predictions(path, q, frozenset({"q1"})) == {"q1": None}
 
 
 def test_best_at_picks_the_largest_saving_within_the_wrong_rate():
@@ -355,3 +362,22 @@ def test_score_needs_the_bundle_cut_to_fit(tmp_path):
     (folder / "cut" / "fit-report.json").write_text(json.dumps(report))
     with pytest.raises(ValueError, match="cut other questions-trim.jsonl than this bundle's"):
         run_score(tmp_path, folder, "fixed")
+
+
+def test_questions_that_cannot_fit_are_abstentions_scored_as_without_jeff(tmp_path):
+    folder, _ = bundle(tmp_path)
+    # b's argument page and a's router and trim questions cannot be cut to fit: Jeff abstains on them
+    write_fit_report(folder, {}, {"step": ["b:arg"], "router": ["route:a"], "trim": ["trim:a"]})
+    result = run_score(tmp_path, folder, "labels")
+    assert result["abstained"] == {"step": 1, "router": 1, "trim": 1}
+    step = result["tables"]["step"][0]
+    assert step["abstained"] == 1 and step["covered"] == 0 and step["wrong"] == 0  # b handed over, not covered
+    router = result["tables"]["router"][0]
+    assert router["abstained"] == 1 and router["levels"]["xhigh"] == 2  # a at xhigh (abstained), c at xhigh
+    trim = result["tables"]["trim"][0]
+    assert trim["abstained"] == 1 and trim["prompt_tokens_saved"] == 0 and trim["wrong"] == 0
+    combined = result["combined_common"][0]
+    # a: router and trim abstain (nothing); b: step abstains, so its router saving 20 - 7 = 13 s counts; c: xhigh
+    assert combined["abstained"] == 2 and combined["wrong"] == 0
+    assert combined["gross_saved_s"] == pytest.approx(13.0)
+    assert "Questions Jeff abstains on" in (tmp_path / "scores" / "labels.md").read_text()

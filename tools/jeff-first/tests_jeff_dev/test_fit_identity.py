@@ -94,3 +94,17 @@ def test_a_question_whose_options_alone_are_too_long_stops_or_is_left_out(tmp_pa
     assert entry["left_out"][0]["id"] == "giant"
     written = [json.loads(line)["id"] for line in (tmp_path / "b" / "train.jsonl").read_text().splitlines()]
     assert written == [QUESTION["id"]]
+
+
+def test_the_service_answers_cannot_fit_for_a_question_whose_options_alone_are_too_long():
+    question = dict(QUESTION["question"], criteria=dict(
+        QUESTION["question"]["criteria"], repeat="Run the last shell command again: " + "echo word; " * 6000))
+    jeff_serve.start_fitter(os.environ["JEFF_CHECKPOINT"])
+    with TestClient(jeff_serve.app) as client:
+        answer = client.post("/v1/fit", json={"state": QUESTION["state"], "question": question})
+    assert answer.status_code == 200, answer.text
+    cannot = answer.json()["cannot_fit"]
+    assert set(answer.json()) == {"cannot_fit"}
+    assert cannot["limit"] == LIMIT
+    assert cannot["tokens_least"] > LIMIT and cannot["tokens_before"] > cannot["tokens_least"]
+    assert "alone are too long" in cannot["reason"]

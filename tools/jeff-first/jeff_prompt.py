@@ -95,7 +95,8 @@ def _fit_line(line: str) -> tuple[str | None, dict | None, int]:
         cut = _worker.fit(example["state"], example["question"])
     except QuestionTooLong as error:
         if not _leave_out:
-            raise QuestionTooLong(f"{example['id']}: {error}") from error
+            raise QuestionTooLong(f"{example['id']}: {error}", error.tokens_before, error.tokens_least,
+                                  error.limit) from error
         return None, {"id": example["id"], "tokens_before": tokens, "error": str(error)}, tokens
     if cut is None or cut.tokens_before != tokens:
         raise RuntimeError(f"{example['id']}: counted {tokens} tokens, but the cut counted {cut}")

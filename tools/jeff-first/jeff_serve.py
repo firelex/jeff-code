@@ -19,7 +19,10 @@ holds each option's probability. A prompt over Jeff's 8,192 tokens is refused th
 
 This starter adds POST /v1/fit, which the scout asks before every question: {"state": <text>, "question": {"type":
 "choice", "instructions": ..., "criteria": {...}}} -> {"cut": null} when the prompt fits, else {"cut": {"state": <the
-state cut by jeff_fit.py's rule>, "tokens_before": n, "tokens_after": n, "lines_left_out": n, "limit": 8192}}. It
+state cut by jeff_fit.py's rule>, "tokens_before": n, "tokens_after": n, "lines_left_out": n, "limit": 8192}}, or,
+when the question and options alone are too long for any cut (jeff_fit.QuestionTooLong), {"cannot_fit":
+{"tokens_before": n, "tokens_least": <the shortest prompt the rule could make>, "limit": 8192, "reason": <text>}}: the
+scout then lets Jeff abstain on that question. It
 builds and counts the prompt as jeff-serve does (jeff_prompt.py), with its own copy of the checkpoint's processor (so
 it never waits for a decision) and the loaded model's answer codes and layout. jeff_fit.py and jeff_prompt.py must be
 next to this file.
@@ -44,7 +47,7 @@ from pydantic import BaseModel, ConfigDict  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 from transformers import AutoProcessor  # noqa: E402
 
-from jeff_fit import LIMIT  # noqa: E402
+from jeff_fit import LIMIT, QuestionTooLong  # noqa: E402
 from jeff_prompt import JeffPrompt  # noqa: E402
 
 
@@ -64,7 +67,11 @@ class Fitter:
 
     def fit(self, codes: list[str], layout: str, state: str, question: dict) -> dict:
         with self.lock:
-            cut = JeffPrompt(self.processor, codes, layout).fit(state, question)
+            try:
+                cut = JeffPrompt(self.processor, codes, layout).fit(state, question)
+            except QuestionTooLong as error:
+                return {"cannot_fit": {"tokens_before": error.tokens_before, "tokens_least": error.tokens_least,
+                                       "limit": error.limit, "reason": str(error)}}
         if cut is None:
             return {"cut": None}
         return {"cut": {"state": cut.state, "tokens_before": cut.tokens_before, "tokens_after": cut.tokens_after,

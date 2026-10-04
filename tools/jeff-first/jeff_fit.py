@@ -18,8 +18,9 @@ longer, the state text is cut in its middle, at line breaks. The question and it
 - Between them, one line saying how many lines were left out, for example "[... 412 lines left out ...]".
 Every candidate is counted as the whole prompt, so a cut prompt is at most LIMIT tokens. A prompt within the limit is
 not changed. A question whose options and question text alone leave no room, or whose head and the line saying what
-was left out do not fit with them, cannot be cut to fit: that raises QuestionTooLong (at run time the service answers
-422 and the turn ends with an error; the exporters must be told what to do with such rows).
+was left out do not fit with them, cannot be cut to fit: that raises QuestionTooLong. At run time the service then
+answers "cannot fit" and Jeff abstains on that question only (owner ruling 2026-10-04: the scout hands over to the
+coding model, the router uses xhigh, the trimmer keeps the whole output); the exporters leave such rows out.
 """
 
 from collections.abc import Callable
@@ -31,7 +32,18 @@ HEAD_TOKENS = 2048
 
 class QuestionTooLong(ValueError):
     """The question and its options alone leave too little of the limit for the state: cutting the state cannot make
-    the prompt fit, and the question and options are never cut."""
+    the prompt fit, and the question and options are never cut. `tokens_before`: the prompt as asked; `tokens_least`:
+    the shortest prompt the rule could make (an empty state, or the head and the marker line alone); `limit`."""
+
+    def __init__(self, message: str, tokens_before: int, tokens_least: int, limit: int):
+        super().__init__(message)
+        self.tokens_before = tokens_before
+        self.tokens_least = tokens_least
+        self.limit = limit
+
+    def __reduce__(self):
+        # Rebuilt with its counts when it crosses processes (fit-examples' workers).
+        return (QuestionTooLong, (str(self), self.tokens_before, self.tokens_least, self.limit))
 
 
 @dataclass(frozen=True)
@@ -79,7 +91,10 @@ def cut_state(
     if room <= 0:
         raise QuestionTooLong(
             f"the prompt is {before} tokens, over Jeff's limit of {limit}, and {limit - room} tokens with an empty state: "
-            "the question and its options alone are too long"
+            "the question and its options alone are too long",
+            before,
+            limit - room,
+            limit,
         )
     head_budget = min(head_tokens, room // 2)
     lines = state.split("\n")
@@ -98,7 +113,10 @@ def cut_state(
     if not fits(0):
         raise QuestionTooLong(
             f"the prompt is {before} tokens, over Jeff's limit of {limit}, and still {lengths[0]} tokens with only the "
-            f"first {head} lines of the state ({head_budget} tokens at most) and none of its end"
+            f"first {head} lines of the state ({head_budget} tokens at most) and none of its end",
+            before,
+            lengths[0],
+            limit,
         )
     tail = _most(rest, fits)
     return Cut(state=candidate(tail), tokens_before=before, tokens_after=lengths[tail], lines_left_out=rest - tail)

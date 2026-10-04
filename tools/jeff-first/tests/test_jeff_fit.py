@@ -1,3 +1,5 @@
+import pickle
+
 import pytest
 
 from jeff_fit import Cut, QuestionTooLong, cut_state, left_out_line
@@ -85,5 +87,12 @@ def test_fails_when_the_question_alone_is_too_long():
     def long_question(state: str) -> int:
         return words(state) + 100
 
-    with pytest.raises(QuestionTooLong, match="the question and its options alone are too long"):
-        cut_state("\n".join(lines("x", 10)), long_question, words, limit=60, head_tokens=13)
+    state = "\n".join(lines("x", 10))
+    with pytest.raises(QuestionTooLong, match="the question and its options alone are too long") as raised:
+        cut_state(state, long_question, words, limit=60, head_tokens=13)
+    assert (raised.value.tokens_before, raised.value.tokens_least, raised.value.limit) == (words(state) + 100, 100, 60)
+
+
+def test_question_too_long_keeps_its_counts_across_processes():
+    error = pickle.loads(pickle.dumps(QuestionTooLong("too long", 9000, 8500, 8192)))
+    assert (str(error), error.tokens_before, error.tokens_least, error.limit) == ("too long", 9000, 8500, 8192)

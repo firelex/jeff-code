@@ -24,9 +24,13 @@ Subcommands:
 - (not here) cut to fit: Jeff reads at most 8,192 tokens, and at run time a longer question's state is cut to fit
   (tools/jeff-first/jeff_fit.py, the rule the training rows are cut with too). The bundle's questions are cut the same
   way once, with jeff-dev's Python: `jeff_prompt.py fit-examples --processor <checkpoint or Qwen3.5-0.8B processor
-  folder> --layout live-last --workers 8 --unfittable fail --out BUNDLE/cut BUNDLE/questions-*.jsonl` (offline_variant.sh does it).
+  folder> --layout live-last --workers 8 --unfittable leave-out --out BUNDLE/cut BUNDLE/questions-*.jsonl` (offline_variant.sh does it).
   Predictions are made on BUNDLE/cut/questions-X.jsonl; a cut question is scored like any other, and the score
-  reports how many were cut (BUNDLE/cut/fit-report.json, which must exist and match the bundle).
+  reports how many were cut (BUNDLE/cut/fit-report.json, which must exist and match the bundle). A question that
+  cannot be cut to fit (its options alone are too long; fit-examples --unfittable leave-out leaves it out of the cut
+  files and lists it) is one Jeff abstains on at run time (owner ruling 2026-10-04): it has no prediction and is
+  scored as Jeff-pi without Jeff (step: hand over; router: xhigh; trim: the whole output): no saving, not wrong,
+  counted under "abstained".
 - predict: every option's probability for every question of one decision, from a running jeff-serve (POST
   /v1/systemone, one request at a time; busy answers are retried). A question over Jeff's limit (not cut) is an error. Writes predictions in jeff.evaluate's format (id,
   options, probabilities), so `python -m jeff.evaluate --local --checkpoint <variant> --data questions-X.jsonl --output
@@ -512,11 +516,15 @@ def predict(args):
 
 
 def oracle(args):
-    """Predictions with probability 1 on one option for every question of one decision."""
-    questions = read_jsonl(Path(args.bundle) / f"questions-{args.decision}.jsonl")
+    """Predictions with probability 1 on one option for every question of one decision that Jeff does not abstain
+    on (BUNDLE/cut/fit-report.json)."""
+    meta, _, _, questions = load_bundle(args.bundle)
+    abstained = bundle_fit(args.bundle, meta)[args.decision]["abstained"]
     fixed = {"router": "xhigh", "trim": UNCUT}
     rows = []
-    for question in questions:
+    for question in questions[args.decision]:
+        if question["id"] in abstained:
+            continue
         options = list(question["question"]["criteria"])
         if args.kind == "labels":
             pick = question["label"]
@@ -532,9 +540,10 @@ def oracle(args):
     write_jsonl(args.out, rows)
 
 
-def read_predictions(path, questions):
-    """id -> (options in the question's order, probabilities). Every question needs exactly one prediction with the question's options (jeff.evaluate's predictions and this script's have the criteria order; any
-    order is read)."""
+def read_predictions(path, questions, abstained):
+    """id -> (options in the question's order, probabilities), or None for a question Jeff abstains on (`abstained`:
+    it cannot be cut to fit; it must have no prediction). Every other question needs exactly one prediction with the
+    question's options (jeff.evaluate's predictions and this script's have the criteria order; any order is read)."""
     by_id = {}
     for row in read_jsonl(path):
         if row["id"] in by_id:
@@ -543,6 +552,11 @@ def read_predictions(path, questions):
     result = {}
     for question in questions:
         row = by_id.get(question["id"])
+        if question["id"] in abstained:
+            if row is not None:
+                raise ValueError(f"{path}: a prediction for {question['id']}, which cannot be cut to fit")
+            result[question["id"]] = None
+            continue
         if row is None:
             raise ValueError(f"{path}: no prediction for {question['id']}")
         options = list(question["question"]["criteria"])
@@ -570,13 +584,16 @@ def most_likely(prediction):
 
 
 def step_outcome(turn, predictions, labels, threshold, cap):
-    """(outcome, pages asked, steps taken): outcome "covered", "handover" or "wrong" (see the module docstring)."""
+    """(outcome, pages asked, steps taken): outcome "covered", "handover", "wrong" (see the module docstring) or
+    "abstained" (a page Jeff abstains on: the scout hands over there)."""
     pages = 0
     for index, rows in enumerate(turn["step"]):
         if index >= cap:
             return "handover", pages, index
         for rid in rows:
             pages += 1
+            if predictions[rid] is None:
+                return "abstained", pages, index
             pick, probability = most_likely(predictions[rid])
             if probability < threshold or pick in HAND_OVER_IDS:
                 return "handover", pages, index
@@ -590,7 +607,9 @@ def router_outcome(turn, prediction, threshold):
     Measured = recorded seconds minus the re-ask's wall seconds (the brief's definition). Load-matched = the chosen
     level's output tokens at the recorded reply's own seconds per output token: the re-asks ran on servers busier
     than during the recording (about 40 against 74 tokens per second on the B200), which the measured difference
-    charges to the cheaper level."""
+    charges to the cheaper level. No prediction (Jeff abstains): xhigh."""
+    if prediction is None:
+        return "xhigh", False, 0.0, 0.0, 0, False
     best, probability = most_likely(prediction)
     level = best if best == "xhigh" or probability >= threshold else "xhigh"
     label = turn["router"]["label"]
@@ -608,7 +627,9 @@ def router_outcome(turn, prediction, threshold):
 
 
 def trim_outcome(turn, prediction, threshold, rates):
-    """(cut, wrong, prompt tokens saved, seconds saved, unjudged)."""
+    """(cut, wrong, prompt tokens saved, seconds saved, unjudged). No prediction (Jeff abstains): the whole output."""
+    if prediction is None:
+        return UNCUT, False, 0, 0.0, False
     best, probability = most_likely(prediction)
     cut = best if best == UNCUT or probability >= threshold else UNCUT
     if cut == UNCUT:
@@ -634,9 +655,10 @@ def load_bundle(folder):
     return meta, turns, sessions, questions
 
 
-def bundle_cuts(folder, meta):
-    """How many of the bundle's questions were cut to fit Jeff's limit, per decision, from BUNDLE/cut/fit-report.json
-    (jeff_prompt.py fit-examples), which must have cut exactly this bundle's question files."""
+def bundle_fit(folder, meta):
+    """Per decision, how many of the bundle's questions were cut to fit Jeff's limit and the ids of those that cannot
+    be cut to fit (Jeff abstains), from BUNDLE/cut/fit-report.json (jeff_prompt.py fit-examples), which must have cut
+    exactly this bundle's question files."""
     record = Path(folder) / "cut" / "fit-report.json"
     if not record.exists():
         raise ValueError(f"{record} does not exist: cut the bundle's questions to fit first (jeff_prompt.py "
@@ -647,7 +669,7 @@ def bundle_cuts(folder, meta):
         entry = files[f"questions-{decision}.jsonl"]
         if entry["input_sha256"] != meta["questions_sha256"][decision]:
             raise ValueError(f"{record} cut other questions-{decision}.jsonl than this bundle's")
-        counts[decision] = entry["rows_cut"]
+        counts[decision] = {"cut": entry["rows_cut"], "abstained": frozenset(row["id"] for row in entry["left_out"])}
     return counts
 
 
@@ -674,19 +696,19 @@ class Scorer:
             if decision == "step":
                 outcome, pages, steps = step_outcome(turn, self.predictions["step"], self.labels, threshold, self.cap)
                 saved = turn["rec_s"] if outcome == "covered" else 0.0
-                results.append({"wrong": outcome == "wrong", "saved": saved,
+                results.append({"wrong": outcome == "wrong", "abstained": outcome == "abstained", "saved": saved,
                                 "matched": saved, "jeff": pages * self.decision_s, "outcome": outcome, "steps": steps})
             elif decision == "router":
-                level, wrong, saved, matched, out, unmeasured = router_outcome(
-                    turn, self.predictions["router"][f"route:{turn['id']}"], threshold)
-                results.append({"wrong": wrong, "saved": saved, "matched": matched,
+                prediction = self.predictions["router"][f"route:{turn['id']}"]
+                level, wrong, saved, matched, out, unmeasured = router_outcome(turn, prediction, threshold)
+                results.append({"wrong": wrong, "abstained": prediction is None, "saved": saved, "matched": matched,
                                 "jeff": self.decision_s, "level": level, "out": out, "unmeasured": unmeasured})
             elif turn["trim"] is None:
                 results.append(None)
             else:
-                cut, wrong, tokens, saved, unjudged = trim_outcome(
-                    turn, self.predictions["trim"][f"trim:{turn['id']}"], threshold, self.rates)
-                results.append({"wrong": wrong, "saved": saved, "matched": saved,
+                prediction = self.predictions["trim"][f"trim:{turn['id']}"]
+                cut, wrong, tokens, saved, unjudged = trim_outcome(turn, prediction, threshold, self.rates)
+                results.append({"wrong": wrong, "abstained": prediction is None, "saved": saved, "matched": saved,
                                 "jeff": self.decision_s, "cut": cut, "tokens": tokens, "unjudged": unjudged,
                                 "repeat_tokens": tokens * turn["later_requests"]})
         return results
@@ -703,7 +725,8 @@ class Scorer:
         scored = [r for r in results if r is not None]
         n = len(scored)
         row = {"threshold": threshold, **self.totals(sum(r["wrong"] for r in scored), n, sum(r["saved"] for r in scored),
-                                                     sum(r["matched"] for r in scored), sum(r["jeff"] for r in scored))}
+                                                     sum(r["matched"] for r in scored), sum(r["jeff"] for r in scored)),
+               "abstained": sum(r["abstained"] for r in scored)}
         if decision == "step":
             outcomes = collections.Counter(r["outcome"] for r in scored)
             row.update({"covered": outcomes["covered"], "coverage": outcomes["covered"] / n,
@@ -731,9 +754,10 @@ class Scorer:
         the turn (no Qwen request, so no router question); otherwise the router's saving; plus the trim saving."""
         wrong = 0
         gross = matched = jeff = 0.0
-        covered = 0
+        covered = abstained = 0
         for s, r, t in zip(step, router, trim, strict=True):
             turn_wrong = s["wrong"]
+            turn_abstained = s["abstained"]
             jeff += s["jeff"]
             if s["outcome"] == "covered":
                 covered += 1
@@ -741,16 +765,19 @@ class Scorer:
                 matched += s["saved"]
             elif not s["wrong"]:
                 turn_wrong = r["wrong"]
+                turn_abstained = turn_abstained or r["abstained"]
                 gross += r["saved"]
                 matched += r["matched"]
                 jeff += r["jeff"]
             if t is not None:
                 turn_wrong = turn_wrong or t["wrong"]
+                turn_abstained = turn_abstained or t["abstained"]
                 gross += t["saved"]
                 matched += t["saved"]
                 jeff += t["jeff"]
             wrong += turn_wrong
-        return {"turns": len(step), "covered": covered,
+            abstained += turn_abstained
+        return {"turns": len(step), "covered": covered, "abstained": abstained,
                 **self.totals(wrong, len(step), gross, matched, jeff)}
 
 
@@ -761,10 +788,12 @@ TIME_MODES = {"measured": ("net_saved_s", "net_saved_share_gen", "net_saved_shar
 
 
 def accuracy(predictions, questions):
-    """Share of the questions whose most likely option is the label (None without any)."""
-    if not questions:
+    """Share of the answered questions (Jeff does not abstain on) whose most likely option is the label (None without
+    any)."""
+    answered = [q for q in questions if predictions[q["id"]] is not None]
+    if not answered:
         return None
-    return sum(most_likely(predictions[q["id"]])[0] == q["label"] for q in questions) / len(questions)
+    return sum(most_likely(predictions[q["id"]])[0] == q["label"] for q in answered) / len(answered)
 
 
 def best_at(rows, target, key="net_saved_s"):
@@ -776,8 +805,8 @@ def best_at(rows, target, key="net_saved_s"):
 
 def score(args):
     meta, turns, sessions, questions = load_bundle(args.bundle)
-    cuts = bundle_cuts(args.bundle, meta)
-    predictions = {d: read_predictions(getattr(args, d), questions[d]) for d in DECISIONS}
+    fit = bundle_fit(args.bundle, meta)
+    predictions = {d: read_predictions(getattr(args, d), questions[d], fit[d]["abstained"]) for d in DECISIONS}
     scorer = Scorer(meta, turns, sessions, questions, predictions, args.decision_ms / 1000)
     thresholds = sorted(set(args.thresholds))
     per_turn = {d: {t: scorer.per_turn(d, t) for t in thresholds} for d in DECISIONS}
@@ -812,7 +841,8 @@ def score(args):
                    "rec_out": scorer.rec_out, "router_labels": dict(collections.Counter(labels_router)),
                    "label_routed_output_saved_share": 1 - routed / scorer.rec_out},
         "accuracy": {d: accuracy(predictions[d], questions[d]) for d in DECISIONS},
-        "cut_to_fit": cuts,
+        "cut_to_fit": {d: fit[d]["cut"] for d in DECISIONS},
+        "abstained": {d: len(fit[d]["abstained"]) for d in DECISIONS},
         "tables": tables, "combined_common": common, "at_targets": at_targets,
     }
     out = Path(args.out)
@@ -850,7 +880,7 @@ TIME_NOTE = ("Router seconds two ways. 'measured' (the brief's rule): recorded x
 
 
 def table(rows, decision):
-    head = ("| threshold | decisions | wrong | wrong rate | coverage | gross saved s | Jeff s | net saved s | "
+    head = ("| threshold | decisions | wrong | wrong rate | abstained | coverage | gross saved s | Jeff s | net saved s | "
             "% of gen | % of gen + tool |")
     extra = {"step": " steps taken |",
              "router": " net saved, load-matched (% of gen) | cheaper choices wrong | output tokens saved | unmeasured |",
@@ -858,7 +888,7 @@ def table(rows, decision):
     lines = [head + extra, "|" + "---:|" * (head.count("|") - 1 + extra.count("|"))]
     for row in rows:
         cells = [f"{row['threshold']:.2f}", str(row["decisions"]), str(row["wrong"]), pct(row["wrong_rate"]),
-                 pct(row["coverage"]), f"{row['gross_saved_s']:.0f}", f"{row['jeff_s']:.0f}",
+                 str(row["abstained"]), pct(row["coverage"]), f"{row['gross_saved_s']:.0f}", f"{row['jeff_s']:.0f}",
                  f"{row['net_saved_s']:.0f}", pct(row["net_saved_share_gen"]), pct(row["net_saved_share_gen_tool"])]
         if decision == "step":
             cells.append(str(row["steps_taken"]))
@@ -902,7 +932,10 @@ def markdown(result, meta):
     out.append("Top-choice accuracy against the labels: " + ", ".join(
         f"{d} {'-' if a is None else pct(a)}" for d, a in result["accuracy"].items()) + ".\n")
     out.append("Questions cut to fit Jeff's 8,192-token limit (as the run time cuts them; scored like the others): "
-               + ", ".join(f"{d} {n}" for d, n in result["cut_to_fit"].items()) + ".\n")
+               + ", ".join(f"{d} {n}" for d, n in result["cut_to_fit"].items()) + ". Questions Jeff abstains on "
+               "(they cannot be cut to fit: the options alone are too long; scored as Jeff-pi without Jeff: step hand "
+               "over, router xhigh, trim the whole output; no saving, not wrong; the 'abstained' columns count "
+               "them): " + ", ".join(f"{d} {n}" for d, n in result["abstained"].items()) + ".\n")
     out.append(TIME_NOTE)
     for mode in TIME_MODES:
         out.append(f"## Best thresholds at fixed wrong-choice rates ({mode} router seconds)\n")
@@ -915,11 +948,12 @@ def markdown(result, meta):
             out.append(f"| {pct(float(target))} | " + " | ".join(target_cells(entry, mode)) + " |")
         out.append("")
     out.append("## All three decisions, one common threshold\n")
-    out.append("| threshold | wrong turns | wrong rate | covered by Jeff | gross saved s | Jeff s | "
+    out.append("| threshold | wrong turns | wrong rate | turns with an abstention | covered by Jeff | gross saved s | Jeff s | "
                "net saved s | % of gen | % of gen + tool | net saved, load-matched (% of gen) |")
-    out.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    out.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for row in result["combined_common"]:
-        out.append(f"| {row['threshold']:.2f} | {row['wrong']} | {pct(row['wrong_rate'])} | {row['covered']} | "
+        out.append(f"| {row['threshold']:.2f} | {row['wrong']} | {pct(row['wrong_rate'])} | {row['abstained']} | "
+                   f"{row['covered']} | "
                    f"{row['gross_saved_s']:.0f} | {row['jeff_s']:.0f} | {row['net_saved_s']:.0f} | "
                    f"{pct(row['net_saved_share_gen'])} | {pct(row['net_saved_share_gen_tool'])} | "
                    f"{row['matched_net_saved_s']:.0f} ({pct(row['matched_net_saved_share_gen'])}) |")

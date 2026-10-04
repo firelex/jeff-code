@@ -14,7 +14,8 @@
 # interrupted serve: run and never overwrites finished checkpoint: predictions. Predictions are made on the bundle's
 # questions cut to fit Jeff's 8,192 tokens as the run time cuts them (BUNDLE/cut, see offline_score.py); the first run
 # on a bundle makes BUNDLE/cut with jeff-dev's Python, which needs JEFF_DEV (as for checkpoint:) and JEFF_PROCESSOR (a
-# folder with Jeff's processor files: the base checkpoint, or Qwen3.5-0.8B's). Compare variants whose probabilities
+# folder with Jeff's processor files: the base checkpoint, or Qwen3.5-0.8B's). A question that cannot be cut to fit is
+# left out of BUNDLE/cut and scored as Jeff abstaining on it. Compare variants whose probabilities
 # came the same way (all serve: or all checkpoint:): the two ways differ by up to about 0.02 in a probability (bf16 on
 # different GPUs and batch padding).
 set -euo pipefail
@@ -55,7 +56,7 @@ if [ ! -f "$BUNDLE/cut/fit-report.json" ]; then
   : "${JEFF_DEV:?set JEFF_DEV to a jeff-dev checkout with its .venv: the questions of the bundle are not cut to fit yet}"
   : "${JEFF_PROCESSOR:?set JEFF_PROCESSOR to a folder with the processor files of Jeff: the questions of the bundle are not cut to fit yet}"
   "$JEFF_DEV/.venv/bin/python" "$HERE/../../../tools/jeff-first/jeff_prompt.py" fit-examples --processor "$JEFF_PROCESSOR" \
-    --layout live-last --workers 8 --unfittable fail --out "$BUNDLE/cut" "$BUNDLE"/questions-step.jsonl "$BUNDLE"/questions-router.jsonl \
+    --layout live-last --workers 8 --unfittable leave-out --out "$BUNDLE/cut" "$BUNDLE"/questions-step.jsonl "$BUNDLE"/questions-router.jsonl \
     "$BUNDLE"/questions-trim.jsonl
 fi
 predict step "$4"

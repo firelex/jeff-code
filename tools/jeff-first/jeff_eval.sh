@@ -22,6 +22,8 @@
 # Environment: JEFF_FIRST_OUTPUT_TRIM (required): off, fixed:<all|last200|last40|first40|first20last20>, or
 #   jeff:<trimming adapter> with JEFF_FIRST_JEFF_TRIM_THRESHOLD (the service is JEFF_URL); a trimming adapter is checked
 #   at the service like the others.
+# At the end: jeff_eval_summary.py counts Jeff's questions, cuts and abstentions per decision kind
+#   (OUT/jeff-decisions-summary.json).
 # Fixed: pi thinking "high" (the router sets each request's level), output cap 32768 tokens, run approval all, time
 # multiplier 6 (as the collection).
 set -euo pipefail
@@ -51,3 +53,6 @@ case "$ROUTER" in
 esac
 mkdir -p "$OUT"
 bash tools/jeff-first/run_phase0.sh tasks.json "$TARBALL" "$QWEN_URL" "$OUT" "$CONCURRENCY" high bash qwen3.8-27b jeff 6 "$@"
+# Jeff's questions per decision kind, how many were cut to fit its 8,192 tokens, and how many it abstained on
+# (could not be cut to fit): printed and written to OUT/jeff-decisions-summary.json.
+python3 tools/jeff-first/jeff_eval_summary.py "$OUT"
