@@ -67,7 +67,8 @@ def test_the_image_is_the_task_dockerfile_without_its_seeds_plus_the_harness_set
     assert text.startswith("FROM ubuntu:24.04\n\nENV DEBIAN_FRONTEND=noninteractive\nWORKDIR /workspace\n")
     assert "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y tmux\n" in text
     assert "rm -rf /var/lib/apt/lists" not in text.split("RUN mkdir -p /output")[1]
-    assert "RUN mkdir -m 700 /root/.ssh" in text
+    # /root/.ssh, in the sessions' listings, comes from the task Dockerfile's own packages.
+    assert ".ssh" not in text
     assert "asciinema" not in text
     recorded = s1.image_dockerfile(TASK_DOCKERFILE, s1.ASCIINEMA)
     assert "apt-get install -y tmux asciinema\n" in recorded
@@ -85,7 +86,7 @@ def test_another_task_dockerfile_is_an_error(monkeypatch):
 
 def test_seeds_are_packed_for_the_workspace_with_the_modes_the_main_runs_showed():
     archive = task_archive(seeds={"data": None, "data/videos": None, "data/videos/a.mpg": b"dummy\n", "run.sh": b"#!/bin/sh\n"})
-    packed = members(s1.seed_archive(archive, s1.TMUX_SOCKET))
+    packed = members(s1.seed_archive(archive, s1.TMUX_SOCKET, 1_759_000_000))
     # Files 664 and folders 775 whatever the dataset's mode (the main runs' listings show that), owned by root.
     assert packed == {
         "data": (tarfile.DIRTYPE, 0o775, 0, 0, None),
@@ -93,12 +94,19 @@ def test_seeds_are_packed_for_the_workspace_with_the_modes_the_main_runs_showed(
         "data/videos/a.mpg": (tarfile.REGTYPE, 0o664, 0, 0, b"dummy\n"),
         "run.sh": (tarfile.REGTYPE, 0o664, 0, 0, b"#!/bin/sh\n"),
     }
-    kept = members(s1.seed_archive(archive, s1.ASCIINEMA))
+    kept = members(s1.seed_archive(archive, s1.ASCIINEMA, 1_759_000_000))
     assert kept["run.sh"][1] == 0o755 and kept["data/videos/a.mpg"][1] == 0o644 and kept["data"][1] == 0o755
 
 
+def test_seeds_are_dated_when_the_container_starts():
+    # The sessions' listings show the seeds a few hours old (time of day, not the year, as for old files).
+    archive = task_archive(seeds={"notes.txt": b"a\n"})
+    with tarfile.open(fileobj=io.BytesIO(s1.seed_archive(archive, s1.TMUX_SOCKET, 1_759_000_000))) as packed:
+        assert [m.mtime for m in packed.getmembers()] == [1_759_000_000]
+
+
 def test_a_task_without_seeds_packs_nothing():
-    assert members(s1.seed_archive(task_archive(), s1.TMUX_SOCKET)) == {}
+    assert members(s1.seed_archive(task_archive(), s1.TMUX_SOCKET, 0)) == {}
 
 
 def test_a_seed_that_is_neither_file_nor_folder_is_an_error():
@@ -111,7 +119,7 @@ def test_a_seed_that_is_neither_file_nor_folder_is_an_error():
         link.type, link.linkname = tarfile.SYMTYPE, "target"
         archive.addfile(link)
     with pytest.raises(ValueError, match="link"):
-        s1.seed_archive(buffer.getvalue(), s1.TMUX_SOCKET)
+        s1.seed_archive(buffer.getvalue(), s1.TMUX_SOCKET, 0)
 
 
 FIRST = (
@@ -171,6 +179,11 @@ def test_outputs_are_compared_after_removing_what_differs_between_any_two_runs()
     assert s1.output_differs(transcript, replayed.replace("notes.txt", "other.txt"))
     assert s1.output_differs("a\nb", "a\nc")
     assert not s1.output_differs("a b\nc", "a b c")
+    # The same lines in another order (folder order differs between file systems: find, ls -f) are the same output.
+    assert not s1.output_differs("/w/a.c\n/w/b.c\n/w/sub/c.c", "/w/sub/c.c\n/w/a.c\n/w/b.c\n")
+    assert s1.output_differs("/w/a.c\n/w/b.c", "/w/a.c\n/w/b.c\n/w/c.c")
+    assert s1.output_order_differs("/w/a.c\n/w/b.c", "/w/b.c\n/w/a.c")
+    assert not s1.output_order_differs("/w/a.c\n/w/b.c", "/w/a.c /w/b.c")
 
 
 def command(turn: int, transcript: str | None, replayed: str) -> ReplayedCommand:

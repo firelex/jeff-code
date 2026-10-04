@@ -12,7 +12,7 @@ seeds are copied into each session's container. Evidence from the sessions' own 
 - 7d7b83d6 (6,500 of 7,866 sessions; the harness TMUX_SOCKET): `ps` shows a tmux server on /logs/agent/tmux.sock made
   for a session `_harbor_dummy`, then `bash --login` in a pane (TMUX_PANE %1); `ls -la` shows seed files 664 and seed
   folders 775 whatever their mode in the dataset; /logs/verifier and /logs/artifacts are 775, owned by uid 1000 (ubuntu)
-  and gid 1005; /root holds .ssh.
+  and gid 1005.
 - dfaf1ac0 (1,031 sessions): each holds only its first reply (no output), so there is no evidence; same days as
   7d7b83d6, taken as TMUX_SOCKET.
 - 95e2bd54 (335 sessions; ASCIINEMA): tmux on its default socket, the shell inside `asciinema rec` (ASCIINEMA_REC=1,
@@ -32,8 +32,9 @@ menu is the real one. Such decisions are listed per session (`unmatched_informat
 be applied.
 
 Fidelity: every replayed output is compared with the transcript's after `normalised` (whitespace, digits, month names
-and the SELinux dot after ls permissions removed: dates, sizes and process ids differ between any two runs). A session is
-excluded when more than EXCLUDED_SHARE of its compared outputs differ (`select`).
+and the SELinux dot after ls permissions removed: dates, sizes and process ids differ between any two runs), the order
+of lines aside (`output_differs`). A session is excluded when more than EXCLUDED_SHARE of its compared outputs differ
+(`select`).
 
 Usage (prepare_stage1_replay.py writes the inputs; on the Docker host):
   python3 -m imitation.stage1_replay replay --sessions sessions.jsonl --tasks tasks.jsonl --scout SCOUT_DIR \\
@@ -131,8 +132,6 @@ def image_dockerfile(task_dockerfile: str, harness: Harness) -> str:
         "",
         "# Terminus-2's setup: Harbor installs its terminal tools after apt-get update and keeps the package lists.",
         f"RUN DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y {' '.join(harness.tools)}",
-        "# /root/.ssh is in every session's listing of /root.",
-        "RUN mkdir -m 700 /root/.ssh",
     ]
     if harness.name == ASCIINEMA.name:
         setup += [
@@ -142,9 +141,10 @@ def image_dockerfile(task_dockerfile: str, harness: Harness) -> str:
     return kept + "\n" + "\n".join(setup) + "\n"
 
 
-def seed_archive(task_archive: bytes, harness: Harness) -> bytes:
+def seed_archive(task_archive: bytes, harness: Harness, mtime: float) -> bytes:
     """The task's seed files as an uncompressed tar to unpack in the working folder: names relative to it, owned by
-    root, modes as the harness showed them (see Harness.keep_seed_modes)."""
+    root, modes as the harness showed them (see Harness.keep_seed_modes), dated `mtime` (the sessions' listings show
+    the seeds copied a few hours before the session, so `ls -l` shows a time of day, not a year)."""
     buffer = io.BytesIO()
     with tarfile.open(fileobj=io.BytesIO(task_archive)) as task, tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as out:
         for member in task.getmembers():
@@ -153,7 +153,7 @@ def seed_archive(task_archive: bytes, harness: Harness) -> bytes:
             if not (member.isfile() or member.isdir()):
                 raise ValueError(f"the seed {member.name} is neither a file nor a folder (type {member.type!r}); its copy is not known")
             info = tarfile.TarInfo(member.name[len(SEEDS) :])
-            info.type, info.mtime, info.uid, info.gid, info.uname, info.gname = member.type, member.mtime, 0, 0, "root", "root"
+            info.type, info.mtime, info.uid, info.gid, info.uname, info.gname = member.type, mtime, 0, 0, "root", "root"
             if harness.keep_seed_modes:
                 info.mode = member.mode
             else:
@@ -188,15 +188,29 @@ MONTHS = re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b")
 SELINUX_DOT = re.compile(r"(?m)^([-dlcbps][-rwxsStT]{9})\.")
 
 
+def _line(text: str) -> str:
+    return re.sub(r"\s+", "", re.sub(r"\d", "", MONTHS.sub("", SELINUX_DOT.sub(r"\1", text))))
+
+
 def normalised(text: str) -> str:
     """An output without what differs between any two runs of the same commands: whitespace (also line wrapping),
     digits (sizes, dates, times, process ids), month names, and the SELinux mark after ls permissions."""
-    text = SELINUX_DOT.sub(r"\1", text.replace("\r", ""))
-    return re.sub(r"\s+", "", re.sub(r"\d", "", MONTHS.sub("", text)))
+    return _line(text.replace("\r", ""))
+
+
+def output_order_differs(transcript: str, replayed: str) -> bool:
+    """Whether two outputs differ after `normalised` (the order of their lines counts)."""
+    return normalised(transcript) != normalised(replayed)
 
 
 def output_differs(transcript: str, replayed: str) -> bool:
-    return normalised(transcript) != normalised(replayed)
+    """Whether two outputs differ after `normalised`, in the order of their lines and also as sets of lines: the same
+    lines in another order are the same output (folders list their entries in another order on another file system:
+    the sessions ran on XFS, which lists a copied folder in name order)."""
+    if not output_order_differs(transcript, replayed):
+        return False
+    lines = [sorted(line for line in map(_line, text.replace("\r", "").split("\n")) if line) for text in (transcript, replayed)]
+    return lines[0] != lines[1]
 
 
 @dataclass(frozen=True)
@@ -374,7 +388,8 @@ def replay_entry(entry: dict, archive: bytes, scout: Path, machine: str) -> Repl
         conversation = entry["conversation"]
         session = parse_terminus(conversation)
         harness = harness_of(entry["run_id"])
-        container = TerminalContainer(f"stage1replay-{name}", harness, hostname_of(conversation), seed_archive(archive, harness), scout)
+        seeds = seed_archive(archive, harness, time.time())
+        container = TerminalContainer(f"stage1replay-{name}", harness, hostname_of(conversation), seeds, scout)
         try:
             container.start()
             replay = replay_one(row_source(entry["task"], name), session, container)
@@ -403,6 +418,7 @@ def replay_entry(entry: dict, archive: bytes, scout: Path, machine: str) -> Repl
             "task": entry["task"],
             **asdict(command),
             "differs": command.transcript_output is not None and output_differs(command.transcript_output, command.replay_output),
+            "differs_in_order": command.transcript_output is not None and output_order_differs(command.transcript_output, command.replay_output),
         }
         for command in replay.commands
     ]

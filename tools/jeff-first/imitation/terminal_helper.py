@@ -95,6 +95,16 @@ def children(pid: int) -> list[tuple[int, str]]:
     return found
 
 
+def descendants(pid: int) -> list[tuple[int, str]]:
+    found = []
+    pending = [pid]
+    while pending:
+        for child in children(pending.pop()):
+            found.append(child)
+            pending.append(child[0])
+    return found
+
+
 def start(harness: str) -> int:
     env = {**os.environ, "TERM": "xterm-256color", "SHELL": "/bin/bash"}
     if harness == "tmux-socket":
@@ -123,8 +133,8 @@ def start(harness: str) -> int:
         inner = None
         while inner is None and time.monotonic() < deadline:
             time.sleep(0.2)
-            recorders = [pid for pid, name in children(shell) if name.startswith("asciinema")]
-            shells = [pid for recorder in recorders for pid, name in children(recorder) if name == "bash"]
+            # asciinema runs `sh -c $SHELL` in its own terminal: the shell is a bash below the recorder.
+            shells = [pid for pid, name in descendants(shell) if name == "bash"]
             inner = shells[0] if len(shells) == 1 else None
         if inner is None or not wait_idle(inner, 30):
             raise SystemExit("the shell inside asciinema rec did not start within 30 s")
