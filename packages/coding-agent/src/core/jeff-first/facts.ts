@@ -26,11 +26,16 @@ const PATH_MAX_BYTES = 4095;
 /** Linux refuses any single path segment (the text between two "/") longer than this, in bytes. */
 const PATH_SEGMENT_MAX_BYTES = 255;
 
+/** The kernel's pseudo file systems: their "files" are views of the running system (reading some of them fails with
+ * EIO, writing some of them changes the system), never project files. */
+const PSEUDO_FILE_SYSTEMS = ["/proc", "/sys", "/dev"];
+
 /** "missing" when nothing exists at the path; undefined for something that exists but is neither a file nor a
- * folder (a socket, a device). */
+ * folder (a socket, a device, anything under /proc, /sys or /dev). */
 function pathKind(path: string): "file" | "folder" | "missing" | undefined {
 	// No file can be named with a null byte, so such a path is missing, not a fallback.
 	if (path.includes("\u0000")) return "missing";
+	if (PSEUDO_FILE_SYSTEMS.some((root) => path === root || path.startsWith(`${root}/`))) return undefined;
 	// No file can have a path over 4095 bytes, or a segment (the text between two "/") over 255 bytes: statSync
 	// would throw ENAMETOOLONG for one, so such a path is missing, not a fallback, by the same reasoning as above.
 	if (
