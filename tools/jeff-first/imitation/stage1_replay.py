@@ -260,10 +260,18 @@ def output_order_differs(transcript: str, replayed: str) -> bool:
     return normalised(transcript) != normalised(replayed)
 
 
+OUTPUT_LIMIT = re.compile(r"\n?\[\.\.\. output limited to \d+ bytes; \d+ interior bytes omitted \.\.\.\]\n?")
+
+
 def output_differs(transcript: str, replayed: str) -> bool:
     """Whether two outputs differ after `normalised`, in the order of their lines and also as sets of lines: the same
     lines in another order are the same output (folders list their entries in another order on another file system:
-    the sessions ran on XFS, which lists a copied folder in name order)."""
+    the sessions ran on XFS, which lists a copied folder in name order). A transcript output that Terminus-2 cut in
+    the middle (over 10,000 bytes) matches a replayed output that starts with its head and ends with its tail."""
+    cut = OUTPUT_LIMIT.split(transcript)
+    if len(cut) == 2:
+        head, tail, whole = normalised(cut[0]), normalised(cut[1]), normalised(replayed)
+        return not (whole.startswith(head) and whole.endswith(tail))
     if not output_order_differs(transcript, replayed):
         return False
     lines = [sorted(line for line in map(_line, _own_lines(text).split("\n")) if line) for text in (transcript, replayed)]

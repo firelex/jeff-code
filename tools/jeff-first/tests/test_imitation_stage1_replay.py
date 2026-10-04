@@ -194,6 +194,11 @@ def test_outputs_are_compared_after_removing_what_differs_between_any_two_runs()
     # Lines that show the replay's own machinery (the scout's mount, the terminal helper) are not the session's.
     replayed = f"/etc/profile.d/gawk.sh\n{s1.SCOUT_MOUNT}/node/README.md\nroot 119 python3 {s1.HELPER} run --shell 28\n"
     assert not s1.output_differs("/etc/profile.d/gawk.sh", replayed)
+    # Terminus-2 cut outputs over 10,000 bytes in the middle: the replay's output must start and end as the cut one.
+    full = "head line\n" + "middle\n" * 3 + "tail line\n"
+    cut = "head line\nmid\n[... output limited to 10000 bytes; 70 interior bytes omitted ...]\ndle\ntail line"
+    assert not s1.output_differs(cut, full)
+    assert s1.output_differs(cut, full.replace("tail line", "other line"))
     assert not s1.output_order_differs("/w/a.c\n/w/b.c", "/w/a.c /w/b.c")
 
 
