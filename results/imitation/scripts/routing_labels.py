@@ -83,6 +83,7 @@ SKIP_REASONS = {"length": "reply hit the output cap (length)", "error": "the req
 JUDGE_CHECK_RATE = 0.2  # share of judge calls whose full input is stored (for the 300-pair hand check)
 CALIBRATION_SEED = "routing-calibration-20261004"
 # Qwen (NVFP4) sometimes calls a tool that does not exist; ceiling.py's turn classifier raises on such a session.
+BROKEN_SESSION = "the session file has an unreadable line before its end (the trial is left out)"
 JUDGE_REFUSED = "the judge refused the input (DashScope content inspection)"
 OTHER_TOOL = "a reply calls a tool other than bash (the trial is left out: ceiling.py cannot classify it)"
 
@@ -317,6 +318,8 @@ def recorded_turns(trial):
     sessions = sorted((trial / "agent" / "pi" / "sessions").glob("*.jsonl"))
     if len(sessions) != 1:
         raise ValueError(f"{trial}: {len(sessions)} session files")
+    if broken_inside(sessions[0]):
+        return [], {BROKEN_SESSION: 1}
     entries, _ = _json_lines(sessions[0], cut)
     session_id = entries[0]["id"]
     trace, _ = _json_lines(trial / "agent" / "jeff-first-trace.jsonl", cut)
@@ -384,6 +387,18 @@ def recorded_turns(trial):
             },
         })
     return turns, dict(skipped)
+
+
+def broken_inside(path):
+    """Whether a line other than the last one of a session file is not valid JSON (a cut last line is handled by
+    _json_lines for stopped trials)."""
+    lines = [line for line in path.read_text().splitlines() if line.strip()]
+    for line in lines[:-1]:
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            return True
+    return False
 
 
 def legacy_line(record):

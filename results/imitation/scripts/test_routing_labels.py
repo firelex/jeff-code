@@ -324,6 +324,18 @@ def test_a_crashed_agent_may_leave_one_traced_reply_unsaved(tmp_path):
     assert [t["turn"] for t in turns] == [1]
 
 
+def test_a_session_file_with_a_broken_line_inside_is_left_out(tmp_path):
+    # Seen 2026-10-04 (music-harmony, a timed-out hub trial): line 97 of 113 cut in the middle of a string.
+    trial = _trial(tmp_path, [("toolUse", ["ls"], 100), ("stop", [], 200)],
+                   [_line(1, "toolUse", 100), _line(2, "stop", 200)])
+    session = next((trial / "agent" / "pi" / "sessions").glob("*.jsonl"))
+    lines = session.read_text().splitlines()
+    lines[2] = lines[2][:40]
+    session.write_text("\n".join(lines) + "\n")
+    turns, skipped = rl.recorded_turns(trial)
+    assert turns == [] and skipped == {rl.BROKEN_SESSION: 1}
+
+
 def test_recorded_turns_mismatch_raises(tmp_path):
     trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 999)])
     with pytest.raises(ValueError):
