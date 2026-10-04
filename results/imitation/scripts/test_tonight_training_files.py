@@ -58,10 +58,11 @@ def inputs(tmp_path: Path, stage3_train_task="tb-train") -> dict:
     return paths
 
 
-def run_build(tmp_path: Path, paths: dict, out="out") -> dict:
+def run_build(tmp_path: Path, paths: dict, out="out", times=2, fraction=1.0) -> dict:
     argv = ["build"] + [f"--{key}={value}" for key, value in paths.items()] + [
         f"--task-sets={tmp_path / 'sets.json'}", f"--scoring-tasks={tmp_path / 'scoring.txt'}",
-        f"--training-tasks={tmp_path / 'tasks.json'}", "--seed=7", "--eval-rows=1000", f"--out={tmp_path / out}"]
+        f"--training-tasks={tmp_path / 'tasks.json'}", "--seed=7", "--eval-rows=1000", f"--out={tmp_path / out}",
+        f"--stage3-times={times}", f"--stage1-fraction={fraction}"]
     ttf.main(argv)
     return json.loads((tmp_path / out / "manifest.json").read_text())
 
@@ -106,6 +107,23 @@ def test_a_scoring_or_held_out_task_anywhere_is_an_error(tmp_path):
     paths = inputs(tmp_path, stage3_train_task=f"{HUB}:held-c")
     with pytest.raises(ValueError, match="scoring task"):
         run_build(tmp_path, paths)
+
+
+def test_stage_3_once_and_stage_1_at_half_of_stage_3(tmp_path):
+    manifest = run_build(tmp_path, inputs(tmp_path), times=1, fraction=0.5)
+    curriculum = ids(tmp_path / "out" / "step-curriculum" / "train.jsonl")
+    # stage 3 has 11 train rows: stage 1 gets round(0.5 * 11) = 6 rows in whole groups, stage 3 is shown once.
+    assert [ttf.stage_of(i) for i in curriculum] == ["1"] * 6 + ["2"] + ["3"] * 11
+    assert not any(i.endswith(":copy2") for i in curriculum)
+    assert len(ids(tmp_path / "out" / "step-stage3" / "train.jsonl")) == 11
+    assert manifest["stage3_times"] == 1 and manifest["stage1_fraction"] == 0.5
+    assert manifest["stage1_sampling"]["target"] == 6
+
+
+def test_stage_3_three_times_gets_distinct_ids(tmp_path):
+    run_build(tmp_path, inputs(tmp_path), times=3)
+    stage3 = ids(tmp_path / "out" / "step-stage3" / "train.jsonl")
+    assert len(stage3) == 33 == len(set(stage3)) and sum(i.endswith(":copy3") for i in stage3) == 11
 
 
 def test_evaluation_rows_are_capped_by_whole_families():

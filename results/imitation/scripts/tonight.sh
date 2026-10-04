@@ -17,6 +17,12 @@
 #                        step-curriculum, step-stage3, router, trim, full-2e-6, full-5e-6, full-1e-5; waits for: build
 #                        and a free GPU (its jeff-qwen-b200-GPU container stopped; the script refuses a GPU with more
 #                        than 20 GB in use).
+#   tonight.sh train-all after `docker stop` of jeff-qwen-b200-0..7: the 7 runs on GPUs 0-6 (trim on GPU 5 next to
+#                        jeff-serve), then a speed report after SPEED_AFTER seconds (default 900).
+#   tonight.sh speed     per run: step, tokens/s over the last 20 steps, projected finish (tonight_speed.py).
+#   tonight.sh restart-qwen
+#                        after the trainings: starts the 8 Qwen containers (refuses while a GPU holds > 5 GB) and
+#                        checks each port answers /health and one short chat request.
 #   tonight.sh check RUN GPU
 #                        the same training stopped after CHECK_STEPS optimizer steps (default 3; train.py --stop-after),
 #                        with the evaluations before and after: gives the time per step and per evaluation.
@@ -38,11 +44,13 @@ CAS_W=jeff-first/$NAME  # under the home folder
 PROCESSOR=/private/tmp/claude-501/stage3/tokenizer/Qwen3.5-0.8B
 STAGE1_CUT=/private/tmp/claude-501/imitation/export/stage1-replayed-all-cut
 STAGE2_UNCUT=/private/tmp/claude-501/imitation/export/stage2
-STAGE3_REPLAY_ROWS=/private/tmp/claude-501/imitation/stage3-replay-rows.jsonl
 BUILDS=(--build jeff-pi-scout-6498fcf8d.tgz --build jeff-pi-scout-8db5381f3.tgz)
 SEED=20260920
 # Development and temperature rows per decision (train.py scores all of them at each of the ~20 evaluations).
 EVAL_ROWS=${EVAL_ROWS:-1000}
+# Tonight's proposal (pending the owner): stage 3 shown once, stage 1 sampled to half of stage 3's rows.
+STAGE3_TIMES=${STAGE3_TIMES:-1}
+STAGE1_FRACTION=${STAGE1_FRACTION:-0.5}
 
 die() { echo "tonight.sh: $*" >&2; exit 1; }
 refuse_existing() { for p in "$@"; do [ ! -e "$p" ] || die "$p exists; delete it to redo this step"; done; }
@@ -109,14 +117,12 @@ export_all() {
   for f in "$T"/labels/routing/*.jsonl "$T"/labels/trim/*.jsonl; do
     tail -c 1 "$f" | od -An -c | grep -q '\\n' || { sed -i '' '$d' "$f"; echo "$f: unfinished last line dropped"; }
   done
-  # States for the router and trim rows: this conversion's rows plus the morning's replay rows of the build 4abde3ece
-  # sessions (runs-imitation-v4/v5; labelled, but not convertible by stage3.py). The router and trim questions do not
-  # depend on the menu, only on the state, so those sessions' states serve; they give no step rows (old menus).
-  uv run -q --no-project python "$S/tonight_training_files.py" merge-rows --out "$T/export/state-rows.jsonl" \
-    "$T/stage3/rows.jsonl" "$STAGE3_REPLAY_ROWS" | tee "$T/export/state-rows.txt"
-  (cd "$S" && "${UVW[@]}" routing_labels.py join --labels "$T"/labels/routing/*.jsonl --stage3-rows "$T/export/state-rows.jsonl" \
+  # States for the router and trim rows: this conversion's rows only. Labelled turns of the build 4abde3ece sessions
+  # (runs-imitation-v4/v5) find no state and are left out (controller ruling: they ran at thinking medium, so their
+  # labels do not answer "as good as the recorded xhigh action").
+  (cd "$S" && "${UVW[@]}" routing_labels.py join --labels "$T"/labels/routing/*.jsonl --stage3-rows "$T/stage3/rows.jsonl" \
       --out "$T/export/routing-rows.jsonl") | tee "$T/export/routing-join.txt"
-  (cd "$S" && "${UVW[@]}" trim_labels.py join --labels "$T"/labels/trim/*.jsonl --stage3-rows "$T/export/state-rows.jsonl" \
+  (cd "$S" && "${UVW[@]}" trim_labels.py join --labels "$T"/labels/trim/*.jsonl --stage3-rows "$T/stage3/rows.jsonl" \
       --out "$T/export/trim-rows.jsonl") | tee "$T/export/trim-join.txt"
   cd "$REPO/tools/jeff-first"
   uv run -q python -m imitation.export_jeff export --rows "$T/stage3/rows.jsonl" --splits "$R/splits.json" \
@@ -148,7 +154,8 @@ build_files() {
   uv run -q --no-project python "$R/scripts/tonight_training_files.py" build --stage1 "$STAGE1_CUT" \
     --stage2 "$T/cut/stage2" --stage3 "$T/cut/stage3" --router "$T/cut/router" --trim "$T/cut/trim" \
     --task-sets "$R/task-sets.json" --training-tasks "$R/training-tasks.json" --scoring-tasks "$T/scoring-tasks.txt" \
-    --seed "$SEED" --eval-rows "$EVAL_ROWS" --out "$T/train"
+    --seed "$SEED" --eval-rows "$EVAL_ROWS" --stage3-times "$STAGE3_TIMES" --stage1-fraction "$STAGE1_FRACTION" \
+    --out "$T/train"
   ssh "$B200" "test ! -e $TRAIN_W/data || { echo '$TRAIN_W/data exists' >&2; exit 1; }; mkdir -p $TRAIN_W/data"
   rsync -az "$T/train/" "$B200:$TRAIN_W/data/"
 }
@@ -203,6 +210,43 @@ start_training() {  # RUN GPU MODE (train or check)
   echo "B200 GPU $gpu: $name started ($rows rows, eval every $every steps); log $TRAIN_W/runs/$name/train.log"
 }
 
+# --- all runs at once on the B200, speed, Qwen restart -------------------------------------------------------------
+# GPU N runs container jeff-qwen-b200-N (port 8885+N). jeff-serve stays on GPU 5 (3.5 GB) next to the trim run.
+ALL_RUNS=("step-curriculum 0" "step-stage3 1" "full-2e-6 2" "full-5e-6 3" "full-1e-5 4" "trim 5" "router 6")
+QWEN=(jeff-qwen-b200-0 jeff-qwen-b200-1 jeff-qwen-b200-2 jeff-qwen-b200-3 jeff-qwen-b200-4 jeff-qwen-b200-5
+      jeff-qwen-b200-6 jeff-qwen-b200-7)
+
+train_all() {
+  local running; running=$(ssh "$B200" "docker ps --format '{{.Names}}' | grep -E '^jeff-qwen-b200-[0-7]\$' || true")
+  [ -z "$running" ] || die "Qwen containers still running (stop them first: ssh $B200 'docker stop ${QWEN[*]}'): $running"
+  local pair
+  for pair in "${ALL_RUNS[@]}"; do start_training ${pair% *} ${pair#* } train; done
+  echo "speed report in ${SPEED_AFTER:-900} s (or any time: tonight.sh speed)"
+  sleep "${SPEED_AFTER:-900}"
+  speed
+}
+
+speed() {
+  ssh "$B200" "python3 - $TRAIN_W/runs" < "$REPO/results/imitation/scripts/tonight_speed.py"
+}
+
+restart_qwen() {
+  # vLLM takes 90% of a GPU's memory: only jeff-serve (GPU 5) may hold memory when the servers start.
+  local busy; busy=$(ssh "$B200" "nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | awk -F', ' '\$2 > 5000 {print \$1}'")
+  [ -z "$busy" ] || die "GPUs still in use (a training running?): $busy"
+  ssh "$B200" "docker start ${QWEN[*]}"
+  local port
+  for port in 8885 8886 8887 8888 8889 8890 8891 8892; do
+    local waited=0
+    until ssh "$B200" "curl -sf -m 5 http://192.168.3.12:$port/health > /dev/null"; do
+      sleep 15; waited=$((waited + 15)); (( waited < 1200 )) || die "port $port not healthy after 20 min"
+    done
+    ssh "$B200" "curl -sf -m 120 http://192.168.3.12:$port/v1/chat/completions -H 'Content-Type: application/json' \
+      -d '{\"model\":\"qwen3.8-27b\",\"messages\":[{\"role\":\"user\",\"content\":\"Say OK.\"}],\"max_tokens\":8,\"chat_template_kwargs\":{\"enable_thinking\":false}}'" \
+      | python3 -c "import json,sys; r=json.load(sys.stdin); print('$port serves:', repr(r['choices'][0]['message']['content']))"
+  done
+}
+
 case "${1:-}" in
   convert) convert ;;
   export) export_all ;;
@@ -210,5 +254,8 @@ case "${1:-}" in
   build) build_files ;;
   train) start_training "${2:?run}" "${3:?gpu}" train ;;
   check) start_training "${2:?run}" "${3:?gpu}" check ;;
-  *) die "usage: tonight.sh convert|export|cut|build|train RUN GPU|check RUN GPU" ;;
+  train-all) train_all ;;
+  speed) speed ;;
+  restart-qwen) restart_qwen ;;
+  *) die "usage: tonight.sh convert|export|cut|build|train RUN GPU|check RUN GPU|train-all|speed|restart-qwen" ;;
 esac
