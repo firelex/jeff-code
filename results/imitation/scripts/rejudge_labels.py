@@ -57,14 +57,22 @@ from routing_labels import (  # noqa: E402
     step_pieces,
 )
 
-QUESTION_ID = "materially-better-20261004"
-# The owner's question, word for word (2026-10-04 ~22:00, "materially" instead of "clearly").
-QUESTION = (
-    "Step 1 and Step 2 are two possible next steps for the same coding task at the same moment. Is Step 1 materially "
-    "better than Step 2? Answer YES only if Step 2 is a mistake, would take the task in a wrong direction, or wastes "
-    "effort. A step that does less but is correct progress toward the task is not worse. Answer YES or NO, then give "
-    "one short reason."
-)
+# The owner's questions, word for word (2026-10-04 ~22:00, "materially" instead of "clearly"; ~22:10 the stricter one
+# without "wastes effort", after the first calibration's noise floor of 20%).
+QUESTIONS = {
+    "materially-better-20261004": (
+        "Step 1 and Step 2 are two possible next steps for the same coding task at the same moment. Is Step 1 "
+        "materially better than Step 2? Answer YES only if Step 2 is a mistake, would take the task in a wrong "
+        "direction, or wastes effort. A step that does less but is correct progress toward the task is not worse. "
+        "Answer YES or NO, then give one short reason."
+    ),
+    "materially-better-strict-20261004": (
+        "Step 1 and Step 2 are two possible next steps for the same coding task at the same moment. Is Step 1 "
+        "materially better than Step 2? Answer YES only if Step 2 is a mistake or would take the task in a wrong "
+        "direction. A step that does less, or takes a different but reasonable route, is not worse. Answer YES or NO, "
+        "then give one short reason."
+    ),
+}
 # The setting, as routing_labels.JUDGE_SYSTEM describes it (its first paragraph), and the answer format.
 SYSTEM = (
     "You review the work of an AI assistant that solves tasks on a Linux computer by running shell commands, one step "
@@ -80,7 +88,7 @@ LENGTH_RATIO_MIN = 0.8
 MIN_CHARS = 20
 
 
-def judge_messages(task, steps, reference, alternative):
+def judge_messages(task, steps, reference, alternative, question):
     """System and user message: the same context blocks as routing_labels.judge_messages (task, last steps, Step 1,
     Step 2, with the same cuts), then the owner's question."""
     shown = "\n\n".join(
@@ -92,7 +100,7 @@ def judge_messages(task, steps, reference, alternative):
 
     user = (
         f"TASK:\n{task[:3000]}\n\nMOST RECENT STEPS (oldest first):\n{shown}\n\n"
-        f"STEP 1:\n{step(reference)}\n\nSTEP 2:\n{step(alternative)}\n\n{QUESTION}"
+        f"STEP 1:\n{step(reference)}\n\nSTEP 2:\n{step(alternative)}\n\n{QUESTIONS[question]}"
     )
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
 
@@ -155,6 +163,7 @@ def decide_without_judge(turn):
 class Rejudger:
     def __init__(self, options):
         self.options = options
+        self.question = options.question
         self.maps = [tuple(item.split("=", 1)) for item in options.path_map]
         self.judge_client = JudgeClient(options.judge_url, options.judge_model)
         self.builders = [Builder(options.node, options.builder) for _ in range(options.builders)]
@@ -181,13 +190,13 @@ class Rejudger:
 
     async def judge(self, turn, task, steps, reference, alternative, key):
         messages = judge_messages(task, steps, step_pieces(reference["commands"], reference["final_text"]),
-                                  step_pieces(alternative["commands"], alternative["final_text"]))
+                                  step_pieces(alternative["commands"], alternative["final_text"]), self.question)
         async with self.slots:
             reply = await self.judge_client.ask(messages, f"{turn['id']} {key}")
         self.calls += 1
         self.call_seconds += reply["seconds"]
         verdict, reason = parse_verdict(reply["content"])
-        return {"key": key, "question": QUESTION_ID, "model": f"{reply['model']} ({reply['backend']}, thinking off)",
+        return {"key": key, "question": self.question, "model": f"{reply['model']} ({reply['backend']}, thinking off)",
                 "verdict": verdict, "reason": reason, "reply": reply["content"],
                 "prompt_tokens": reply["usage"].get("prompt_tokens"),
                 "completion_tokens": reply["usage"].get("completion_tokens"),
@@ -247,7 +256,7 @@ async def run(options):
         if label is not None:
             counts[how] += 1
             write({**row, "label": label, "old_label": row["label"],
-                   "rejudge": {"question": QUESTION_ID, "by": how, "dice": value}})
+                   "rejudge": {"question": options.question, "by": how, "dice": value}})
             continue
         todo.append((row, value))
     todo.sort(key=lambda item: item[0]["trial"])
@@ -269,10 +278,10 @@ async def run(options):
             write({"kind": "excluded", "id": turn["id"], "trial_dir": turn["trial_dir"],
                    "source_host": turn["source_host"], "class": turn["class"],
                    "recording_format": turn.get("recording_format"), "reask_format": turn.get("reask_format"),
-                   "reason": f"{JUDGE_REFUSED} ({QUESTION_ID})", "detail": str(problem), "old_label": turn["label"]})
+                   "reason": f"{JUDGE_REFUSED} ({options.question})", "detail": str(problem), "old_label": turn["label"]})
         else:
             write({**turn, "label": "xhigh" if verdict["verdict"] else "off", "old_label": turn["label"],
-                   "rejudge": {"question": QUESTION_ID, "by": "judge", "dice": value, "judge": verdict}})
+                   "rejudge": {"question": options.question, "by": "judge", "dice": value, "judge": verdict}})
         finished += 1
         if finished % 200 == 0:
             rejudger.progress(finished, len(todo))
@@ -392,6 +401,7 @@ def main():
         p = sub.add_parser(name)
         p.add_argument("--labels", required=True, nargs="+" if name == "calibrate" else None)
         p.add_argument("--out", required=True)
+        p.add_argument("--question", required=True, choices=sorted(QUESTIONS), help="which of the owner's questions")
         p.add_argument("--judge-url", required=True)
         p.add_argument("--judge-model", required=True)
         p.add_argument("--node", required=True)
