@@ -193,7 +193,8 @@ class TrimAsker:
         commands = rl.usable_commands(record)
         saved = None if record["prompt_tokens"] is None else self.reference_prompt - record["prompt_tokens"]
         if cut == UNCUT and saved not in (None, 0):
-            raise RuntimeError(f"{what}: the unshortened request's prompt differs from the routing request's by {saved}")
+            raise rl.PromptMismatch(f"{what}: the uncut request's prompt differs from the routing request's (or, at "
+                                    f"xhigh, the recorded turn's) by {saved} tokens")
         record.update({"level": self.level, "cut": cut, "commands": commands,
                        "final_text": record["content"] if commands == [] else None, "prompt_saved": saved})
         del record["reasoning"]
@@ -304,11 +305,13 @@ class TrimLabeller:
             turn = await queue.get()
             try:
                 row = await self.label(turn, server)
-            except rl.JudgeRefused as problem:
-                # Not a fallback: the turn cannot be labelled by the owner's rule; left out with its reason.
+            except (rl.JudgeRefused, rl.PromptMismatch) as problem:
+                # Not a fallback: the turn cannot be labelled by the rule (the judge refused it, or the rebuilt uncut
+                # request is not the one the routing label was made with); left out with its reason, as in routing.
                 print(f"LEFT OUT {turn['id']}: {problem}", flush=True)
                 row = {"kind": "excluded", "id": turn["id"], "trial_dir": turn["trial_dir"],
-                       "source_host": turn["source_host"], "class": turn["class"], "reason": rl.JUDGE_REFUSED,
+                       "source_host": turn["source_host"], "class": turn["class"],
+                       "reason": rl.JUDGE_REFUSED if isinstance(problem, rl.JudgeRefused) else rl.PROMPT_MISMATCH,
                        "detail": str(problem)}
             server.queued_turns -= 1
             self.write(turn["source_host"], row)
