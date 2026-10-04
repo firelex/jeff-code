@@ -8,7 +8,6 @@ import pytest
 from imitation.export_jeff import (
     STAGE1_SHARES,
     export_rows,
-    read_over_length,
     length_summary,
     main,
     make_splits,
@@ -293,44 +292,12 @@ def stage1_rows(tmp_path):
     return rows, path
 
 
-def write_lengths(tmp_path, over_ids, rows=4, max_length=8192):
-    # The shape imitation/token_lengths.py writes: one entry per measured export file.
-    return write_json(tmp_path / "lengths.json", {"export/train.jsonl": {"rows": rows, "max_length": max_length, "over_max_length": len(over_ids), "ids_over_max_length": over_ids}})
-
-
-def test_an_over_length_row_drops_its_whole_task_group_and_says_so(tmp_path, capsys):
+def test_over_length_rows_are_exported_like_the_others(tmp_path):
+    # Over-length rows are no longer dropped: jeff_prompt.py fit-examples cuts them after the export.
     splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
     rows, path = stage1_rows(tmp_path)
-    over = read_over_length(write_lengths(tmp_path, [row_id(rows[1])]), max_length=8192)
-    counts = export_rows([path], splits, tmp_path / "out", over_length=over)
-    kept = [json.loads(line) for name in counts for line in (tmp_path / "out" / f"{name}.jsonl").read_text().splitlines()]
-    assert [e["suite"] for e in kept] == ["bugs-2"]  # bugs-1 and its retried trial go together
-    assert sum(counts.values()) == 1
-    dropped = json.loads((tmp_path / "out" / "dropped-over-length.json").read_text())
-    assert dropped["max_length"] == 8192
-    assert dropped["groups"] == ["bugs-1"] and dropped["group_count"] == 1
-    assert dropped["rows_over_max_length"] == 1 and dropped["rows_dropped"] == 3
-    assert sum(dropped["rows_dropped_by_split"].values()) == 3
-    assert "dropped 3 rows" in capsys.readouterr().out
-
-
-def test_lengths_for_another_limit_or_other_rows_are_errors(tmp_path):
-    splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
-    rows, path = stage1_rows(tmp_path)
-    with pytest.raises(ValueError, match="max_length"):
-        read_over_length(write_lengths(tmp_path, [], max_length=4096), max_length=8192)
-    with pytest.raises(ValueError, match="measured 5 rows"):
-        export_rows([path], splits, tmp_path / "a", over_length=read_over_length(write_lengths(tmp_path, [], rows=5), max_length=8192))
-    with pytest.raises(ValueError, match="not among the rows"):
-        export_rows([path], splits, tmp_path / "b", over_length=read_over_length(write_lengths(tmp_path, ["nope"]), max_length=8192))
-
-
-def test_cli_drops_over_length_groups_only_with_both_flags(tmp_path):
-    splits_path = tmp_path / "splits.json"
-    main(["splits", "--tasks", str(write_json(tmp_path / "tasks.json", TASKS)), "--seed", "5", "--out", str(splits_path)])
-    rows, path = stage1_rows(tmp_path)
-    lengths = write_lengths(tmp_path, [row_id(rows[3])])
-    main(["export", "--rows", str(path), "--splits", str(splits_path), "--out", str(tmp_path / "out"), "--over-length", str(lengths), "--max-length", "8192"])
-    assert json.loads((tmp_path / "out" / "dropped-over-length.json").read_text())["groups"] == ["bugs-2"]
+    counts = export_rows([path], splits, tmp_path / "out")
+    assert sum(counts.values()) == len(rows)
+    assert not (tmp_path / "out" / "dropped-over-length.json").exists()
     with pytest.raises(SystemExit):
-        main(["export", "--rows", str(path), "--splits", str(splits_path), "--out", str(tmp_path / "x"), "--over-length", str(lengths)])
+        main(["export", "--rows", str(path), "--splits", str(tmp_path / "s.json"), "--out", str(tmp_path / "x"), "--over-length", "l.json"])

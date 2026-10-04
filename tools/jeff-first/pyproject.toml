@@ -14,3 +14,5 @@ dev = ["pytest==8.4.2", "pytest-asyncio==1.2.0"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+# tests_jeff_dev needs jeff-dev's Python and a checkpoint; it is run on its own (see its docstring).
+testpaths = ["tests"]

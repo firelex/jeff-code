@@ -25,7 +25,10 @@ Splits, by task (a task's rows all go to one file; held-out tasks are never expo
 
 Usage (from tools/jeff-first):
     uv run python -m imitation.export_routing --rows routing-rows.jsonl --splits ../../results/imitation/splits.json \\
-        --task-sets ../../results/imitation/task-sets.json --out export/routing/
+        --task-sets ../../results/imitation/task-sets.json --out export/routing-uncut/
+Then cut the rows whose prompt is over Jeff's 8,192 tokens (jeff_fit.py's rule, the one the run time uses too):
+    ~/mathias/apps/jeff-dev/.venv/bin/python jeff_prompt.py fit-examples --processor <Qwen3.5-0.8B processor folder> \\
+        --layout live-last --workers 8 --unfittable fail --out export/routing/ export/routing-uncut/*.jsonl
 """
 
 import argparse
