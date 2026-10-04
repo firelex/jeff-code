@@ -14,6 +14,7 @@ JeffPi switches the policy back after pi, so the tests run with the internet (te
 checked 2026-10-04: confluence-markdown-exporter-92's reference solution passes online and fails offline).
 """
 
+import subprocess
 from typing import override
 
 from harbor.environments.base import BaseEnvironment
@@ -26,6 +27,31 @@ class EgressDocker(DockerEnvironment):
     @override
     def _requires_egress_control(*, startup_network_policy: NetworkPolicy, phase_network_policies) -> bool:
         return True
+
+    @classmethod
+    @override
+    def _egress_control_kernel_support(cls) -> bool:
+        """Harbor's kernel probe (a container reading /proc/config.gz) with up to 3 tries of 120 s each, instead of
+        one try of 30 s: on a busy host (80 streams) the probe container timed out and Harbor then turned egress
+        control off, so the session failed at the network switch (2 of about 200 SWE-rebench sessions on B200).
+        Raises when the kernel lacks the support, so the failure names its cause."""
+        for attempt in range(3):
+            try:
+                result = subprocess.run(
+                    [*cls._engine_cmd("container", "run", "--rm", cls._EGRESS_CONTROL_KERNEL_PROBE_IMAGE, "sh", "-c", cls._EGRESS_CONTROL_KERNEL_PROBE_SCRIPT)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                continue
+            if result.returncode == 0:
+                return True
+            raise RuntimeError(
+                "the Docker host's kernel lacks CONFIG_NFT_FIB_INET, so Harbor cannot cut the container off from the "
+                f"internet (probe exit {result.returncode}: {(result.stdout + result.stderr).strip()[-300:]})"
+            )
+        raise RuntimeError("Harbor's egress-control kernel probe timed out 3 times (120 s each); the Docker host is overloaded")
 
 
 async def cut_off(environment: BaseEnvironment, allowed_hosts: list[str]) -> None:

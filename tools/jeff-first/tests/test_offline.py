@@ -64,3 +64,24 @@ async def test_offline_docker_has_no_network_once_started(monkeypatch):
 def test_egress_docker_always_starts_the_egress_control_sidecar():
     public = NetworkPolicy(network_mode=NetworkMode.PUBLIC)
     assert EgressDocker._requires_egress_control(startup_network_policy=public, phase_network_policies=[public])
+
+
+def test_the_kernel_probe_retries_timeouts_and_names_a_missing_kernel_feature(monkeypatch):
+    import subprocess
+
+    import pytest
+
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(kwargs["timeout"])
+        if len(calls) < 3:
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert EgressDocker._egress_control_kernel_support() is True
+    assert calls == [120, 120, 120]
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 1, "", ""))
+    with pytest.raises(RuntimeError, match="CONFIG_NFT_FIB_INET"):
+        EgressDocker._egress_control_kernel_support()
