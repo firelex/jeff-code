@@ -19,6 +19,8 @@ Each trial is checked in this order:
    line of this task, and every line's `driver_build` must equal the config's JEFF_FIRST_DRIVER_BUILD; anything else
    is an error. Traces of schema "jeff-first-trace/5" (record_step lines) give stint rows: several decisions in one
    coding-model turn (see record_rows.py); schema 4 traces give one decision per turn.
+5. A trial whose session file shows a call to a tool other than bash (Qwen on NVFP4 sometimes names a tool that does
+   not exist) is skipped and counted; record_rows would raise on it.
 
 A trial without result.json, or one Harbor stopped at its time limit, is "cut" (record_rows.trial_cut): only its
 complete lines are used. Rows are record_rows' rows with stage 3, quality "exact", source "own", plus `machine`: the
@@ -36,11 +38,12 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from imitation.record_rows import TRACE_NAME, read_trace, record_rows, row_lines, trial_cut
+from imitation.record_rows import TRACE_NAME, _json_lines, read_trace, record_rows, row_lines, trial_cut
 
 CURRENT_TARBALL = "jeff-pi-scout-4abde3ece.tgz"
 EVALUATION_TWIN = "make-doom-for-mips"
 SOURCE = "own"
+OTHER_TOOL = "a reply calls a tool other than bash"
 BUILD = re.compile(r"^qwen3\.8-27b-(fp8|nvfp4)@(.+)$")
 
 
@@ -73,6 +76,18 @@ class Conversion:
     # Trace lines read past (record_rows.SKIPPED_KINDS), by kind.
     skipped_lines: Counter = field(default_factory=Counter)
     builds: list[str] = field(default_factory=list)
+
+
+def calls_other_tool(session: Path, cut: str | None) -> bool:
+    """Whether the coding model called a tool other than bash in this session file (record_rows raises on such a
+    session; Qwen on NVFP4 sometimes names a tool that does not exist, e.g. "bbyte", and pi answers with an error)."""
+    entries, _ = _json_lines(session, cut)
+    return any(
+        part.get("type") == "toolCall" and part.get("name") != "bash"
+        for entry in entries
+        if entry.get("type") == "message" and entry["message"].get("role") == "assistant"
+        for part in entry["message"]["content"]
+    )
 
 
 def find_trials(run: Path) -> list[Path]:
@@ -126,6 +141,9 @@ def convert_trial(trial: Path, tasks: Tasks, builds: frozenset[str], conversion:
         conversion.skipped["empty trace (no complete record line)"] += 1
         return
     sessions = sorted((trial / "agent" / "pi" / "sessions").glob("*.jsonl"))
+    if any(calls_other_tool(session, cut) for session in sessions):
+        conversion.skipped[OTHER_TOOL] += 1
+        return
     rows, row_notes = record_rows(lines, sessions, cut=cut is not None, source=SOURCE)
     conversion.rows.extend({**asdict(row), "machine": build} for row in rows)
     conversion.trials.append(

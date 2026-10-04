@@ -119,6 +119,18 @@ def test_round_folders_without_a_dash_are_found(tmp_path):
     assert sorted({r["session"] for r in conversion.rows}) == ["sess-aaa", "sess-bbb"]
 
 
+def test_a_trial_whose_model_called_a_tool_other_than_bash_is_skipped_and_counted(tmp_path):
+    # Qwen (NVFP4) sometimes names a tool that does not exist (seen 2026-10-04: "bbyte"); pi answers with an error.
+    run = tmp_path / "runs-collect-xhigh"
+    trial = make_trial(run, "b200-gpu0-s3", "fix-bug", "aaa")
+    make_trial(run, "b200-gpu0-s3", "fix-bug", "bbb")
+    session = trial / "agent" / "pi" / "sessions" / "s.jsonl"
+    session.write_text(session.read_text().replace('"name": "bash"', '"name": "bbyte"'))
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
+    assert {r["session"] for r in conversion.rows} == {"sess-bbb"}
+    assert conversion.skipped == {"a reply calls a tool other than bash": 1}
+
+
 def test_other_builds_twins_other_tasks_and_trials_without_a_trace_are_skipped_and_counted(tmp_path):
     run = tmp_path / "runs-v5"
     make_trial(run, "gpu0", "fix-bug", "keep")
