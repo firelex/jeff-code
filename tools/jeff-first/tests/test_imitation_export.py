@@ -111,6 +111,15 @@ def test_task_group_joins_a_stage_1_task_with_its_retried_trials():
         task_group({"stage": 2, "task": "a__b"})
 
 
+def test_task_group_joins_an_nl2bash_task_with_its_run_variants():
+    # nl2bash-X-0000_run2/_run3/_run4 are further mutations numbered under nl2bash-X-0000 (the _runN ones share one
+    # original nl2bash item): one group, so near-duplicates never sit in two splits.
+    for task in ("nl2bash-12-0000", "nl2bash-12-0000_run2", "nl2bash-12-0000_run4__dsv4-trial-2", "nl2bash-12-0000__dsv4-trial-2"):
+        assert task_group({"stage": 1, "task": task}) == "nl2bash-12-0000"
+    assert task_group({"stage": 1, "task": "nl2bash-120-0000_run3"}) == "nl2bash-120-0000"
+    assert task_group({"stage": 3, "task": "fix_run2"}) == "fix_run2"
+
+
 def test_to_example_builds_a_choice_example_with_a_one_hot_target():
     row = {**tool_row(label="read"), "machine": "qwen3.8-27b-fp8@casdgx01-gpu5"}
     example = to_example(row)
@@ -152,6 +161,8 @@ def test_split_of_stage_1_keeps_a_task_group_together_and_is_near_90_5_5(tmp_pat
     assert 0.04 < names.count("temperature") / 4000 < 0.06
     for n in range(200):
         assert split_of({"stage": 1, "task": f"x-{n}"}, splits) == split_of({"stage": 1, "task": f"x-{n}__dsv4-trial-2"}, splits)
+        assert split_of({"stage": 1, "task": f"x-{n}"}, splits) == split_of({"stage": 1, "task": f"x-{n}_run3"}, splits)
+    assert "_run" in splits["stage1"]["rule"]
 
 
 def test_export_writes_three_disjoint_splits_by_task(tmp_path):

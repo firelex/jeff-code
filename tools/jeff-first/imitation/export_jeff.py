@@ -27,7 +27,8 @@ Splits (`results/imitation/splits.json`, written once by the `splits` command fr
   of any other task is an error.
 - Stage 1 (public dataset tasks) is split 90/5/5 by task group: a group's place is fixed by a hash of the seed and
   the group name alone, so the split does not depend on which other tasks a conversion holds. The ukisai dataset
-  names a second trial of a task "<task>__<trial label>" with the same task text; `task_group` cuts that suffix.
+  names a second trial of a task "<task>__<trial label>" with the same task text; `task_group` cuts that suffix. It
+  also cuts a final "_runN": nl2bash-X-0000_run2, _run3, ... are further mutations numbered under nl2bash-X-0000.
 
 Usage (from tools/jeff-first):
     uv run python -m imitation.export_jeff splits --tasks ../../results/imitation/training-tasks.json --seed 20261003 \\
@@ -41,6 +42,7 @@ import hashlib
 import json
 import math
 import random
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +55,8 @@ SPLITS = ("train", "development", "temperature")
 STAGE1_SHARES = {"development": 0.05, "temperature": 0.05}
 BENCH_HELD_OUT = 4
 STAGE1_TRIAL_SEPARATOR = "__"
+# nl2bash-X-0000_run2, _run3, ...: further mutations numbered under nl2bash-X-0000; one group with it.
+STAGE1_RUN_VARIANT = re.compile(r"_run\d+$")
 
 
 def row_id(row: dict) -> str:
@@ -84,10 +88,10 @@ def shuffled_criteria(options: Sequence[dict], identifier: str) -> dict[str, str
 
 
 def task_group(row: dict) -> str:
-    """The tasks that must stay in one split: a stage 1 task with its retried trials (see the module docstring); a
-    Terminal-Bench task (stages 2 and 3) alone."""
+    """The tasks that must stay in one split: a stage 1 task with its retried trials and its "_runN" variants (see the
+    module docstring); a Terminal-Bench task (stages 2 and 3) alone."""
     if row["stage"] == 1:
-        return row["task"].split(STAGE1_TRIAL_SEPARATOR, 1)[0]
+        return STAGE1_RUN_VARIANT.sub("", row["task"].split(STAGE1_TRIAL_SEPARATOR, 1)[0])
     if STAGE1_TRIAL_SEPARATOR in row["task"]:
         raise ValueError(f"a stage {row['stage']} task name has {STAGE1_TRIAL_SEPARATOR!r} in it: {row['task']!r}")
     return row["task"]
@@ -146,7 +150,7 @@ def make_splits(tasks_path: Path, seed: int) -> dict:
             "train": sorted(order[2 * BENCH_HELD_OUT :]),
         },
         "stage1": {
-            "rule": "the task group (task name up to '__') goes to development when int(sha256('<seed>:<group>'), 16) / 16**64 is below the development share, to temperature below the two shares together, else to train",
+            "rule": "the task group (task name up to '__', without a final '_runN') goes to development when int(sha256('<seed>:<group>'), 16) / 16**64 is below the development share, to temperature below the two shares together, else to train",
             "shares": dict(STAGE1_SHARES),
         },
     }
