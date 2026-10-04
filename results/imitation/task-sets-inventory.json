@@ -90176,7 +90176,7 @@
   "verifier_timeout_sec": 600.0,
   "build_timeout_sec": 600.0,
   "instruction_chars": 2582,
-  "side": "training",
+  "side": "excluded",
   "agent_image_gb": null,
   "agent_base_image_gb": 0.03,
   "task_total_gb_estimate": 0.35
@@ -111342,7 +111342,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1224,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.518,
   "task_total_gb_estimate": 1.568
@@ -111382,7 +111382,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 3345,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.487,
   "task_total_gb_estimate": 1.537
@@ -111422,7 +111422,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 3335,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.482,
   "task_total_gb_estimate": 1.532
@@ -111462,7 +111462,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1815,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.335,
   "task_total_gb_estimate": 2.385
@@ -111502,7 +111502,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1461,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.468,
   "task_total_gb_estimate": 1.518
@@ -111542,7 +111542,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 206,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.343,
   "task_total_gb_estimate": 2.393
@@ -111582,7 +111582,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1374,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.507,
   "task_total_gb_estimate": 1.557
@@ -111622,7 +111622,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 4764,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.475,
   "task_total_gb_estimate": 1.525
@@ -111662,7 +111662,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 2934,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.727,
   "task_total_gb_estimate": 1.777
@@ -111702,7 +111702,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1837,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.729,
   "task_total_gb_estimate": 1.779
@@ -111742,7 +111742,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 9692,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.374,
   "task_total_gb_estimate": 1.424
@@ -111782,7 +111782,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1533,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.385,
   "task_total_gb_estimate": 2.435
@@ -111822,7 +111822,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1428,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.817,
   "task_total_gb_estimate": 1.867
@@ -111862,7 +111862,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 2027,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.383,
   "task_total_gb_estimate": 2.433
@@ -111902,7 +111902,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 808,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.817,
   "task_total_gb_estimate": 1.867
@@ -111942,7 +111942,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1274,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.459,
   "task_total_gb_estimate": 1.509
@@ -111982,7 +111982,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 7205,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.462,
   "task_total_gb_estimate": 1.512
@@ -119672,7 +119672,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1902,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.697,
   "task_total_gb_estimate": 1.747
@@ -119712,7 +119712,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1038,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.696,
   "task_total_gb_estimate": 1.746
@@ -119752,7 +119752,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1890,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.3,
   "task_total_gb_estimate": 1.35
@@ -122632,7 +122632,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1572,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 3.81,
   "task_total_gb_estimate": 3.86
@@ -123952,7 +123952,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 9355,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.559,
   "task_total_gb_estimate": 1.609
@@ -123992,7 +123992,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 4126,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.581,
   "task_total_gb_estimate": 1.631
@@ -124032,7 +124032,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 8051,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.587,
   "task_total_gb_estimate": 1.637
@@ -128192,7 +128192,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 594,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.31,
   "task_total_gb_estimate": 1.36
@@ -128232,7 +128232,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1293,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.439,
   "task_total_gb_estimate": 1.489
@@ -128712,7 +128712,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 3037,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.132,
   "task_total_gb_estimate": 2.182
@@ -128752,7 +128752,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 6502,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.501,
   "task_total_gb_estimate": 2.551
@@ -128792,7 +128792,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 4084,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.523,
   "task_total_gb_estimate": 2.573
@@ -128832,7 +128832,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 6295,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 2.523,
   "task_total_gb_estimate": 2.573
@@ -128872,7 +128872,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 4227,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.983,
   "task_total_gb_estimate": 2.033
@@ -132034,7 +132034,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1925,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.978,
   "task_total_gb_estimate": 2.028
@@ -132074,7 +132074,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 11054,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.994,
   "task_total_gb_estimate": 2.044
@@ -133714,7 +133714,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1517,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.337,
   "task_total_gb_estimate": 1.387
@@ -133754,7 +133754,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1097,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.328,
   "task_total_gb_estimate": 1.378
@@ -133794,7 +133794,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1449,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.428,
   "task_total_gb_estimate": 1.478
@@ -134874,7 +134874,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 500,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.698,
   "task_total_gb_estimate": 1.748
@@ -134914,7 +134914,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 318,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.577,
   "task_total_gb_estimate": 1.627
@@ -134954,7 +134954,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 735,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.561,
   "task_total_gb_estimate": 1.611
@@ -134994,7 +134994,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 471,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.316,
   "task_total_gb_estimate": 1.366
@@ -135034,7 +135034,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 389,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.698,
   "task_total_gb_estimate": 1.748
@@ -135074,7 +135074,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 405,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.577,
   "task_total_gb_estimate": 1.627
@@ -135114,7 +135114,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 378,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.577,
   "task_total_gb_estimate": 1.627
@@ -135154,7 +135154,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1936,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.698,
   "task_total_gb_estimate": 1.748
@@ -135194,7 +135194,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1666,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.577,
   "task_total_gb_estimate": 1.627
@@ -135234,7 +135234,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 605,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.561,
   "task_total_gb_estimate": 1.611
@@ -135274,7 +135274,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 656,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.413,
   "task_total_gb_estimate": 1.463
@@ -135314,7 +135314,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1031,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.811,
   "task_total_gb_estimate": 1.861
@@ -135354,7 +135354,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 302,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.317,
   "task_total_gb_estimate": 1.367
@@ -135394,7 +135394,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 505,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.3,
   "task_total_gb_estimate": 1.35
@@ -135434,7 +135434,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 465,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.626,
   "task_total_gb_estimate": 1.676
@@ -135474,7 +135474,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 388,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.328,
   "task_total_gb_estimate": 1.378
@@ -135514,7 +135514,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 566,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.328,
   "task_total_gb_estimate": 1.378
@@ -135554,7 +135554,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1850,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.584,
   "task_total_gb_estimate": 1.634
@@ -135594,7 +135594,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 144,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.656,
   "task_total_gb_estimate": 1.706
@@ -135634,7 +135634,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 236,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.34,
   "task_total_gb_estimate": 1.39
@@ -135674,7 +135674,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 2672,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.34,
   "task_total_gb_estimate": 1.39
@@ -135714,7 +135714,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1208,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.62,
   "task_total_gb_estimate": 1.67
@@ -135754,7 +135754,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1042,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.62,
   "task_total_gb_estimate": 1.67
@@ -135794,7 +135794,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1276,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.62,
   "task_total_gb_estimate": 1.67
@@ -135834,7 +135834,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 1735,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.62,
   "task_total_gb_estimate": 1.67
@@ -135874,7 +135874,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 469,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.34,
   "task_total_gb_estimate": 1.39
@@ -135914,7 +135914,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 535,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.34,
   "task_total_gb_estimate": 1.39
@@ -135954,7 +135954,7 @@
   "verifier_timeout_sec": 3000,
   "build_timeout_sec": 1800.0,
   "instruction_chars": 420,
-  "side": "training",
+  "side": "held_out",
   "agent_image_gb": null,
   "agent_base_image_gb": 1.34,
   "task_total_gb_estimate": 1.39

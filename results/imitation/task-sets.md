@@ -441,6 +441,10 @@ topic check (`task_sets_topic_check.py --new swe-rebench-leaderboard skillsbench
   That is 56 SWE-rebench training tasks on SWE-bench Verified repositories and 8 on DeepSWE repositories. If Verified
   is later evaluated, moving these 6 + 3 repositories to the held-out side (or excluding their 64 tasks) is a change
   of one rule in `task_sets_add.py`. No SWE-rebench repository appears in SWE-Atlas or in Harbor Index's SWE tasks.
+  **Owner decision (2026-10-04): held out.** The rule (step 4b in `task_sets_add.py`, applied after the seeded draw,
+  so no other group moved) puts these 64 tasks on the held-out side: SWE-rebench training 671, held-out 189 (71 of
+  413 repositories). Also excluded since: SkillsBench drone-planning-control (passes ANTHROPIC_API_KEY into its
+  container), so SkillsBench trains on 42. Every added dataset's hub version is pinned (`hub` in task-sets.json).
 - **Inside the added sets (grouped on one side):** SWE-rebench pyfakefs-1286 twin (renamed repository),
   schemathesis-3270 / 3334, sqlglot-6409 / 6413, depthviz-55 / 56 and other same-repository pairs (same repository
   anyway); cross-repository topic pairs virtualenv-2921 / tox-3904 and basic-memory-295 / goodconf-51 (cosine >= 0.45;

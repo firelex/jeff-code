@@ -28,6 +28,8 @@ Sides:
   3. A group with a task of a whole-held-out added dataset is held out.
   4. Other groups are drawn with the seed: SWE-rebench groups until HELD_OUT_REPO_FRACTION of its repositories are
      held out; SkillsBench groups until HELD_OUT_FRACTION of its tasks are held out.
+  4b. After the draw (so no other group moves): a SWE-rebench repository that also has tasks in SWE-bench Verified or
+     DeepSWE is held out (owner decision, 2026-10-04).
   5. Excluded on both sides: tasks that need MCP tools (pi gives the model only bash). Excluded on the training side:
      tasks that need a GPU.
 Sizes: as task_sets_summary.py (compressed, shared registry layers counted once, Dockerfile installs estimated from
@@ -279,6 +281,22 @@ def main() -> None:
         if fits:
             for d, c in u.items():
                 held[d] += c
+
+    # Owner decision (2026-10-04): a SWE-rebench repository that also has tasks in SWE-bench Verified or DeepSWE (both
+    # held out) is held out too, so no repository is trained on and evaluated. Applied after the seeded draw, so the
+    # draw of every other group stays as it was.
+    eval_repos = {
+        re.sub(r"-\d+$", "", t).replace("__", "/").lower() for t in split["datasets"]["swe-bench-verified"]["held_out"]
+    } | {r["repository"].lower() for k, r in by_key.items() if k[0] == "deep-swe-1-1" and r["repository"]}
+    for root in roots:
+        repos = {n[1] for n in groups[root] if n[0] == "repository"}
+        shared_repos = sorted(r for r in repos if r.lower() in eval_repos)
+        if not shared_repos or side[root] == "held_out":
+            continue
+        if root in forced:
+            raise ValueError(f"group of {shared_repos} is forced to {side[root]} ({forced[root]}) but shares a repository with SWE-bench Verified or DeepSWE")
+        side[root] = "held_out"
+        forced[root] = "repository " + ", ".join(shared_repos) + " also has tasks in SWE-bench Verified or DeepSWE (held out; owner decision)"
 
     out_entries: dict = {}
     for ds in added:
