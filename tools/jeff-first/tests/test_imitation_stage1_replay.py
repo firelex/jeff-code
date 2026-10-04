@@ -240,6 +240,14 @@ def test_a_here_document_whose_screens_show_only_its_own_echo_is_the_same_output
     assert not s1.command_output_differs(text, transcript, replayed)
     assert s1.command_output_differs(text, transcript, replayed + "\nbash: A.java: Permission denied")
     assert s1.command_output_differs("ls", "a", "b")
+    # Typed-ahead text before the "> " can be longer, and tabs in the typed code insert completed file names (src/);
+    # the real output after the last echo line is still compared.
+    garbled_t = "tBack> package a;\nc voi> public class A {}\nWritten 3 lines"
+    garbled_r = "enedHan> import java.util.List;\n  > src/main/assertEquals(\nWritten 3 lines"
+    assert not s1.command_output_differs(text, garbled_t, garbled_r)
+    assert s1.command_output_differs(text, garbled_t, garbled_r.replace("Written", "Failed"))
+    # Lines typed while the shell was still busy are echoed raw, without "> ": they are pieces of the command too.
+    assert not s1.command_output_differs(text, "o> package a;\npublic class A {}", "")
 
 
 def command(turn: int, transcript: str | None, replayed: str) -> ReplayedCommand:

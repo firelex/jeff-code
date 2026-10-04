@@ -315,25 +315,25 @@ def output_differs(transcript: str, replayed: str) -> bool:
     return lines[0] != lines[1]
 
 
-ECHO_PROMPT = re.compile(r"^.{0,3}?> ?")
+ECHO_LINE = re.compile(r"^.{0,12}?> ")
 
 
-def _echo_only(output: str, command: str) -> bool:
-    """Whether every non-empty line of an output is the terminal's echo of the command's own text: a "> " continuation
-    line (after up to 3 characters of typed-ahead keys) or a piece of a wrapped line, holding a piece of the command."""
+def _after_echo(output: str, command: str) -> str:
+    """What the screen shows after the terminal's echo of a typed here-document: the lines after the last echo line
+    (a "> " continuation line, after up to 12 characters of typed-ahead keys), without lines that are pieces of the
+    command (typed while the shell was busy, they are echoed raw). The echo itself shows the command's lines cut,
+    mixed with typed-ahead keys and with file names that tabs in the typed code completed, differently in each run."""
+    lines = output.replace("\r", "").split("\n")
+    last = max((index for index, line in enumerate(lines) if ECHO_LINE.match(line)), default=-1)
     flat = command.replace("\n", "")
-    for line in output.replace("\r", "").split("\n"):
-        content = ECHO_PROMPT.sub("", line, count=1).strip()
-        if content and content not in flat:
-            return False
-    return True
+    return "\n".join(line for line in lines[last + 1 :] if line.strip() not in flat)
 
 
 def command_output_differs(command: str, transcript: str, replayed: str) -> bool:
-    """`output_differs`, except that two outputs that only echo the command's own text (a typed here-document: the
-    terminal echoes its lines cut and mixed with typed-ahead keys differently in each run) are the same."""
-    if "\n" in command and _echo_only(transcript, command) and _echo_only(replayed, command):
-        return False
+    """`output_differs`, except that for a command of several lines (a typed here-document) only what follows the
+    terminal's echo of it is compared (`_after_echo`)."""
+    if "\n" in command:
+        return output_differs(_after_echo(transcript, command), _after_echo(replayed, command))
     return output_differs(transcript, replayed)
 
 
