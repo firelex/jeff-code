@@ -1,0 +1,534 @@
+"""Output-trimming labels: does the coding model still take a good step when it sees only the end of the newest output?
+
+For a sampled recorded Qwen3.8-27B turn of the xhigh collection whose newest tool output (the tool result just before
+the turn) shows more than 40 lines, this script asks the same request again with that output shortened (owner,
+2026-10-04): first the three 40-line cuts together (its last 40 lines; its first 20 and last 20; its first 40), and
+when none of them is good and more than 200 lines show, its last 200 lines. Calibration turns (a fixed random
+--calibration-rate of turns) also ask the unshortened request at the same level and check it the same way: how often
+the level's own reply differs from the recorded one without any shortening (the noise floor of the label). The shortened text is made by JeffFirst's
+own function (output-trim.ts, through trim_requests.ts): the kept lines plus a note in pi's truncation form saying how
+many lines are not shown. Label = the first good 40-line cut in the order last40, first20last20, first40; else last200
+when good; else "all". Every asked cut is checked and recorded.
+
+Each turn is asked at its ROUTING LABEL (owner, 2026-10-04: the cheapest good thinking level from routing_labels.py:
+off = thinking off at temperature 0, low / medium / xhigh as the routing labeller sends them), so the label tests the
+combination that runs at run time. Only turns that already have a routing label can be sampled; the script reads the
+routing labeller's output files as they grow.
+
+Good = as in the routing labels: the same step as the RECORDED xhigh action without asking (routing_labels.free_match:
+the same commands, or the same intent with every target named in full), else the judge's YES (the owner's validated
+prompt, Qwen3.8-Max through judge_service.py, thinking off, temperature 0; the judge sees the recent steps of the
+recorded, unshortened request). A reply without a usable action is not good and not judged.
+
+Requests go to servers of the session's model format (the routing labeller's files on a host hold that host's family),
+all turns of one trial to one server, with the routing labeller's load limits (--per-server in flight, no new request
+while the server's vLLM queue is above --max-waiting). Each request records its level, kept lines, prompt tokens and the
+prompt tokens saved against the unshortened request at the same level (the routing labeller's request for that level,
+or the recorded turn for xhigh; negative when the note costs more than the few lines it replaces).
+
+Output: trim-labels-NAME.jsonl per --routing NAME=FILE[,FILE...] in --out-dir: a "turn" line per labelled turn, a
+"short" line per routing-labelled turn whose newest output shows at most 40 lines (or has none), an "excluded" line
+when the judge refused the input. Resumable: a rerun skips written turns.
+
+Usage (needs aiohttp; node runs the request builder):
+    uv run --with aiohttp==3.12.15 --with tokenizers python trim_labels.py run \\
+        --routing b200=/raid/.../routing-labels-b200.jsonl --servers URL,URL --machine b200-nvfp4 \\
+        --judge-url http://127.0.0.1:18905 --judge-model qwen3.8-max --out-dir OUT --node node \\
+        --builder trim_requests.mjs --sample-rate 1.0 [--moved OLD_PREFIX=NEW_PREFIX]
+"""
+
+import argparse
+import asyncio
+import collections
+import json
+import os
+import sys
+import time
+import traceback
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import aiohttp  # noqa: E402
+
+import routing_labels as rl  # noqa: E402
+
+FORTY = ("last40", "first20last20", "first40")  # asked together; the label is the first good one in this order
+WIDE = "last200"  # asked when no 40-line cut is good
+LABELS = FORTY + (WIDE, "all")
+SAMPLE_SEED = "trim-sample-20261004"
+CALIBRATION_SEED = "trim-calibration-20261004"
+SHORT = "short"
+
+
+def sampled(turn_id, rate):
+    return rl.fraction(f"{SAMPLE_SEED}:{turn_id}") < rate
+
+
+def in_calibration(turn_id, rate):
+    return rl.fraction(f"{CALIBRATION_SEED}:{turn_id}") < rate
+
+
+def reference_prompt(routing_row):
+    """Prompt tokens of the unshortened request at the turn's routing level: the routing labeller's request at that
+    level, or the recorded turn for xhigh (the routing labeller's rebuilt xhigh request equals it exactly)."""
+    level = routing_row["label"]
+    if level == "xhigh":
+        return routing_row["recorded"]["prompt_tokens"]
+    asks = [a for a in routing_row["asks"] if a["level"] == level and a["sample"] == 1]
+    if len(asks) != 1 or asks[0]["prompt_tokens"] is None:
+        raise ValueError(f"{routing_row['id']}: no prompt tokens of the routing request at level {level}")
+    return asks[0]["prompt_tokens"]
+
+
+async def trim_cascade(asker, recorded, available, calibration=False):
+    """The label of one turn. `asker.ask(cut)` returns a reply ({"commands": list or None, "final_text"}) of the request
+    with the newest output cut that way; `asker.judge(reference, alternative, key)` returns {"verdict": bool,
+    "reason"}. `available` = the cuts that shorten this output (output-trim.ts availableCuts). A calibration turn also
+    asks and checks the unshortened request ("all"), which does not change the label."""
+    replies, checks = {}, {}
+
+    async def check(cut):
+        reply = await asker.ask(cut)
+        replies[cut] = reply
+        if reply["commands"] is None:
+            checks[cut] = {"good": False, "by": "no usable action"}
+        elif rl.free_match(reply["commands"], recorded["commands"]):
+            checks[cut] = {"good": True, "by": "intent"}
+        else:
+            verdict = await asker.judge(recorded, reply, f"{cut} vs recorded")
+            checks[cut] = {"good": verdict["verdict"], "by": "judge"}
+
+    await asyncio.gather(*(check(cut) for cut in FORTY if cut in available), *([check("all")] if calibration else []))
+    label = next((cut for cut in FORTY if cut in checks and checks[cut]["good"]), None)
+    if label is None and WIDE in available:
+        await check(WIDE)
+        if checks[WIDE]["good"]:
+            label = WIDE
+    return {"label": label or "all", "replies": replies, "checks": checks}
+
+
+def trimmed_body(built, cut, level):
+    return rl.variant_body({"body": built["trimmed"][cut], "kwargs": built["kwargs"]}, level)
+
+
+def resolve_trial(trial_dir, moved):
+    """The trial folder now: routing rows written before a collection folder moved name its old place."""
+    path = Path(trial_dir)
+    if path.is_dir():
+        return path
+    for old, new in moved:
+        if trial_dir.startswith(old):
+            candidate = Path(new + trial_dir[len(old):])
+            if candidate.is_dir():
+                return candidate
+    raise FileNotFoundError(f"trial folder {trial_dir} does not exist (and no --moved prefix finds it)")
+
+
+def session_file(trial):
+    sessions = sorted((trial / "agent" / "pi" / "sessions").glob("*.jsonl"))
+    if len(sessions) != 1:
+        raise ValueError(f"{trial}: {len(sessions)} session files")
+    return sessions[0]
+
+
+class TrimBuilder:
+    """trim_requests.ts / .mjs as a long-running child process, one job at a time."""
+
+    def __init__(self, node, script):
+        self.node = node
+        self.script = script
+        self.process = None
+        self.lock = asyncio.Lock()
+
+    async def build(self, turn):
+        async with self.lock:
+            if self.process is None:
+                self.process = await asyncio.create_subprocess_exec(
+                    self.node, self.script, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                    limit=1 << 30)
+            job = {"id": turn["id"], "session": turn["session_file"], "entryId": turn["entry_id"]}
+            self.process.stdin.write((json.dumps(job) + "\n").encode())
+            await self.process.stdin.drain()
+            line = await self.process.stdout.readline()
+            if not line:
+                raise RuntimeError(f"the request builder exited (code {await self.process.wait()}) on {turn['id']}")
+            built = json.loads(line)
+            if built["id"] != turn["id"]:
+                raise RuntimeError(f"the request builder answered {built['id']} for {turn['id']}")
+            if built["eligible"] and built["body"]["chat_template_kwargs"] != {**rl.SENT_XHIGH,
+                                                                                 "preserve_thinking": True}:
+                raise RuntimeError(f"{turn['id']}: rebuilt kwargs {built['body']['chat_template_kwargs']} are not what "
+                                   "the session sent")
+            return built
+
+
+class TrimAsker:
+    def __init__(self, labeller, turn, built, server):
+        """ask("all") sends the unshortened request at the turn's level (calibration)."""
+        self.labeller = labeller
+        self.turn = turn
+        self.built = built
+        self.server = server
+        self.level = turn["routing"]["label"]
+        self.reference_prompt = reference_prompt(turn["routing"])
+        self.asks = []
+        # The routing labeller's judge call: recent steps from the recorded (unshortened) request.
+        self.judge_asker = rl.TurnAsker(labeller, turn, built, server)
+
+    async def ask(self, cut):
+        body = rl.variant_body(self.built, self.level) if cut == "all" else trimmed_body(self.built, cut, self.level)
+        what = f"{self.turn['id']} {self.level} {cut}"
+        record = await rl.stream(self.labeller.http, self.server, body, what)
+        commands = rl.usable_commands(record)
+        saved = None if record["prompt_tokens"] is None else self.reference_prompt - record["prompt_tokens"]
+        if cut == "all" and saved not in (None, 0):
+            raise RuntimeError(f"{what}: the unshortened request's prompt differs from the routing request's by {saved}")
+        record.update({"level": self.level, "cut": cut, "commands": commands,
+                       "final_text": record["content"] if commands == [] else None, "prompt_saved": saved})
+        del record["reasoning"]
+        self.asks.append(record)
+        return record
+
+    async def judge(self, reference, alternative, key):
+        return await self.judge_asker.judge(reference, alternative, key)
+
+
+class TrimLabeller:
+    def __init__(self, options):
+        self.options = options
+        self.sources = []
+        for item in options.routing:
+            name, files = item.split("=", 1)
+            self.sources.append((name, files.split(",")))
+        self.moved = [tuple(item.split("=", 1)) for item in options.moved or []]
+        self.out_dir = Path(options.out_dir)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.servers = [rl.Server(url, options.machine, options.per_server, options.max_waiting)
+                        for url in options.servers.split(",")]
+        self.judge_client = rl.JudgeClient(options.judge_url, options.judge_model)
+        self.builder = TrimBuilder(options.node, options.builder)
+        self.done = set()
+        self.offsets = {}
+        self.sinks = {}
+        self.queues = {s.url: asyncio.Queue() for s in self.servers}
+        self.trial_server = {}
+        self.written = 0
+        self.labelled = 0
+        self.started = time.monotonic()
+        self.http = None
+
+    def load_done(self):
+        for name, _ in self.sources:
+            path = self.out_dir / f"trim-labels-{name}.jsonl"
+            if path.exists():
+                for line in path.read_text().splitlines():
+                    self.done.add(json.loads(line)["id"])
+            self.sinks[name] = path.open("a")
+
+    def write(self, source, row):
+        self.sinks[source].write(json.dumps(row) + "\n")
+        self.sinks[source].flush()
+
+    def new_routing_rows(self, path):
+        """Routing "turn" rows appended to `path` since the last read (whole lines only)."""
+        offset = self.offsets.get(path, 0)
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            data = handle.read()
+        end = data.rfind(b"\n") + 1
+        self.offsets[path] = offset + end
+        rows = [json.loads(line) for line in data[:end].decode().splitlines() if line.strip()]
+        return [row for row in rows if row["kind"] == "turn"]
+
+    def discover(self):
+        added = 0
+        for source, files in self.sources:
+            for path in files:
+                if not Path(path).exists():
+                    raise FileNotFoundError(f"routing label file {path} does not exist")
+                for row in self.new_routing_rows(path):
+                    if row["id"] in self.done or not sampled(row["id"], self.options.sample_rate):
+                        continue
+                    trial = resolve_trial(row["trial_dir"], self.moved)
+                    turn = {key: row[key] for key in ("id", "trial", "task", "class", "turn", "recording_machine",
+                                                        "session_id", "entry_id", "commands", "final_text",
+                                                        "recorded")}
+                    turn.update({"trial_dir": str(trial), "session_file": str(session_file(trial)),
+                                 "source_host": source, "routing": row})
+                    key = str(trial)
+                    if key not in self.trial_server:
+                        self.trial_server[key] = min(self.servers, key=lambda s: s.queued_turns)
+                    server = self.trial_server[key]
+                    server.queued_turns += 1
+                    self.queues[server.url].put_nowait(turn)
+                    self.done.add(row["id"])
+                    added += 1
+        return added
+
+    async def label(self, turn, server):
+        built = await self.builder.build(turn)
+        base = {"id": turn["id"], "trial": turn["trial"], "trial_dir": turn["trial_dir"], "task": turn["task"],
+                "class": turn["class"], "turn": turn["turn"], "source_host": turn["source_host"],
+                "routing_label": turn["routing"]["label"], "shown_lines": built["shownLines"]}
+        if not built["eligible"]:
+            return {"kind": SHORT, **base, "reason": built["reason"]}
+        asker = TrimAsker(self, turn, built, server)
+        started = time.monotonic()
+        calibration = in_calibration(turn["id"], self.options.calibration_rate)
+        result = await trim_cascade(asker, {"commands": turn["commands"], "final_text": turn["final_text"]},
+                                    set(built["trimmed"]), calibration)
+        return {"kind": "turn", **base, "recording_machine": turn["recording_machine"],
+                "session_id": turn["session_id"], "entry_id": turn["entry_id"], "commands": turn["commands"],
+                "final_text": turn["final_text"], "recorded": turn["recorded"],
+                "total_lines": built["totalLines"], "reference_prompt": asker.reference_prompt,
+                "replay_machine": server.machine, "server": server.url, "calibration": calibration,
+                "label": result["label"],
+                "checks": result["checks"], "asks": asker.asks, "judges": asker.judge_asker.judges,
+                "labelled_s": time.monotonic() - started, "labelled_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+
+    async def worker(self, server):
+        queue = self.queues[server.url]
+        while True:
+            turn = await queue.get()
+            try:
+                row = await self.label(turn, server)
+            except rl.JudgeRefused as problem:
+                # Not a fallback: the turn cannot be labelled by the owner's rule; left out with its reason.
+                print(f"LEFT OUT {turn['id']}: {problem}", flush=True)
+                row = {"kind": "excluded", "id": turn["id"], "trial_dir": turn["trial_dir"],
+                       "source_host": turn["source_host"], "class": turn["class"], "reason": rl.JUDGE_REFUSED,
+                       "detail": str(problem)}
+            server.queued_turns -= 1
+            self.write(turn["source_host"], row)
+            self.written += 1
+            if row["kind"] == "turn":
+                self.labelled += 1
+                if self.labelled % 25 == 0:
+                    hours = (time.monotonic() - self.started) / 3600
+                    print(f"{time.strftime('%H:%M:%S')} {self.labelled} turns labelled ({self.labelled / hours:.0f}/h), "
+                          f"{self.written} rows; " + ", ".join(
+                              f"{s.base.rsplit(':', 1)[-1]} q{s.queued_turns} f{s.in_flight} w{s.waiting}"
+                              for s in self.servers), flush=True)
+            queue.task_done()
+
+    async def run(self):
+        try:
+            await self._run()
+        except BaseException:  # noqa: BLE001 - not swallowed: printed, then the process ends with code 1
+            traceback.print_exc()
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(1)
+
+    async def _run(self):
+        self.load_done()
+        timeout = aiohttp.ClientTimeout(total=None, sock_read=1800)
+        async with aiohttp.ClientSession(timeout=timeout, connector=aiohttp.TCPConnector(limit=0)) as http:
+            self.http = http
+            print(f"judge: {await self.judge_client.check(http)}", flush=True)
+            watchers = [asyncio.create_task(s.watch(http)) for s in self.servers]
+            workers = [asyncio.create_task(self.worker(s)) for s in self.servers for _ in range(self.options.per_server)]
+            tasks = watchers + workers
+            while True:
+                added = self.discover()
+                print(f"{time.strftime('%H:%M:%S')} discovered {added} new routing-labelled turns; "
+                      f"{sum(s.queued_turns for s in self.servers)} queued", flush=True)
+                if self.options.exit_when_idle and all(s.queued_turns == 0 for s in self.servers):
+                    break
+                if self.options.max_turns is not None and self.labelled >= self.options.max_turns:
+                    break
+                done, _ = await asyncio.wait(tasks, timeout=self.options.poll, return_when=asyncio.FIRST_EXCEPTION)
+                for task in done:
+                    task.result()
+            for task in tasks:
+                task.cancel()
+        print(f"done: {self.labelled} turns labelled, {self.written} rows in {time.monotonic() - self.started:.0f} s",
+              flush=True)
+
+
+# ------------------------------------------------------------------------------------------------ stats
+
+LENGTH_BUCKETS = ((41, 100), (101, 200), (201, 500), (501, 2000), (2001, None))
+
+
+def length_bucket(lines):
+    for low, high in LENGTH_BUCKETS:
+        if lines >= low and (high is None or lines <= high):
+            return f"{low}-{high}" if high is not None else f"{low}+"
+    raise ValueError(f"{lines} lines is not a trimmed length")
+
+
+def read_rows(paths):
+    rows = []
+    for path in paths:
+        rows.extend(json.loads(line) for line in Path(path).read_text().splitlines() if line.strip())
+    seen = collections.Counter(row["id"] for row in rows)
+    twice = [turn_id for turn_id, count in seen.items() if count > 1]
+    if twice:
+        raise ValueError(f"{len(twice)} turns appear twice, e.g. {twice[0]}")
+    return rows
+
+
+def _pct(a, b):
+    return f"{100 * a / b:.1f}%" if b else "-"
+
+
+def saved_tokens(turn):
+    """Prompt tokens the label saves on this turn (the labelled choice's request), 0 for "all"."""
+    if turn["label"] == "all":
+        return 0
+    return next(a["prompt_saved"] for a in turn["asks"] if a["cut"] == turn["label"])
+
+
+def stats_markdown(rows):
+    turns = [r for r in rows if r["kind"] == "turn"]
+    short = [r for r in rows if r["kind"] == SHORT]
+    excluded = [r for r in rows if r["kind"] == "excluded"]
+    out = []
+    w = out.append
+    w("# Output-trimming labels: how much of the newest tool output does the coding model need?\n")
+    w("Generated by `results/imitation/scripts/trim_labels.py stats`. Each sampled routing-labelled Qwen3.8-27B turn "
+      "whose newest tool output shows more than 40 lines is asked again at its routing level with that output cut to "
+      "its last 40 lines, its first 20 and last 20, and its first 40 (then, if none is good and more than 200 lines "
+      "show, its last 200), with a note in pi's truncation form. Good = the same step as the recorded xhigh action, or "
+      "the judge's YES (Qwen3.8-Max, thinking off). Label = the first good 40-line cut (last40, first20last20, "
+      "first40), else last200 when good, else all.\n")
+    w(f"Routing-labelled turns read: {len(rows)}; newest output at most 40 lines or none: {len(short)} "
+      f"({_pct(len(short), len(rows))}); labelled: {len(turns)}; left out (judge refused): {len(excluded)}.\n")
+
+    def table(title, key, groups_order=None):
+        w(f"## Labels by {title}\n")
+        w("| group | turns | " + " | ".join(LABELS) + " | prompt tokens saved per turn | shown lines (mean) |")
+        w("|---|---:|" + "---:|" * (len(LABELS) + 2))
+        groups = collections.defaultdict(list)
+        for t in turns:
+            groups[key(t)].append(t)
+        names = groups_order or sorted(groups)
+        for name, group in [("all turns", turns)] + [(n, groups[n]) for n in names if n in groups]:
+            n = len(group)
+            count = collections.Counter(t["label"] for t in group)
+            w(f"| {name} | {n} | " + " | ".join(_pct(count[label], n) for label in LABELS) + " | "
+              f"{sum(saved_tokens(t) for t in group) / n:.0f} | {sum(t['shown_lines'] for t in group) / n:.0f} |")
+        w("")
+
+    table("shown output length (lines)", lambda t: length_bucket(t["shown_lines"]),
+          [length_bucket(low) for low, _ in LENGTH_BUCKETS])
+    table("turn class", lambda t: t["class"])
+    table("routing level (the level asked)", lambda t: t["routing_label"], ["off", "low", "medium", "xhigh"])
+
+    w("## How the checks decided\n")
+    w("Good = the cut's action was good, whether or not it became the label (all asked cuts are checked).\n")
+    w("| cut | asked | good | same step (free match) | judge YES | judge NO | no usable action |")
+    w("|---|---:|---:|---:|---:|---:|---:|")
+    for cut in FORTY + (WIDE,):
+        checks = [t["checks"][cut] for t in turns if cut in t["checks"]]
+        by = collections.Counter((c["by"], c["good"]) for c in checks)
+        w(f"| {cut} | {len(checks)} | {_pct(sum(c['good'] for c in checks), len(checks))} | {by[('intent', True)]} | {by[('judge', True)]} | {by[('judge', False)]} | "
+          f"{by[('no usable action', False)]} |")
+    w("")
+    calibration = [t for t in turns if t.get("calibration")]
+    w("## Calibration: the unshortened request at the same level\n")
+    if calibration:
+        good = sum(t["checks"]["all"]["good"] for t in calibration)
+        any_cut = sum(any(t["checks"][c]["good"] for c in FORTY + (WIDE,) if c in t["checks"]) for t in calibration)
+        w(f"Calibration turns: {len(calibration)}. Unshortened reply good: {_pct(good, len(calibration))}; some cut "
+          f"good: {_pct(any_cut, len(calibration))}. By routing level: " + ", ".join(
+              f"{level} {_pct(sum(t['checks']['all']['good'] for t in calibration if t['routing_label'] == level), n)} "
+              f"of {n}" for level in ("off", "low", "medium", "xhigh")
+              for n in [sum(t["routing_label"] == level for t in calibration)] if n) + ".\n")
+    else:
+        w("No calibration turns yet.\n")
+    w("## Tokens\n")
+    total_saved = sum(saved_tokens(t) for t in turns)
+    total_prompt = sum(t["reference_prompt"] for t in turns)
+    w(f"Prompt tokens of the labelled turns' unshortened requests: {total_prompt}; saved by the labels: {total_saved} "
+      f"({_pct(total_saved, total_prompt)} of these turns' prompts). The saving carries into every later request of "
+      "the session (the shortened output stays in the history); this table counts it once.\n")
+    outcomes = collections.Counter((a["cut"], a["outcome"]) for t in turns for a in t["asks"])
+    w(f"Request outcomes (cut, outcome: requests): {dict(sorted(outcomes.items()))}.\n")
+    return "\n".join(out) + "\n"
+
+
+def join_rows(rows, stage3_rows):
+    """One trimming row per labelled turn that has stage-3 rows: the state of the turn's first decision (its tool-level
+    row on page 1: what Jeff sees right after the newest output arrived, before the coding model's turn) plus the trim
+    fields. Turns without a stage-3 row are counted."""
+    first = {}
+    for row in stage3_rows:
+        if row["level"] != "tool" or row["page"] != 1:
+            continue
+        key = (row["session"], row["turn"])
+        if key not in first or row["decision"] < first[key]["decision"]:
+            first[key] = row
+    out = []
+    missing = 0
+    turns = [r for r in rows if r["kind"] == "turn"]
+    for turn in turns:
+        stage3 = first.get((turn["session_id"], turn["turn"]))
+        if stage3 is None:
+            missing += 1
+            continue
+        out.append({"source": "own", "stage": 3, "task": turn["task"], "session": turn["session_id"],
+                    "turn": turn["turn"], "machine": turn["recording_machine"], "source_host": turn["source_host"],
+                    "class": turn["class"], "state": stage3["state"],
+                    "trim": {"label": turn["label"], "total_lines": turn["total_lines"],
+                             "shown_lines": turn["shown_lines"], "routing_label": turn["routing_label"],
+                             "checks": turn["checks"], "calibration": turn["calibration"]}})
+    return out, {"labelled turns": len(turns), "joined": len(out), "no stage-3 row": missing}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="step", required=True)
+    r = sub.add_parser("run")
+    r.add_argument("--routing", action="append", required=True,
+                   help="NAME=FILE[,FILE...]: the routing labeller's output files of one source host")
+    r.add_argument("--moved", action="append", help="OLD_PREFIX=NEW_PREFIX: a collection folder that moved")
+    r.add_argument("--servers", required=True, help="comma-separated chat-completions URLs of the sessions' format")
+    r.add_argument("--machine", required=True)
+    r.add_argument("--judge-url", required=True)
+    r.add_argument("--judge-model", required=True)
+    r.add_argument("--out-dir", required=True)
+    r.add_argument("--node", required=True)
+    r.add_argument("--builder", required=True, help="trim_requests.ts or its bundle trim_requests.mjs")
+    r.add_argument("--sample-rate", type=float, required=True, help="share of routing-labelled turns sampled (0-1]")
+    r.add_argument("--calibration-rate", type=float, required=True,
+                   help="share of turns that also ask the unshortened request (noise floor)")
+    r.add_argument("--per-server", type=int, default=8)
+    r.add_argument("--max-waiting", type=int, default=4)
+    r.add_argument("--poll", type=float, default=300)
+    r.add_argument("--max-turns", type=int, help="stop after this many labelled turns (smoke)")
+    r.add_argument("--exit-when-idle", action="store_true")
+    j = sub.add_parser("join", help="trimming rows: the trim labels joined onto the stage-3 rows (one per turn)")
+    j.add_argument("--labels", nargs="+", required=True)
+    j.add_argument("--stage3-rows", required=True)
+    j.add_argument("--out", required=True)
+    st = sub.add_parser("stats")
+    st.add_argument("--labels", nargs="+", required=True)
+    st.add_argument("--out", required=True)
+    options = parser.parse_args()
+    if options.step == "run":
+        if not 0 < options.sample_rate <= 1:
+            raise ValueError(f"--sample-rate must be in (0, 1], got {options.sample_rate}")
+        if not 0 <= options.calibration_rate <= 1:
+            raise ValueError(f"--calibration-rate must be in [0, 1], got {options.calibration_rate}")
+        try:
+            asyncio.run(TrimLabeller(options).run())
+        except BaseException:  # noqa: BLE001 - not swallowed: printed, then the process ends with code 1
+            traceback.print_exc()
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(1)
+    elif options.step == "join":
+        stage3 = [json.loads(line) for line in Path(options.stage3_rows).read_text().splitlines()]
+        rows, counts = join_rows(read_rows(options.labels), stage3)
+        Path(options.out).write_text("".join(json.dumps(row) + "\n" for row in rows))
+        print(counts)
+    else:
+        Path(options.out).write_text(stats_markdown(read_rows(options.labels)))
+
+
+if __name__ == "__main__":
+    main()
