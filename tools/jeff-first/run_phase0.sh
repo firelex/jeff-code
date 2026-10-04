@@ -33,7 +33,10 @@
 #                fixed:xhigh, or jeff:<router adapter> (Jeff's router adapter chooses per request; needs
 #                JEFF_FIRST_JEFF_URL and JEFF_FIRST_JEFF_ROUTER_THRESHOLD, the probability from 0 to 1 a level below
 #                xhigh needs) (it overrides THINKING per request; THINKING must not be off unless the router is
-#                fixed:off, since pi then marks the model as unable to think)
+#                fixed:off, since pi then marks the model as unable to think); and JEFF_FIRST_OUTPUT_TRIM, how much of
+#                each new output over 40 lines Qwen sees: off, fixed:all, fixed:last200, fixed:last40, fixed:first40,
+#                fixed:first20last20, or jeff:<trimming adapter> (needs JEFF_FIRST_JEFF_URL and
+#                JEFF_FIRST_JEFF_TRIM_THRESHOLD, the probability from 0 to 1 a cut needs)
 #   TIMEOUT_MULTIPLIER  positive number that multiplies each task's agent time limit (Harbor's
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
 #                the teacher's (GLM's) latency never decides a task through the time limit
@@ -82,6 +85,17 @@ check_router() {
     *) echo "MODE $mode needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium, fixed:xhigh or jeff:<router adapter>" >&2; exit 2 ;;
   esac
 }
+# How much of a long new output Qwen sees (teacher, record and jeff modes).
+check_trim() {
+  case "${JEFF_FIRST_OUTPUT_TRIM:-}" in
+    off|fixed:all|fixed:last200|fixed:last40|fixed:first40|fixed:first20last20) ;;
+    jeff:?*)
+      [ -n "${JEFF_FIRST_JEFF_URL:-}" ] || { echo "JEFF_FIRST_OUTPUT_TRIM=$JEFF_FIRST_OUTPUT_TRIM needs JEFF_FIRST_JEFF_URL (the Jeff service as containers reach it)" >&2; exit 2; }
+      check_threshold JEFF_FIRST_JEFF_TRIM_THRESHOLD "${JEFF_FIRST_JEFF_TRIM_THRESHOLD:-}"
+      ;;
+    *) echo "MODE $mode needs JEFF_FIRST_OUTPUT_TRIM: off, fixed:all, fixed:last200, fixed:last40, fixed:first40, fixed:first20last20 or jeff:<trimming adapter>" >&2; exit 2 ;;
+  esac
+}
 check_threshold() {
   [[ "$2" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]] || { echo "$1 must be a number from 0 to 1, e.g. 0.5 (got \"$2\")" >&2; exit 2; }
 }
@@ -93,6 +107,7 @@ case "$mode" in
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE teacher needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE teacher needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     check_router
+    check_trim
     ;;
   jeff)
     [ -n "${JEFF_FIRST_JEFF_URL:-}" ] || { echo "MODE jeff needs JEFF_FIRST_JEFF_URL (the Jeff service as containers reach it, e.g. http://192.168.2.10:8920)" >&2; exit 2; }
@@ -101,11 +116,13 @@ case "$mode" in
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE jeff needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE jeff needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     check_router
+    check_trim
     ;;
   record)
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE record needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE record needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     check_router
+    check_trim
     ;;
   *) echo "MODE must be shadow, teacher, record or jeff" >&2; exit 2 ;;
 esac
@@ -114,6 +131,7 @@ export JEFF_RUN_THINKING_FORMAT="${JEFF_RUN_THINKING_FORMAT:-}" JEFF_RUN_MAX_OUT
 export JEFF_FIRST_THINKING_ROUTER="${JEFF_FIRST_THINKING_ROUTER:-}" JEFF_FIRST_JEFF_URL="${JEFF_FIRST_JEFF_URL:-}"
 export JEFF_FIRST_JEFF_STEP_ADAPTER="${JEFF_FIRST_JEFF_STEP_ADAPTER:-}" JEFF_FIRST_JEFF_STEP_THRESHOLD="${JEFF_FIRST_JEFF_STEP_THRESHOLD:-}"
 export JEFF_FIRST_JEFF_ROUTER_THRESHOLD="${JEFF_FIRST_JEFF_ROUTER_THRESHOLD:-}"
+export JEFF_FIRST_OUTPUT_TRIM="${JEFF_FIRST_OUTPUT_TRIM:-}" JEFF_FIRST_JEFF_TRIM_THRESHOLD="${JEFF_FIRST_JEFF_TRIM_THRESHOLD:-}"
 
 if [ $# -gt 0 ]; then
   tasks=("$@")
@@ -163,8 +181,9 @@ run_one() {
     local model_host=${base_url#*://}
     model_host=${model_host%%[:/]*}
     local hosts=$model_host
-    # Jeff mode, or a Jeff router: the Jeff service's host must stay reachable too.
-    if [ -n "$JEFF_FIRST_JEFF_URL" ] && { [ "$mode" = jeff ] || [[ "$JEFF_FIRST_THINKING_ROUTER" == jeff:* ]]; }; then
+    # Jeff mode, a Jeff router or Jeff trimming: the Jeff service's host must stay reachable too.
+    if [ -n "$JEFF_FIRST_JEFF_URL" ] && { [ "$mode" = jeff ] || [[ "$JEFF_FIRST_THINKING_ROUTER" == jeff:* ]] \
+        || [[ "$mode" != shadow && "$JEFF_FIRST_OUTPUT_TRIM" == jeff:* ]]; }; then
       local jeff_host=${JEFF_FIRST_JEFF_URL#*://}
       jeff_host=${jeff_host%%[:/]*}
       [ "$jeff_host" = "$model_host" ] || hosts="$hosts,$jeff_host"
@@ -204,6 +223,14 @@ run_one() {
     [ "$mode" = jeff ] || command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
     command+=(--ae "JEFF_FIRST_JEFF_ROUTER_THRESHOLD=$JEFF_FIRST_JEFF_ROUTER_THRESHOLD")
   fi
+  if [ "$mode" != shadow ]; then
+    command+=(--ae "JEFF_FIRST_OUTPUT_TRIM=$JEFF_FIRST_OUTPUT_TRIM")
+    # Jeff trimming needs the service (unless jeff mode or a Jeff router already passes it) and its threshold.
+    if [[ "$JEFF_FIRST_OUTPUT_TRIM" == jeff:* ]]; then
+      [ "$mode" = jeff ] || [[ "$JEFF_FIRST_THINKING_ROUTER" == jeff:* ]] || command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
+      command+=(--ae "JEFF_FIRST_JEFF_TRIM_THRESHOLD=$JEFF_FIRST_JEFF_TRIM_THRESHOLD")
+    fi
+  fi
   if [ "$dry_run" = 1 ]; then
     printf '%q ' "${command[@]}"; echo
     return
@@ -225,7 +252,7 @@ export -f run_one
 export here tarball base_url jobs thinking tools model mode timeout_multiplier dry_run JEFF_RUN_API_KEY \
   JEFF_RUN_THINKING_FORMAT JEFF_RUN_MAX_OUTPUT_TOKENS JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD JEFF_FIRST_THINKING_ROUTER \
   JEFF_FIRST_JEFF_URL JEFF_FIRST_JEFF_STEP_ADAPTER JEFF_FIRST_JEFF_STEP_THRESHOLD JEFF_FIRST_JEFF_ROUTER_THRESHOLD \
-  JEFF_RUN_TASK_SETS JEFF_RUN_TASK_INVENTORY
+  JEFF_FIRST_OUTPUT_TRIM JEFF_FIRST_JEFF_TRIM_THRESHOLD JEFF_RUN_TASK_SETS JEFF_RUN_TASK_INVENTORY
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
 if ! printf '%s\n' "${tasks[@]}" | xargs -P "$concurrency" -I{} bash -c 'run_one "$1"' _ {}; then

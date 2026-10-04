@@ -32,6 +32,7 @@ def run(tmp_path: Path, script: Path, tasks: list[str], env: dict | None = None,
         "JEFF_FIRST_RUN_APPROVAL": "all",
         "JEFF_FIRST_DRIVER_BUILD": "qwen3.8-27b-nvfp4@b200-gpu0-vllm0.29",
         "JEFF_FIRST_THINKING_ROUTER": "fixed:xhigh",
+        "JEFF_FIRST_OUTPUT_TRIM": "off",
         **(env or {}),
     }
     args = [str(tasks_json), str(tarball), "http://192.168.3.12:8885", str(jobs), "1", "high", "bash", "qwen3.8-27b", mode, "6"]
@@ -50,7 +51,10 @@ def test_terminal_bench_2_commands_are_unchanged(tmp_path):
     assert old.returncode == 0 and new.returncode == 0, new.stderr
     # The old copy lives in tmp_path, so its uv project folder differs; compare with that folder normalised.
     normalise = lambda text: re.sub(r"--project \S+", "--project <here>", without_time(text))
-    assert sorted(normalise(new.stdout).splitlines()) == sorted(normalise(old.stdout).splitlines())
+    # The output trimming setting (added later) is the only new argument.
+    new_lines = [line.replace("--ae JEFF_FIRST_OUTPUT_TRIM=off ", "") for line in normalise(new.stdout).splitlines()]
+    assert all("JEFF_FIRST_OUTPUT_TRIM=off" in line for line in new.stdout.splitlines())
+    assert sorted(new_lines) == sorted(normalise(old.stdout).splitlines())
     assert "--dataset terminal-bench@2.0 -i adaptive-rejection-sampler" in new.stdout
 
 
@@ -178,3 +182,34 @@ def test_an_offline_task_in_jeff_mode_also_allows_the_jeff_service_host(tmp_path
     assert result.returncode == 0, result.stderr
     # The dry run prints each argument shell-quoted (printf %q), which escapes the comma.
     assert "--ak allowed_hosts=192.168.3.12\\,192.168.2.10 " in result.stdout
+
+
+def test_the_output_trimming_setting_is_required_and_forwarded(tmp_path):
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {"JEFF_FIRST_OUTPUT_TRIM": ""})
+    assert result.returncode == 2 and "JEFF_FIRST_OUTPUT_TRIM" in result.stderr
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {"JEFF_FIRST_OUTPUT_TRIM": "fixed:200"})
+    assert result.returncode == 2 and "fixed:first20last20" in result.stderr
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {"JEFF_FIRST_OUTPUT_TRIM": "fixed:last40"})
+    assert result.returncode == 0, result.stderr
+    assert "--ae JEFF_FIRST_OUTPUT_TRIM=fixed:last40 " in result.stdout
+    assert "JEFF_FIRST_JEFF_TRIM_THRESHOLD" not in result.stdout
+
+
+def test_jeff_trimming_needs_the_service_and_its_threshold(tmp_path):
+    env = {"JEFF_FIRST_OUTPUT_TRIM": "jeff:jeff-trim", "JEFF_FIRST_JEFF_TRIM_THRESHOLD": "0.6"}
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], env)
+    assert result.returncode == 2 and "JEFF_FIRST_JEFF_URL" in result.stderr
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {**env, "JEFF_FIRST_JEFF_URL": "http://192.168.2.10:8920",
+                                                                    "JEFF_FIRST_JEFF_TRIM_THRESHOLD": ""})
+    assert result.returncode == 2 and "JEFF_FIRST_JEFF_TRIM_THRESHOLD" in result.stderr
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {**env, "JEFF_FIRST_JEFF_URL": "http://192.168.2.10:8920"})
+    assert result.returncode == 0, result.stderr
+    line = result.stdout.strip() + " "
+    for setting in ["JEFF_FIRST_OUTPUT_TRIM=jeff:jeff-trim", "JEFF_FIRST_JEFF_URL=http://192.168.2.10:8920",
+                    "JEFF_FIRST_JEFF_TRIM_THRESHOLD=0.6"]:
+        assert f"--ae {setting} " in line, setting
+    # In jeff mode with a Jeff router the service address is passed once.
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {**JEFF_ENV, **env}, mode="jeff")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.count("JEFF_FIRST_JEFF_URL=") == 1
+    assert "--ae JEFF_FIRST_JEFF_TRIM_THRESHOLD=0.6 " in result.stdout

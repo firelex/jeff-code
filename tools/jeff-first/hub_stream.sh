@@ -24,6 +24,8 @@ for f in "$TGZ" "$HUB/task-sets.json" "$HUB/task-sets-inventory.json" "$HUB/tool
 done
 export JEFF_RUN_API_KEY=unused JEFF_RUN_THINKING_FORMAT=qwen-chat-template JEFF_RUN_MAX_OUTPUT_TOKENS=32768
 export JEFF_FIRST_RUN_APPROVAL=all JEFF_FIRST_DRIVER_BUILD=$DRIVER JEFF_FIRST_THINKING_ROUTER=fixed:xhigh
+# Collection shows Qwen every output whole (run_phase0.sh requires the setting; build 8db5381f3 predates it).
+export JEFF_FIRST_OUTPUT_TRIM=off
 export JEFF_RUN_TASK_SETS=$HUB/task-sets.json JEFF_RUN_TASK_INVENTORY=$HUB/task-sets-inventory.json
 mkdir -p "$OUT"
 while true; do
