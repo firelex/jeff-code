@@ -6,6 +6,7 @@ from jeff_eval_summary import main, summarize
 
 CUT = {"tokens_before": 9249, "tokens_after": 8184, "lines_left_out": 122, "limit": 8192}
 CANNOT = {"tokens_before": 23150, "tokens_least": 11268, "limit": 8192}
+LIMIT_CUT = {"thinking_tokens": 8003, "thinking_chars": 27000, "continuation": {"outcome": "tool_call"}}
 
 
 def level(chooser, cut=None, abstained=None):
@@ -23,9 +24,12 @@ def test_counts_questions_cuts_and_abstentions_per_decision_kind(tmp_path, capsy
         {"kind": "decision", "levels": [level("jeff:step"), level("jeff:step", cut=CUT)]},
         {"kind": "decision", "levels": [level("jeff:step", abstained=CANNOT)]},
         {"kind": "decision", "levels": [level("teacher:glm")]},
-        {"kind": "qwen_request", "router": "jeff:router", "attempt": 1, "router_cut": None, "router_abstained": CANNOT},
-        {"kind": "qwen_request", "router": "jeff:router", "attempt": 2, "router_cut": None, "router_abstained": None},
-        {"kind": "qwen_request", "router": "fixed:xhigh", "attempt": 1, "router_cut": None, "router_abstained": None},
+        {"kind": "qwen_request", "router": "jeff:router", "attempt": 1, "router_cut": None, "router_abstained": CANNOT,
+         "thinking_limit": 8000, "limit_cut": LIMIT_CUT},
+        {"kind": "qwen_request", "router": "jeff:router", "attempt": 2, "router_cut": None, "router_abstained": None,
+         "thinking_limit": 8000, "limit_cut": None},
+        {"kind": "qwen_request", "router": "fixed:xhigh", "attempt": 1, "router_cut": None, "router_abstained": None,
+         "thinking_limit": 8000, "limit_cut": {**LIMIT_CUT, "continuation": {"outcome": "no_tool_call"}}},
         {"kind": "output_trim", "trimmer": "jeff:trim", "jeff_cut": CUT, "jeff_abstained": None},
         {"kind": "model_turn"},
     ])
@@ -34,8 +38,12 @@ def test_counts_questions_cuts_and_abstentions_per_decision_kind(tmp_path, capsy
                                  "router": {"asked": 1, "cut": 0, "abstained": 1},
                                  "trim": {"asked": 1, "cut": 1, "abstained": 0}}
     assert [(a["kind"], a["tokens_least"]) for a in summary["abstentions"]] == [("step", 11268), ("router", 11268)]
+    assert summary["thinking_limit"] == {"limit": [8000], "requests": 3, "cut": 2,
+                                         "continuation": {"tool_call": 1, "no_tool_call": 1}}
     main([str(tmp_path)])
-    assert "step: 3 questions, 1 cut to fit, 1 abstained" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "step: 3 questions, 1 cut to fit, 1 abstained" in printed
+    assert "Thinking limit [8000]: 2 of 3 Qwen requests cut and continued" in printed
     assert json.loads((tmp_path / "jeff-decisions-summary.json").read_text())["counts"] == summary["counts"]
 
 

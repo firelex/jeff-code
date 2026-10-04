@@ -26,6 +26,8 @@ export JEFF_RUN_API_KEY=unused JEFF_RUN_THINKING_FORMAT=qwen-chat-template JEFF_
 export JEFF_FIRST_RUN_APPROVAL=all JEFF_FIRST_DRIVER_BUILD=$DRIVER JEFF_FIRST_THINKING_ROUTER=fixed:xhigh
 # Collection shows Qwen every output whole (run_phase0.sh requires the setting; build 8db5381f3 predates it).
 export JEFF_FIRST_OUTPUT_TRIM=off
+# No thinking limit in the collection (run_phase0.sh requires the setting; build 8db5381f3 predates it).
+export JEFF_FIRST_THINKING_LIMIT=off
 export JEFF_RUN_TASK_SETS=$HUB/task-sets.json JEFF_RUN_TASK_INVENTORY=$HUB/task-sets-inventory.json
 mkdir -p "$OUT"
 while true; do

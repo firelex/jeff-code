@@ -36,7 +36,9 @@
 #                fixed:off, since pi then marks the model as unable to think); and JEFF_FIRST_OUTPUT_TRIM, how much of
 #                each new output over 40 lines Qwen sees: off, fixed:all, fixed:last200, fixed:last40, fixed:first40,
 #                fixed:first20last20, or jeff:<trimming adapter> (needs JEFF_FIRST_JEFF_URL and
-#                JEFF_FIRST_JEFF_TRIM_THRESHOLD, the probability from 0 to 1 a cut needs)
+#                JEFF_FIRST_JEFF_TRIM_THRESHOLD, the probability from 0 to 1 a cut needs); and
+#                JEFF_FIRST_THINKING_LIMIT, the most thinking tokens one Qwen reply may use before it is cut and
+#                continued: off or a whole number, e.g. 8000
 #   TIMEOUT_MULTIPLIER  positive number that multiplies each task's agent time limit (Harbor's
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
 #                the teacher's (GLM's) latency never decides a task through the time limit
@@ -96,6 +98,11 @@ check_trim() {
     *) echo "MODE $mode needs JEFF_FIRST_OUTPUT_TRIM: off, fixed:all, fixed:last200, fixed:last40, fixed:first40, fixed:first20last20 or jeff:<trimming adapter>" >&2; exit 2 ;;
   esac
 }
+# The thinking limit (teacher, record and jeff modes): off or a whole number of tokens.
+check_thinking_limit() {
+  [[ "${JEFF_FIRST_THINKING_LIMIT:-}" =~ ^(off|[1-9][0-9]*)$ ]] \
+    || { echo "MODE $mode needs JEFF_FIRST_THINKING_LIMIT: off or a whole number of thinking tokens, e.g. 8000 (got \"${JEFF_FIRST_THINKING_LIMIT:-}\")" >&2; exit 2; }
+}
 check_threshold() {
   [[ "$2" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]] || { echo "$1 must be a number from 0 to 1, e.g. 0.5 (got \"$2\")" >&2; exit 2; }
 }
@@ -108,6 +115,7 @@ case "$mode" in
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE teacher needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     check_router
     check_trim
+    check_thinking_limit
     ;;
   jeff)
     [ -n "${JEFF_FIRST_JEFF_URL:-}" ] || { echo "MODE jeff needs JEFF_FIRST_JEFF_URL (the Jeff service as containers reach it, e.g. http://192.168.2.10:8920)" >&2; exit 2; }
@@ -117,12 +125,14 @@ case "$mode" in
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE jeff needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     check_router
     check_trim
+    check_thinking_limit
     ;;
   record)
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE record needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE record needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
     check_router
     check_trim
+    check_thinking_limit
     ;;
   *) echo "MODE must be shadow, teacher, record or jeff" >&2; exit 2 ;;
 esac
@@ -132,6 +142,7 @@ export JEFF_FIRST_THINKING_ROUTER="${JEFF_FIRST_THINKING_ROUTER:-}" JEFF_FIRST_J
 export JEFF_FIRST_JEFF_STEP_ADAPTER="${JEFF_FIRST_JEFF_STEP_ADAPTER:-}" JEFF_FIRST_JEFF_STEP_THRESHOLD="${JEFF_FIRST_JEFF_STEP_THRESHOLD:-}"
 export JEFF_FIRST_JEFF_ROUTER_THRESHOLD="${JEFF_FIRST_JEFF_ROUTER_THRESHOLD:-}"
 export JEFF_FIRST_OUTPUT_TRIM="${JEFF_FIRST_OUTPUT_TRIM:-}" JEFF_FIRST_JEFF_TRIM_THRESHOLD="${JEFF_FIRST_JEFF_TRIM_THRESHOLD:-}"
+export JEFF_FIRST_THINKING_LIMIT="${JEFF_FIRST_THINKING_LIMIT:-}"
 
 if [ $# -gt 0 ]; then
   tasks=("$@")
@@ -224,7 +235,7 @@ run_one() {
     command+=(--ae "JEFF_FIRST_JEFF_ROUTER_THRESHOLD=$JEFF_FIRST_JEFF_ROUTER_THRESHOLD")
   fi
   if [ "$mode" != shadow ]; then
-    command+=(--ae "JEFF_FIRST_OUTPUT_TRIM=$JEFF_FIRST_OUTPUT_TRIM")
+    command+=(--ae "JEFF_FIRST_OUTPUT_TRIM=$JEFF_FIRST_OUTPUT_TRIM" --ae "JEFF_FIRST_THINKING_LIMIT=$JEFF_FIRST_THINKING_LIMIT")
     # Jeff trimming needs the service (unless jeff mode or a Jeff router already passes it) and its threshold.
     if [[ "$JEFF_FIRST_OUTPUT_TRIM" == jeff:* ]]; then
       [ "$mode" = jeff ] || [[ "$JEFF_FIRST_THINKING_ROUTER" == jeff:* ]] || command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
