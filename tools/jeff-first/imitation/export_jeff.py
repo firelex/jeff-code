@@ -24,7 +24,10 @@ three files: `train.jsonl`, `development.jsonl` (checkpoint choice) and `tempera
 Splits (`results/imitation/splits.json`, written once by the `splits` command from training-tasks.json and a seed):
 - Stages 2 and 3 run on the same Terminal-Bench training tasks: 4 tasks go to development and 4 to temperature (the
   first 4 and next 4 in an order fixed by the seed), the rest to train, the same for both stages. A stage 2 or 3 row
-  of any other task is an error.
+  of any other Terminal-Bench task is an error.
+- Stage 3 rows of a Harbor hub task "<org>/<dataset>:<task>" need `--task-sets`: the task must be on the training side
+  of task-sets.json (held-out, excluded and unknown tasks are errors) and goes by the stage-1 hash rule on its task id,
+  exactly as export_routing.py and export_trim.py place the same task's router and trim rows.
 - Stage 1 (public dataset tasks) is split 90/5/5 by task group: a group's place is fixed by a hash of the seed and
   the group name alone, so the split does not depend on which other tasks a conversion holds. The ukisai dataset
   names a second trial of a task "<task>__<trial label>" with the same task text; `task_group` cuts that suffix. It
@@ -52,6 +55,8 @@ import random
 import re
 from collections.abc import Sequence
 from pathlib import Path
+
+from task_source import TaskSets, is_hub_task, load_task_sets
 
 TOOL_QUESTION = "What should the next step be? Choose one option."
 LATER_PAGE_PREFIX = (
@@ -98,6 +103,8 @@ def task_group(row: dict) -> str:
     module docstring); a Terminal-Bench task (stages 2 and 3) alone."""
     if row["stage"] == 1:
         return STAGE1_RUN_VARIANT.sub("", row["task"].split(STAGE1_TRIAL_SEPARATOR, 1)[0])
+    if is_hub_task(row["task"]):
+        return row["task"]
     if STAGE1_TRIAL_SEPARATOR in row["task"]:
         raise ValueError(f"a stage {row['stage']} task name has {STAGE1_TRIAL_SEPARATOR!r} in it: {row['task']!r}")
     return row["task"]
@@ -162,18 +169,36 @@ def make_splits(tasks_path: Path, seed: int) -> dict:
     }
 
 
-def split_of(row: dict, splits: dict) -> str:
+def _hash_split(splits: dict, name: str) -> str:
+    """The stage-1 rule: development, temperature or train by the hash of the seed and `name`."""
+    shares = splits["stage1"]["shares"]
+    position = int(_rank(splits["seed"], name), 16) / 16**64
+    if position < shares["development"]:
+        return "development"
+    return "temperature" if position < shares["development"] + shares["temperature"] else "train"
+
+
+def task_split(task: str, splits: dict, task_sets: TaskSets | None) -> str:
+    """The split of one of our own collection's tasks (stages 2 and 3, router and trim rows): a bare Terminal-Bench 2.0
+    name by splits.json; a hub task "<org>/<dataset>:<task>" must be on the training side of task-sets.json and goes by
+    the stage-1 hash rule on its task id. Held-out, excluded and unknown tasks are errors."""
+    if not is_hub_task(task):
+        for name in SPLITS:
+            if task in splits["terminal_bench"][name]:
+                return name
+        raise ValueError(f"the Terminal-Bench 2.0 task {task!r} is not in splits.json (held out, or unknown)")
+    if task_sets is None:
+        raise ValueError(f"the hub task {task} needs task-sets.json (--task-sets) to be placed")
+    side = task_sets.side(task)
+    if side != "training":
+        raise ValueError(f"the task {task} is {side} in task-sets.json; only training tasks are exported")
+    return _hash_split(splits, task)
+
+
+def split_of(row: dict, splits: dict, task_sets: TaskSets | None = None) -> str:
     if row["stage"] == 1:
-        shares = splits["stage1"]["shares"]
-        position = int(_rank(splits["seed"], task_group(row)), 16) / 16**64
-        if position < shares["development"]:
-            return "development"
-        return "temperature" if position < shares["development"] + shares["temperature"] else "train"
-    bench = splits["terminal_bench"]
-    for name in SPLITS:
-        if row["task"] in bench[name]:
-            return name
-    raise ValueError(f"the stage {row['stage']} task {row['task']!r} is not in splits.json's Terminal-Bench tasks")
+        return _hash_split(splits, task_group(row))
+    return task_split(row["task"], splits, task_sets)
 
 
 def _read_stage_rows(row_files: Sequence[Path]):
@@ -198,7 +223,7 @@ def _read_stage_rows(row_files: Sequence[Path]):
         raise ValueError("No rows were read; refusing to write an empty export")
 
 
-def export_rows(row_files: Sequence[Path], splits: dict, out: Path) -> dict[str, int]:
+def export_rows(row_files: Sequence[Path], splits: dict, out: Path, task_sets: TaskSets | None = None) -> dict[str, int]:
     """Convert the rows of one stage into the three split files under `out` (which must not hold them yet), one row
     at a time; returns the number of examples per split. Every row is exported: a row whose prompt is over Jeff's
     8,192 tokens is cut to fit afterwards, with the other exporters' files (jeff_prompt.py fit-examples)."""
@@ -211,7 +236,7 @@ def export_rows(row_files: Sequence[Path], splits: dict, out: Path) -> dict[str,
     streams = {name: path.open("w", encoding="utf-8") for name, path in paths.items()}
     try:
         for row, example in _read_stage_rows(row_files):
-            name = split_of(row, splits)
+            name = split_of(row, splits, task_sets)
             streams[name].write(json.dumps(example, ensure_ascii=False) + "\n")
             counts[name] += 1
     finally:
@@ -255,6 +280,7 @@ def main(argv: list[str] | None = None) -> None:
     export = commands.add_parser("export", help="Export one stage's rows into train/development/temperature files")
     export.add_argument("--rows", type=Path, nargs="+", required=True, help="JSONL files of imitation/rows.py Row records, all of one stage")
     export.add_argument("--splits", type=Path, required=True, help="splits.json written by the splits command")
+    export.add_argument("--task-sets", type=Path, help="results/imitation/task-sets.json; needed for hub task rows (stage 3)")
     export.add_argument("--out", type=Path, required=True, help="Folder for train.jsonl, development.jsonl and temperature.jsonl")
     args = parser.parse_args(argv)
     if args.command == "splits":
@@ -263,7 +289,8 @@ def main(argv: list[str] | None = None) -> None:
         args.out.write_text(json.dumps(make_splits(args.tasks, args.seed), indent=1) + "\n")
         print(args.out.read_text())
         return
-    counts = export_rows(args.rows, json.loads(args.splits.read_text()), args.out)
+    task_sets = load_task_sets(args.task_sets, None) if args.task_sets is not None else None
+    counts = export_rows(args.rows, json.loads(args.splits.read_text()), args.out, task_sets)
     print(json.dumps(counts))
 
 

@@ -18,8 +18,11 @@ from imitation.export_jeff import (
     task_group,
     to_example,
 )
+from imitation.export_routing import split_of as routing_split_of
 from imitation.rows import Choice, RowSource, rows_for_decision
 from imitation.stage3 import CURRENT_TARBALL, convert_runs, read_tasks
+from task_source import load_task_sets
+from tests.test_task_source import write_task_sets
 
 REPO = Path(__file__).resolve().parents[3]
 JEFF_FIRST_TS = REPO / "packages" / "coding-agent" / "src" / "core" / "jeff-first"
@@ -151,6 +154,30 @@ def test_split_of_puts_stage_2_and_3_rows_of_one_task_in_the_same_split(tmp_path
     assert split_of({"stage": 3, "task": development}, splits) == "development"
     with pytest.raises(ValueError, match="not in splits"):
         split_of({"stage": 3, "task": "make-doom-for-mips"}, splits)
+
+
+def test_stage_3_hub_task_rows_split_as_the_routing_rows_do_and_never_when_held_out(tmp_path):
+    # A hub task "<org>/<dataset>:<task>" is split per task by the stage-1 hash rule, as export_routing.py and
+    # export_trim.py split it, so a task's step, router and trim rows land in the same split.
+    splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
+    sets = load_task_sets(write_task_sets(tmp_path)[0], None)
+    task = "terminal-bench-pro/terminal-bench-pro:fix-a"
+    assert split_of({"stage": 3, "task": task}, splits, sets) == routing_split_of(task, splits, sets)
+    assert task_group({"stage": 3, "task": "swe-rebench/swe-rebench-leaderboard:org__repo-12"}) == "swe-rebench/swe-rebench-leaderboard:org__repo-12"
+    with pytest.raises(ValueError, match="held_out"):
+        split_of({"stage": 3, "task": "terminal-bench-pro/terminal-bench-pro:held-c"}, splits, sets)
+    with pytest.raises(ValueError, match="task-sets"):
+        split_of({"stage": 3, "task": task}, splits)
+
+
+def test_export_places_hub_task_rows_with_task_sets(tmp_path):
+    splits = make_splits(write_json(tmp_path / "tasks.json", TASKS), seed=5)
+    sets_path = write_task_sets(tmp_path)[0]
+    task = "terminal-bench-pro/terminal-bench-pro:fix-a"
+    rows_path = tmp_path / "rows.jsonl"
+    rows_path.write_text(json.dumps(tool_row(task=task)) + "\n" + json.dumps(argument_row(task=task)) + "\n")
+    counts = export_rows([rows_path], splits, tmp_path / "out", load_task_sets(sets_path, None))
+    assert counts[routing_split_of(task, splits, load_task_sets(sets_path, None))] == 2
 
 
 def test_split_of_stage_1_keeps_a_task_group_together_and_is_near_90_5_5(tmp_path):

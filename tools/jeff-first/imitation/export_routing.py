@@ -36,8 +36,9 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from imitation.export_jeff import SPLITS, _rank, shuffled_criteria
-from task_source import is_hub_task, load_task_sets
+from imitation.export_jeff import SPLITS, shuffled_criteria
+from imitation.export_jeff import task_split as split_of
+from task_source import load_task_sets
 
 ROUTER_QUESTION = "Before the coding model's next turn: how much should it think? Choose one option."
 ROUTER_OPTIONS = {
@@ -77,22 +78,6 @@ def to_example(row: dict) -> dict:
             "calibration": row["routing"]["calibration"],
         },
     }
-
-
-def split_of(task: str, splits: dict, task_sets) -> str:
-    if not is_hub_task(task):
-        for name in SPLITS:
-            if task in splits["terminal_bench"][name]:
-                return name
-        raise ValueError(f"the Terminal-Bench 2.0 task {task!r} is not in splits.json (held out, or unknown)")
-    side = task_sets.side(task)
-    if side != "training":
-        raise ValueError(f"the task {task} is {side} in task-sets.json; only training tasks are exported")
-    shares = splits["stage1"]["shares"]
-    position = int(_rank(splits["seed"], task), 16) / 16**64
-    if position < shares["development"]:
-        return "development"
-    return "temperature" if position < shares["development"] + shares["temperature"] else "train"
 
 
 def export_routing(row_files: Sequence[Path], splits: dict, task_sets_path: Path, out: Path) -> dict[str, int]:
