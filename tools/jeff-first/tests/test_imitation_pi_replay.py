@@ -393,7 +393,7 @@ def test_a_command_runs_as_pi_runs_it_in_a_new_bash_in_the_session_folder():
     assert lines[0] == ". ~/.nvm/nvm.sh"
     assert "export JEFF_FIRST_MODE=record" in lines and "export PI_SESSION_ID=sess-1" in lines
     assert "export PATH=/tmp/harbor-pi-agent/bin:$PATH" in lines
-    assert lines[-2:] == ["cd /app", "exec bash -c 'echo $HOME && cd sub'"]
+    assert lines[-2:] == ["cd /app", "exec /bin/bash -c 'echo $HOME && cd sub'"]
 
 
 def test_docker_output_is_read_as_pi_reads_it_with_invalid_utf8_replaced(monkeypatch):

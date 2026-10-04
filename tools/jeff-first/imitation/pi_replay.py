@@ -26,7 +26,7 @@ For each trial (see `replay_trial`):
    folder (/logs/agent: pi's event output pi.txt and pi's session file) is written before each turn's menu as it was
    at that moment (the lines before the turn's assistant message). With --think-waits, before a turn's first command
    the replay also gives programs the session left running in the background up to the model's thinking time of that
-   turn, for as long as they keep the container busy (`PiContainer.settle`): in the session they ran on while the
+   turn, for as long as they run (`PiContainer.settle`): in the session they ran on while the
    model wrote its reply (an `apt-get install ... &` finished, a mail server delivered mail).
 3. Points (labels.py SessionLabeler with stints followed, as stage 1): before each coding-model turn, and after each
    stint step inside a turn. The first command matching a menu option is a row; its recorded output joins the
@@ -89,8 +89,7 @@ PI_AGENT_DIR = "/tmp/harbor-pi-agent"
 SESSION_DIR = "/logs/agent/pi/sessions"
 # Seconds the host waits for a docker command beyond the command's own time limit before it calls the replay stuck.
 DOCKER_SLACK_SECONDS = 60.0
-# settle(): the container counts as busy while it uses more than this share of one CPU, measured over each step.
-SETTLE_BUSY_SHARE = 0.05
+# settle() looks for background programs this often.
 SETTLE_STEP_SECONDS = 1.0
 # The most bytes of one command's replayed output kept for the comparison (pi shows at most 50 KB of its end).
 OUTPUT_KEEP_BYTES = 1_000_000
@@ -361,9 +360,10 @@ def _exports(env: dict[str, str]) -> list[str]:
 
 def command_script(command: str, cwd: str, env: dict[str, str]) -> str:
     """The script one bash call runs as: Harbor started pi with nvm loaded and the agent's variables; pi puts its bin
-    folder first on PATH and starts `bash -c COMMAND` in the session's folder."""
+    folder first on PATH and starts `/bin/bash -c COMMAND` in the session's folder (pi's shell is /bin/bash, which bash
+    names in its error messages)."""
     return "\n".join(
-        [". ~/.nvm/nvm.sh", *_exports(env), f"export PATH={PI_AGENT_DIR}/bin:$PATH", f"cd {shlex.quote(cwd)}", f"exec bash -c {shlex.quote(command)}"]
+        [". ~/.nvm/nvm.sh", *_exports(env), f"export PATH={PI_AGENT_DIR}/bin:$PATH", f"cd {shlex.quote(cwd)}", f"exec /bin/bash -c {shlex.quote(command)}"]
     ) + "\n"
 
 
@@ -493,7 +493,6 @@ class PiContainer:
         self.scout = scout
         self.count = 0
         self.written: dict[str, str] = {}
-        self.id = ""
         self.cwd = ""
         self.env: dict[str, str] = {}
         self.menu_env: dict[str, str] = {}
@@ -526,7 +525,6 @@ class PiContainer:
             600,
         )  # fmt: skip
         state = self._checked(["inspect", "-f", "{{.State.Running}}", self.name], 60).strip()
-        self.id = self._checked(["inspect", "-f", "{{.Id}}", self.name], 60).strip()
         if state != "true":
             raise RuntimeError(f"the container {self.name} of {self.image} is not running after start (state {state})")
         self._checked(["exec", "-u", "root", self.name, "sh", "-c", "command -v bash >/dev/null && command -v timeout >/dev/null"], 60)
@@ -588,25 +586,18 @@ class PiContainer:
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
 
-    def _cpu_usec(self) -> int:
-        stat = Path(f"/sys/fs/cgroup/system.slice/docker-{self.id}.scope/cpu.stat").read_text()
-        return int(stat.split("usage_usec ", 1)[1].split()[0])
-
     def settle(self, seconds: float) -> None:
-        """Wait up to `seconds` while programs the session left running in the background keep the container busy
-        (more than SETTLE_BUSY_SHARE of one CPU over each SETTLE_STEP_SECONDS); return at once when nothing but the
-        container's own `sleep infinity` runs, or as soon as the container is idle."""
+        """Wait up to `seconds` while programs the session left running in the background are still there; return at
+        once when nothing but the container's own `sleep infinity` runs. (Busy CPU is no sign: an `apt-get install &`
+        spends most of its time waiting for downloads.)"""
         waited = 0.0
         while waited < seconds:
-            processes = self._checked(["top", self.name, "-eo", "pid"], 60).split("\n")[1:]
-            if len([line for line in processes if line.strip()]) <= 1:
+            processes = [line for line in self._checked(["top", self.name, "-eo", "pid"], 60).split("\n")[1:] if line.strip()]
+            if len(processes) <= 1:
                 return
-            before = self._cpu_usec()
             step = min(SETTLE_STEP_SECONDS, seconds - waited)
             time.sleep(step)
             waited += step
-            if self._cpu_usec() - before < SETTLE_BUSY_SHARE * step * 1_000_000:
-                return
 
     def write_files(self, files: dict[str, str]) -> None:
         """Write each file; a file that only grew since the last write gets just its new end appended."""
