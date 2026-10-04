@@ -1,9 +1,9 @@
 import { basename, dirname, resolve } from "node:path";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "../tools/truncate.ts";
-import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
 import type { RunApproval } from "./config.ts";
 import type { FileFacts } from "./facts.ts";
 import {
+	CHECK_COMMAND_LIMIT,
 	callKey,
 	candidates,
 	LOOK_FOLDER_LIMIT,
@@ -16,14 +16,21 @@ import {
 } from "./menu.ts";
 import { PROBE_TIMEOUT_SECONDS, shellQuote } from "./probes.ts";
 import { docsOptions, installOptions, peekOptions, serviceOptions, toolchainOptions } from "./qwen-tools.ts";
+import { headText, programIndex, type ShellPart, shellParts, shellWords } from "./shell-parts.ts";
 import { hasKnownFileExtension } from "./virtual-facts.ts";
 
 /** Three pages of ten (pages.ts): no list is cut shorter than what paging can show. */
 export const ARGUMENT_LIMIT = 30;
 /** How many of the coding model's most recent calls name files for Read. */
 export const MODEL_CALLS = 10;
-const WRITE_IN_BASH =
-	/(?:\bcat\s*>>?|\btee\s+(?:-a\s+)?)\s*['"]?([^\s'";&|<>]+)|\bcat\s*<<-?\s*['"]?\w+['"]?\s*>>?\s*['"]?([^\s'";&|<>]+)/g;
+/** How many of the coding model's most recent run commands Run offers again. */
+export const RUN_AGAIN_LIMIT = 3;
+/** A Python write to a file named in the code: open('path', 'w'), 'a', 'x', with or without 'b' or '+'. */
+const PYTHON_OPEN_WRITE = /\bopen\(\s*(['"])([^'"\n]+)\1\s*,\s*(['"])[wax]b?\+?\3/g;
+/** A Python write through pathlib: Path('path').write_text(...) or .write_bytes(...). */
+const PYTHON_PATH_WRITE = /\bPath\(\s*(['"])([^'"\n]+)\1\s*\)\.write_(?:text|bytes)\(/g;
+/** Compilers whose `-o FILE` names the program they build. */
+const COMPILERS = new Set(["gcc", "g++", "cc", "c++", "clang", "clang++", "gfortran", "cobc", "rustc", "nvcc", "ghc"]);
 /** A scout bash step (Check or Repeat) never runs longer than this: the teacher chose Repeat on a hung test script once and it ran for ~40 minutes with no timeout. */
 export const SCOUT_COMMAND_TIMEOUT_SECONDS = 300;
 export const READ_SLICE_LINES = 60;
@@ -121,7 +128,8 @@ const TOOL_DESCRIPTIONS: Record<ToolKind | "hand_over", string> = {
 	hand_over: "Hand over to the coding model for its next turn",
 };
 
-const INTERPRETERS: Record<string, string> = { ".py": "python3", ".sh": "bash", ".js": "node" };
+/** Interpreters of scripts other than Python (pythonCommand). */
+const INTERPRETERS: Record<string, string> = { ".sh": "bash", ".js": "node" };
 
 export function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -203,7 +211,61 @@ export function fitsReadLimit(facts: FileFacts, path: string): boolean {
 	return readLimitFit(facts, path) === true;
 }
 
-/** Files the coding model wrote or edited (write, edit, or a bash "cat > file" / "tee file"), newest first. */
+/** The parts of a bash step's command, each with its folder (pi runs every bash call in a new shell in the working
+ * folder), or none for another tool or a call without command text. */
+function bashParts(input: MenuInput, step: MenuInput["steps"][number]): ShellPart[] {
+	const command = step.call.arguments.command;
+	return step.call.name === "bash" && typeof command === "string" ? shellParts(command, input.cwd) : [];
+}
+
+/** The files one part writes, as typed paths: output redirections and tee into files, sed -i and perl -i on files,
+ * the target of cp, mv and install, a compiler's -o FILE, and Python writes to a named file (open(..., 'w') or
+ * Path(...).write_text) in the code a python part runs (here-document or -c). */
+function partWrites(part: ShellPart, input: MenuInput): string[] {
+	const stages = [part.head, ...part.filters].map(shellWords);
+	const written: string[] = [];
+	for (const stage of stages) {
+		if (stage === undefined) continue;
+		written.push(...stage.writes);
+		const at = programIndex(stage.words);
+		if (at === undefined) continue;
+		const program = basename(stage.words[at]);
+		const args = stage.words.slice(at + 1);
+		const plain = args.filter((arg) => !arg.startsWith("-"));
+		if (program === "tee") written.push(...plain);
+		if (
+			(program === "sed" || program === "perl") &&
+			args.some((arg) => /^-[a-zA-Z]*i/.test(arg) || arg.startsWith("--in-place"))
+		) {
+			// The first plain argument is the script (sed 's/a/b/' F, perl -pi -e 'code' F takes -e's value instead).
+			const files =
+				program === "perl"
+					? args.filter((arg, index) => !arg.startsWith("-") && args[index - 1] !== "-e")
+					: plain.slice(1);
+			written.push(...files);
+		}
+		if ((program === "cp" || program === "mv" || program === "install") && plain.length >= 2) {
+			const target = plain[plain.length - 1];
+			const folder = part.folder === undefined ? undefined : resolve(part.folder, target);
+			// Copying into a folder writes the file of the same name there.
+			written.push(
+				folder !== undefined && input.facts.kind(folder) === "folder" ? `${target}/${basename(plain[0])}` : target,
+			);
+		}
+		const output = args.indexOf("-o");
+		if (COMPILERS.has(program) && output >= 0 && output + 1 < args.length) written.push(args[output + 1]);
+		if (/^python[\d.]*$/.test(program)) {
+			const code = args.includes("-c") ? args[args.indexOf("-c") + 1] : part.heredoc;
+			for (const pattern of [PYTHON_OPEN_WRITE, PYTHON_PATH_WRITE]) {
+				for (const match of (code ?? "").matchAll(pattern)) written.push(match[2]);
+			}
+		}
+	}
+	return written;
+}
+
+/** Files the coding model wrote or edited (write, edit, or a bash command: see partWrites), newest first. A bash path
+ * is resolved in the folder its part runs in; a part whose folder is unknown names no file. */
 export function writtenFiles(input: MenuInput): Array<{ path: string; index: number }> {
 	const found: Array<{ path: string; index: number }> = [];
 	input.steps.forEach((step, index) => {
@@ -212,15 +274,41 @@ export function writtenFiles(input: MenuInput): Array<{ path: string; index: num
 		if ((step.call.name === "write" || step.call.name === "edit") && typeof args.path === "string") {
 			found.push({ path: resolve(input.cwd, args.path), index });
 		}
-		if (step.call.name === "bash" && typeof args.command === "string") {
-			for (const match of args.command.matchAll(WRITE_IN_BASH)) {
-				const path = match[1] ?? match[2];
-				if (path === undefined) throw new Error(`WRITE_IN_BASH matched but captured no path in: ${args.command}`);
-				found.push({ path: resolve(input.cwd, path), index });
+		for (const part of bashParts(input, step)) {
+			if (part.folder === undefined) continue;
+			for (const path of partWrites(part, input)) {
+				if (!/[$`*?]/.test(path)) found.push({ path: resolve(part.folder, path), index });
 			}
 		}
 	});
 	return found.reverse();
+}
+
+/** What one part runs: a script given to an interpreter (python, bash, sh, node, perl, ...) or a program named by a
+ * path (`./x`, `/opt/x`), resolved in the part's folder; undefined for anything else (inline code, modules, programs
+ * found on PATH). */
+function runTarget(part: ShellPart): string | undefined {
+	if (part.folder === undefined || part.heredoc !== undefined) return undefined;
+	const stage = shellWords(part.head);
+	if (stage === undefined) return undefined;
+	const at = programIndex(stage.words);
+	if (at === undefined) return undefined;
+	const program = stage.words[at];
+	const args = stage.words.slice(at + 1);
+	if (program.startsWith("./") || program.startsWith("../") || program.startsWith("/")) {
+		return /^python[\d.]*$|^(bash|sh|node|perl|ruby)$/.test(basename(program))
+			? scriptOf(args, part.folder)
+			: resolve(part.folder, program);
+	}
+	return /^python[\d.]*$|^(bash|sh|node|perl|ruby)$/.test(program) ? scriptOf(args, part.folder) : undefined;
+}
+
+/** The script an interpreter runs: its first argument, unless the code comes inline (-c, -e, -m, -). */
+function scriptOf(args: string[], folder: string): string | undefined {
+	const first = args.find((arg) => !arg.startsWith("-") || arg === "-");
+	if (first === undefined || first === "-" || args.some((arg) => ["-c", "-e", "-m", "-"].includes(arg)))
+		return undefined;
+	return resolve(folder, first);
 }
 
 /** The step index at which the scout last read this file (whole or a slice, as its own Read options do), or -1. */
@@ -423,17 +511,38 @@ function repeatOptions(input: ListsInput): MenuToolCall[] {
 	return [{ name: "bash", arguments: args }];
 }
 
-/** The step index at which this script was last run by anyone (any interpreter, any folder prefix), or -1. */
-function lastRun(input: ListsInput, path: string): number {
-	const pattern = new RegExp(`(?:python3?|bash|sh|node)\\s+(?:\\S*/)?${escapeRegExp(basename(path))}(?=$|[\\s;&|)])`);
+/** The step index at which this script or program was last run by anyone (see runTarget; a here-document's body is
+ * never a run), with the part that ran it, or index -1. */
+function lastRun(input: ListsInput, path: string): { index: number; part?: ShellPart } {
 	for (let index = input.steps.length - 1; index >= 0; index--) {
-		const command = input.steps[index].call.arguments.command;
-		if (input.steps[index].call.name === "bash" && typeof command === "string" && pattern.test(command)) return index;
+		const part = bashParts(input, input.steps[index])
+			.filter((candidate) => runTarget(candidate) === path)
+			.at(-1);
+		if (part !== undefined) return { index, part };
 	}
-	return -1;
+	return { index: -1 };
 }
 
-/** Scripts the coding model wrote or changed since they last ran, newest first, as the approval setting allows. */
+/** A part as a Run option: `cd FOLDER && HEAD`, with the part's head as typed (its filters left out). Undefined for a
+ * part the option could not repeat exactly: in a loop or condition, in the background, writing a file, with an
+ * expansion, or running something that is not a file now. */
+function runAgainCommand(part: ShellPart, input: ListsInput): string | undefined {
+	const target = runTarget(part);
+	const stage = shellWords(part.head);
+	if (target === undefined || stage === undefined || part.folder === undefined) return undefined;
+	if (part.inControlFlow || part.background || stage.writes.length > 0 || stage.expands) return undefined;
+	if (input.facts.kind(target) !== "file") return undefined;
+	return `cd ${shellQuote(part.folder)} && ${headText(part)}`;
+}
+
+function runCall(command: string): MenuToolCall {
+	return { name: "bash", arguments: { command, timeout: SCOUT_COMMAND_TIMEOUT_SECONDS } };
+}
+
+/** Run options, as the approval setting allows: (1) scripts (.py, .sh, .js) the coding model wrote or changed since
+ * they last ran, newest first; (2) programs it compiled (a compiler's -o) since they last ran, with the command of
+ * their last run, or with no arguments when they never ran; (3) its RUN_AGAIN_LIMIT most recent run commands, again
+ * (runcheck-report.md: Qwen spends a turn only on running something mostly to rerun a command). */
 function runOptions(input: ListsInput): MenuToolCall[] {
 	if (input.runApproval === "never") return [];
 	const calls: MenuToolCall[] = [];
@@ -441,15 +550,70 @@ function runOptions(input: ListsInput): MenuToolCall[] {
 	for (const { path, index } of writtenFiles(input)) {
 		if (done.has(path)) continue;
 		done.add(path);
-		const interpreter = INTERPRETERS[path.slice(path.lastIndexOf("."))];
-		if (!interpreter || input.facts.kind(path) !== "file" || input.facts.isText(path) !== true) continue;
 		const ran = lastRun(input, path);
-		if (ran >= index) continue;
-		if (input.runApproval === "seen" && ran < 0) continue;
-		const command = `cd ${shellQuote(dirname(path))} && ${interpreter} ${shellQuote(basename(path))}`;
-		calls.push({ name: "bash", arguments: { command, timeout: SCOUT_COMMAND_TIMEOUT_SECONDS } });
+		if (ran.index >= index) continue;
+		if (input.runApproval === "seen" && ran.index < 0) continue;
+		const extension = path.slice(path.lastIndexOf("."));
+		const interpreter = extension === ".py" ? pythonCommand(input) : INTERPRETERS[extension];
+		if (interpreter !== undefined) {
+			if (input.facts.kind(path) !== "file" || input.facts.isText(path) !== true) continue;
+			calls.push(runCall(`cd ${shellQuote(dirname(path))} && ${interpreter} ${shellQuote(basename(path))}`));
+			continue;
+		}
+		if (!compiledBy(input, path, index) || input.facts.kind(path) !== "file") continue;
+		const again = ran.part === undefined ? undefined : runAgainCommand(ran.part, input);
+		if (ran.part !== undefined) {
+			if (again !== undefined) calls.push(runCall(again));
+			continue;
+		}
+		const name = basename(path);
+		calls.push(
+			runCall(
+				`cd ${shellQuote(dirname(path))} && ${/^[\w.+-]+$/.test(name) ? `./${name}` : shellQuote(`./${name}`)}`,
+			),
+		);
 	}
+	const again: string[] = [];
+	for (let index = input.steps.length - 1; index >= 0 && again.length < RUN_AGAIN_LIMIT; index--) {
+		if (input.steps[index].byScout) continue;
+		for (const part of bashParts(input, input.steps[index]).reverse()) {
+			const command = runAgainCommand(part, input);
+			if (command !== undefined && !again.includes(command) && again.length < RUN_AGAIN_LIMIT) again.push(command);
+		}
+	}
+	calls.push(...again.map(runCall));
 	return calls;
+}
+
+/** The Python command the coding model last ran a script with (`python`, `python3`, `python3.11`; a path such as a
+ * virtual environment's python is not taken), or python3 when it has run none. */
+export function pythonCommand(input: MenuInput): string {
+	for (let index = input.steps.length - 1; index >= 0; index--) {
+		if (input.steps[index].byScout) continue;
+		for (const part of bashParts(input, input.steps[index]).reverse()) {
+			const stage = shellWords(part.head);
+			const at = stage === undefined ? undefined : programIndex(stage.words);
+			if (stage === undefined || at === undefined || runTarget(part) === undefined) continue;
+			if (/^python[\d.]*$/.test(stage.words[at])) return stage.words[at];
+		}
+	}
+	return "python3";
+}
+
+/** Whether step `index` wrote `path` with a compiler's -o. */
+function compiledBy(input: ListsInput, path: string, index: number): boolean {
+	return bashParts(input, input.steps[index]).some((part) => {
+		const stage = shellWords(part.head);
+		const at = stage === undefined ? undefined : programIndex(stage.words);
+		if (stage === undefined || at === undefined || part.folder === undefined) return false;
+		const args = stage.words.slice(at + 1);
+		const output = args.indexOf("-o");
+		return (
+			COMPILERS.has(basename(stage.words[at])) &&
+			output >= 0 &&
+			resolve(part.folder, args[output + 1] ?? "") === path
+		);
+	});
 }
 
 function describe(kind: "check" | "run" | "repeat", call: MenuToolCall): string {

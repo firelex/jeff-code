@@ -107,15 +107,16 @@ describe("buildLists", () => {
 		]);
 	});
 
-	it("does not offer to run a script again until it changes", () => {
+	it("does not offer to run a changed script again until it changes; its last run is offered as typed", () => {
 		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+		const runs = () => (buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command);
 		input.steps.push(
 			step("write", { path: join(cwd, "scan.py"), content: "print(1)\n" }, "ok"),
-			step("bash", { command: "cd /app && python3 scan.py" }, "1"),
+			step("bash", { command: `cd ${cwd} && python3 scan.py` }, "1"),
 		);
-		expect(buildLists(input).argumentsByTool.run).toBeUndefined();
+		expect(runs()).toEqual([`cd '${cwd}' && python3 scan.py`]);
 		input.steps.push(step("edit", { path: join(cwd, "scan.py"), edits: [] }, "ok"));
-		expect(buildLists(input).argumentsByTool.run).toHaveLength(1);
+		expect(runs()).toEqual([`cd '${cwd}' && python3 'scan.py'`, `cd '${cwd}' && python3 scan.py`]);
 	});
 
 	it("with approval 'seen' offers only scripts that have run before", () => {
@@ -127,7 +128,10 @@ describe("buildLists", () => {
 			step("bash", { command: "python3 scan.py" }, "1"),
 			step("edit", { path: join(cwd, "scan.py"), edits: [] }, "ok"),
 		);
-		expect(buildLists(input).argumentsByTool.run).toHaveLength(1);
+		expect((buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command)).toEqual([
+			`cd '${cwd}' && python3 'scan.py'`,
+			`cd '${cwd}' && python3 scan.py`,
+		]);
 	});
 
 	it("with approval 'never' leaves the Run tool out", () => {
@@ -144,6 +148,146 @@ describe("buildLists", () => {
 		}
 		const commands = (buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command);
 		expect(commands).toEqual([`cd '${cwd}' && node 'go.js'`, `cd '${cwd}' && bash 'go.sh'`]);
+	});
+
+	// runcheck-report.md, rank 1: Qwen's 3 most recent run commands, again, exactly as typed (output filters left out).
+	describe("Run again", () => {
+		const runs = () => (buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command);
+		beforeEach(() => {
+			input.steps = [];
+			for (const name of ["a.py", "b.sh", "c.py", "d.py"]) writeFileSync(join(cwd, name), "x\n");
+			mkdirSync(join(cwd, "bin"));
+			writeFileSync(join(cwd, "bin", "tool"), "x\n");
+		});
+
+		it("offers the three most recent run commands, newest first, each in its folder, as typed", () => {
+			input.steps.push(
+				step("bash", { command: "python3 d.py" }, "1"),
+				step("bash", { command: `cd ${cwd} && timeout 180 python3 a.py --fast 2>&1 | tail -8` }, "1"),
+				step("bash", { command: "bash b.sh x y; echo done" }, "1"),
+				step("bash", { command: `cd ${join(cwd, "bin")} && ./tool in.txt | head` }, "1"),
+			);
+			expect(runs()).toEqual([
+				`cd '${join(cwd, "bin")}' && ./tool in.txt`,
+				`cd '${cwd}' && bash b.sh x y`,
+				`cd '${cwd}' && timeout 180 python3 a.py --fast 2>&1`,
+			]);
+			expect(buildLists(input).argumentsByTool.run?.[0].description).toBe(
+				`Run: cd '${join(cwd, "bin")}' && ./tool in.txt`,
+			);
+		});
+
+		it("offers a command run twice once", () => {
+			input.steps.push(
+				step("bash", { command: "python3 a.py" }, "1"),
+				step("bash", { command: "python3  a.py" }, "1"),
+			);
+			expect(runs()).toEqual([`cd '${cwd}' && python3  a.py`]);
+		});
+
+		it.each([
+			["a loop", "for i in 1 2; do python3 a.py $i; done"],
+			["the background", "nohup python3 a.py > run.log 2>&1 &"],
+			["output into a file", "python3 a.py > out.txt"],
+			["inline code", "python3 -c 'print(1)'"],
+			["a here-document", "python3 - <<'EOF'\nprint(1)\nEOF"],
+			["a module", "python3 -m pytest -q"],
+			["a missing script", "python3 gone.py"],
+			["an expansion", "python3 $SCRIPT"],
+			["a program on PATH", "ls -la"],
+		])("leaves out a run in %s", (_why, command) => {
+			input.steps.push(step("bash", { command }, "1"));
+			expect(runs()).toEqual([]);
+		});
+
+		it("leaves out the scout's own runs", () => {
+			input.steps.push(step("bash", { command: "python3 a.py" }, "1", false, true));
+			expect(runs()).toEqual([]);
+		});
+	});
+
+	// runcheck-report.md, rank 3: more ways of changing a script, paths after cd, and no runs read from here-documents.
+	describe("Run after a change", () => {
+		const runs = () => (buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command);
+		beforeEach(() => {
+			input.steps = [];
+			writeFileSync(join(cwd, "scan.py"), "print(1)\n");
+			writeFileSync(join(cwd, "other.py"), "print(2)\n");
+		});
+
+		it.each([
+			["sed -i", "sed -i 's/1/2/' scan.py"],
+			["cp", "cp other.py scan.py"],
+			["a Python write", "python3 - <<'EOF'\nopen('scan.py', 'w').write('print(3)')\nEOF"],
+			["a redirect", "printf 'print(4)\\n' > scan.py"],
+		])("offers a script changed by %s since it last ran", (_how, command) => {
+			input.steps.push(step("bash", { command: "python3 scan.py | tail -3" }, "1"), step("bash", { command }, ""));
+			expect(runs()).toContain(`cd '${cwd}' && python3 'scan.py'`);
+		});
+
+		it("runs a Python script with the Python command the coding model last ran a script with", () => {
+			input.steps.push(
+				step("bash", { command: "python other.py" }, "2"),
+				step("bash", { command: "sed -i 's/1/2/' scan.py" }, ""),
+			);
+			expect(runs()[0]).toBe(`cd '${cwd}' && python 'scan.py'`);
+		});
+
+		it("resolves a written path after a cd in the same command", () => {
+			mkdirSync(join(cwd, "sub"));
+			writeFileSync(join(cwd, "sub", "t.py"), "print(1)\n");
+			input.steps.push(step("bash", { command: "cd sub && cat > t.py <<'EOF'\nprint(1)\nEOF" }, ""));
+			expect(runs()).toEqual([`cd '${join(cwd, "sub")}' && python3 't.py'`]);
+		});
+
+		it("does not take a usage line inside the here-document that wrote a script for a run", () => {
+			input.steps.push(
+				step("bash", { command: 'cat > scan.py <<\'EOF\'\n"""Usage: python scan.py <dir>"""\nEOF' }, ""),
+			);
+			expect(runs()).toEqual([`cd '${cwd}' && python3 'scan.py'`]);
+		});
+	});
+
+	// runcheck-report.md, rank 5: a binary the session compiled, after a rebuild, with the arguments of its last run.
+	describe("Run a compiled binary", () => {
+		const runs = () => (buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command);
+		beforeEach(() => {
+			input.steps = [];
+			writeFileSync(join(cwd, "comp.c"), "int main(){}\n");
+			writeFileSync(join(cwd, "comp"), "\u0000ELF");
+		});
+
+		it("offers a binary built and never run, without arguments", () => {
+			input.steps.push(step("bash", { command: "gcc -O2 -o comp comp.c -lm" }, ""));
+			expect(runs()).toEqual([`cd '${cwd}' && ./comp`]);
+		});
+
+		it("offers a rebuilt binary with the command of its last run", () => {
+			input.steps.push(
+				step("bash", { command: "gcc -O2 -o comp comp.c && ./comp data.txt 2>&1 | head" }, "1"),
+				step("bash", { command: "sed -i 's/a/b/' comp.c" }, ""),
+				// Three later runs push the binary's run out of the three Run-again commands.
+				...["x1.py", "x2.py", "x3.py"].map((name) => {
+					writeFileSync(join(cwd, name), "x\n");
+					return step("bash", { command: `python3 ${name}` }, "1");
+				}),
+				step("bash", { command: "gcc -O2 -o comp comp.c" }, ""),
+			);
+			expect(runs()).toEqual([
+				`cd '${cwd}' && ./comp data.txt 2>&1`,
+				`cd '${cwd}' && python3 x3.py`,
+				`cd '${cwd}' && python3 x2.py`,
+				`cd '${cwd}' && python3 x1.py`,
+			]);
+		});
+
+		it("offers a binary that ran since it was built only as that run again", () => {
+			input.steps.push(
+				step("bash", { command: "gcc -o comp comp.c" }, ""),
+				step("bash", { command: "./comp | wc -l" }, "3"),
+			);
+			expect(runs()).toEqual([`cd '${cwd}' && ./comp`]);
+		});
 	});
 
 	it("reads a 60-line slice around each traceback place, then whole named files", () => {
@@ -345,10 +489,12 @@ describe("buildLists", () => {
 		expect(target(read[0])).toBe(join(cwd, "scan.py"));
 	});
 
-	it("does not offer Run for a script written and run in the same bash step", () => {
+	it("does not offer Run for a script written and run in the same bash step, except its run again as typed", () => {
 		writeFileSync(join(cwd, "scan.py"), "print(1)\n");
 		input.steps.push(step("bash", { command: "cat > scan.py <<'EOF'\nprint(1)\nEOF\npython3 scan.py" }, "1"));
-		expect(buildLists(input).argumentsByTool.run).toBeUndefined();
+		expect((buildLists(input).argumentsByTool.run ?? []).map((o) => o.toolCall.arguments.command)).toEqual([
+			`cd '${cwd}' && python3 scan.py`,
+		]);
 	});
 
 	it("offers files the coding model wrote or named in its commands, those it changed since the scout read them first", () => {

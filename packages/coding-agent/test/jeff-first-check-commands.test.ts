@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -94,5 +94,81 @@ describe("detectCheckCommands", () => {
 			"make check",
 			"make build",
 		]);
+	});
+
+	// runcheck-report.md, rank 2: scripts the task names that exist and the session did not write.
+	describe("scripts the task names", () => {
+		it("offers each existing script the task names, run with its interpreter in its folder", () => {
+			writeFileSync(join(dir, "eval.py"), "print(1)\n");
+			writeFileSync(join(dir, "check.sh"), "true\n");
+			const task = `An \`eval.py\` script is provided to help iterations. Also ${join(dir, "check.sh")} and missing.py.`;
+			expect(detect(task, []).commands).toEqual([
+				`cd '${dir}' && python3 '${join(dir, "eval.py")}'`,
+				`cd '${dir}' && bash '${join(dir, "check.sh")}'`,
+			]);
+		});
+
+		it("runs a Python script with the Python command the coding model last ran a script with", () => {
+			writeFileSync(join(dir, "eval.py"), "print(1)\n");
+			writeFileSync(join(dir, "mine.py"), "print(1)\n");
+			const ran: Step = {
+				call: { type: "toolCall", id: "r", name: "bash", arguments: { command: "python mine.py" } },
+				output: "1",
+				isError: false,
+				byScout: false,
+			};
+			expect(
+				detectCheckCommands({ cwd: dir, task: "Use eval.py.", steps: [ran], facts: liveFacts() }).commands,
+			).toEqual([`cd '${dir}' && python '${join(dir, "eval.py")}'`]);
+		});
+
+		it("leaves out a script the session wrote", () => {
+			writeFileSync(join(dir, "eval.py"), "print(1)\n");
+			const wrote: Step = {
+				call: {
+					type: "toolCall",
+					id: "w",
+					name: "bash",
+					arguments: { command: "cat > eval.py <<'EOF'\nprint(1)\nEOF" },
+				},
+				output: "",
+				isError: false,
+				byScout: false,
+			};
+			expect(
+				detectCheckCommands({ cwd: dir, task: "Use eval.py.", steps: [wrote], facts: liveFacts() }).commands,
+			).toEqual([]);
+		});
+	});
+
+	// runcheck-report.md, rank 6: test commands the task quotes, run in the folder where their target was revealed.
+	describe("commands the task quotes", () => {
+		const task = 'Run the test with "make -C testsuite one DIR=tests/basic" to check your fix.';
+		beforeEach(() => {
+			mkdirSync(join(dir, "ocaml", "testsuite"), { recursive: true });
+			writeFileSync(join(dir, "ocaml", "testsuite", "Makefile"), "one:\n\techo one\n");
+		});
+
+		it("runs a quoted command in the revealed folder its target lies in", () => {
+			const listed: Step = {
+				call: { type: "toolCall", id: "l", name: "bash", arguments: { command: `ls -la '${join(dir, "ocaml")}'` } },
+				output: "testsuite\nMakefile",
+				isError: false,
+				byScout: false,
+			};
+			expect(detectCheckCommands({ cwd: dir, task, steps: [listed], facts: liveFacts() }).commands).toEqual([
+				`cd '${join(dir, "ocaml")}' && make -C testsuite one DIR=tests/basic`,
+			]);
+		});
+
+		it("offers nothing while the target's folder is not revealed", () => {
+			expect(detect(task, ["ocaml"]).commands).toEqual([]);
+		});
+
+		it("ignores quoted text that is not a test or build command: a make goal the Makefile does not define", () => {
+			writeFileSync(join(dir, "Makefile"), "all:\n\ttrue\n");
+			expect(detect('Print "make sure it works" and "hello world".', ["Makefile"]).commands).toEqual([]);
+			expect(detect('Build with "make all".', ["Makefile"]).commands).toEqual([`cd '${dir}' && make all`]);
+		});
 	});
 });

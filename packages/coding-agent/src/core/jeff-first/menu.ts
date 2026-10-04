@@ -1,6 +1,5 @@
 import { basename, dirname, resolve } from "node:path";
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
-import { CHECK_COMMAND_LIMIT } from "./check-commands.ts";
 import { type FileFacts, stringsIn } from "./facts.ts";
 import type { Step } from "./transcript.ts";
 import { hasKnownFileExtension } from "./virtual-facts.ts";
@@ -9,6 +8,8 @@ export const MENU_LIMIT = 25;
 export const READ_LIMIT = 15;
 export const LOOK_FOLDER_LIMIT = 4;
 export const RECENT_OUTPUTS = 5;
+/** The most check commands offered (check-commands.ts). */
+export const CHECK_COMMAND_LIMIT = 3;
 
 export interface MenuToolCall {
 	name: string;
@@ -82,9 +83,12 @@ function enclosingFolders(path: string, cwd: string): string[] {
 	return found;
 }
 
+/** What the session has revealed so far: the task and the steps, with the facts about files. */
+export type RevealInput = Pick<MenuInput, "cwd" | "task" | "steps" | "facts">;
+
 /** Existing files and folders named in the sources, in order: each token is resolved against each of its bases,
  * and each folder it lies in (enclosingFolders) follows it. Whether each is a file or a folder comes from the facts. */
-function pathsIn(input: MenuInput, sources: Source[]): { files: string[]; folders: string[] } {
+function pathsIn(input: RevealInput, sources: Source[]): { files: string[]; folders: string[] } {
 	const files: string[] = [];
 	const folders: string[] = [];
 	for (const source of sources) {
@@ -120,7 +124,7 @@ export function namedPaths(input: MenuInput): { files: string[]; folders: string
 }
 
 /** Every step's output and call arguments (newest step first, its output before its arguments), then the task. */
-function revealingSources(input: MenuInput): Source[] {
+function revealingSources(input: RevealInput): Source[] {
 	const sources: Source[] = [];
 	for (const step of [...input.steps].reverse()) {
 		sources.push(...outputSource(step, input.cwd));
@@ -132,7 +136,7 @@ function revealingSources(input: MenuInput): Source[] {
 
 /** Existing files and folders the session has revealed: named in any step's output or call arguments (newest step
  * first, its output before its arguments), then in the task. */
-export function revealedPaths(input: MenuInput): { files: string[]; folders: string[] } {
+export function revealedPaths(input: RevealInput): { files: string[]; folders: string[] } {
 	return pathsIn(input, revealingSources(input));
 }
 
