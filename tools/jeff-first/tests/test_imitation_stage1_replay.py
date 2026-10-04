@@ -186,6 +186,14 @@ def test_outputs_are_compared_after_removing_what_differs_between_any_two_runs()
     assert not s1.output_differs("/w/a.c\n/w/b.c\n/w/sub/c.c", "/w/sub/c.c\n/w/a.c\n/w/b.c\n")
     assert s1.output_differs("/w/a.c\n/w/b.c", "/w/a.c\n/w/b.c\n/w/c.c")
     assert s1.output_order_differs("/w/a.c\n/w/b.c", "/w/b.c\n/w/a.c")
+    # Dates and times in any form, and hashes (they change with the files' dates), are not compared.
+    assert not s1.output_differs("Thu Aug 27 21:54:00 UTC 2026", "Sun Oct  4 10:12:21 UTC 2026")
+    assert not s1.output_differs("drwxr-xr-x. 1 root root  6 Nov  2  2025 .", "drwxr-xr-x 2 root root 4096 Oct  4 10:06 .")
+    assert not s1.output_differs("055ec9bc5de4f021aee98ca5b4cbb00450178fa5788ef0443ebe926022e2e24f  a.tgz", "e5677e37996ccd2e3bde875d8523dbe1e27c82a8e988eccab190406594786111  a.tgz")
+    assert s1.output_differs("deadbeef  a.tgz", "cafebabe  a.tgz")
+    # Lines that show the replay's own machinery (the scout's mount, the terminal helper) are not the session's.
+    replayed = f"/etc/profile.d/gawk.sh\n{s1.SCOUT_MOUNT}/node/README.md\nroot 119 python3 {s1.HELPER} run --shell 28\n"
+    assert not s1.output_differs("/etc/profile.d/gawk.sh", replayed)
     assert not s1.output_order_differs("/w/a.c\n/w/b.c", "/w/a.c /w/b.c")
 
 
@@ -291,3 +299,29 @@ def test_prepared_inputs_carry_the_session_and_its_task_archive():
     }
     assert s1.task_folder("nl2bash-1-0000_run2__dsv4-trial-2") == "nl2bash-1-0000_run2"
     assert json.loads(s1.task_line("nl2bash-1-0000_run2", archive)) == {"task": "nl2bash-1-0000_run2", "archive": base64.b64encode(archive).decode()}
+
+
+def test_harbor_logs_of_the_earlier_episodes_are_written_before_a_turns_commands():
+    # Turn 2 runs after episodes 0 and 1: their prompt (the user message), response (the reply without its thinking)
+    # and debug.json, and the trajectory Harbor writes after each episode; owned by uid 1000, gid 1005 as listed.
+    packed = members(s1.episode_archive(CONVERSATION, 2, s1.TMUX_SOCKET, 1_759_000_000))
+    assert sorted(packed) == [
+        "episode-1", "episode-1/debug.json", "episode-1/prompt.txt", "episode-1/response.txt", "trajectory.json",
+    ]  # fmt: skip
+    assert packed["episode-1/prompt.txt"][4] == CONVERSATION[2]["content"].encode()
+    assert packed["episode-1/response.txt"][4] == CONVERSATION[3]["content"].split("</think>", 1)[1].encode()
+    assert packed["episode-1"][:4] == (tarfile.DIRTYPE, 0o775, 1000, 1005)
+    assert packed["episode-1/prompt.txt"][:4] == (tarfile.REGTYPE, 0o664, 1000, 1005)
+    # Their content is not in the dataset: an empty JSON object stands in.
+    assert packed["episode-1/debug.json"][4] == b"{}" and packed["trajectory.json"][4] == b"{}"
+    first = members(s1.episode_archive(CONVERSATION, 1, s1.TMUX_SOCKET, 1_759_000_000))
+    assert sorted(first) == ["episode-0", "episode-0/debug.json", "episode-0/prompt.txt", "episode-0/response.txt"]
+
+
+def test_the_asciinema_harness_wrote_only_the_trajectory():
+    assert members(s1.episode_archive(CONVERSATION, 1, s1.ASCIINEMA, 0)) == {}
+    assert sorted(members(s1.episode_archive(CONVERSATION, 2, s1.ASCIINEMA, 0))) == ["trajectory.json"]
+
+
+def test_the_command_turns_follow_the_replay_order():
+    assert s1.command_turns(parse_terminus(CONVERSATION)) == [1, 1, 2, 2]

@@ -19,7 +19,9 @@ seeds are copied into each session's container. Evidence from the sessions' own 
   SHLVL=2), /tmp/get-asciinema-timestamp.sh, seeds with the dataset's modes and dates, /logs folders 777.
 
 Each session's container (`stage1replay-<session>`, `sh -c "sleep infinity"`, the hostname of the session's own prompt,
-CPUS cpus and MEMORY memory, the default bridge network) gets the seeds and the /logs folders; terminal_helper.py
+CPUS cpus and MEMORY memory, the default bridge network) gets the seeds and the /logs folders, and before each turn's
+commands the logs Harbor had written by then (episode_archive: the per-episode prompt and reply; Harbor's debug.json and
+trajectory.json exist, with "{}" standing in for their unknown content); terminal_helper.py
 (mounted read-only with the scout's menu code at SCOUT_MOUNT) then starts the terminal as that harness did. Each
 command is typed into the pane as Terminus-2 typed it, and its output read from the screen with the same Terminus
 parser that read the transcript (terminus._outputs), so both outputs are read the same way.
@@ -31,9 +33,10 @@ conversion, a point whose next command only gathers information that no option m
 menu is the real one. Such decisions are listed per session (`unmatched_information`), so the approximate rule can still
 be applied.
 
-Fidelity: every replayed output is compared with the transcript's after `normalised` (whitespace, digits, month names
-and the SELinux dot after ls permissions removed: dates, sizes and process ids differ between any two runs), the order
-of lines aside (`output_differs`). A session is excluded when more than EXCLUDED_SHARE of its compared outputs differ
+Fidelity: every replayed output is compared with the transcript's after `normalised` (whitespace, digits, times, month
+and day names, long hashes and the SELinux dot after ls permissions removed: dates, sizes and process ids differ between
+any two runs; lines naming the scout's mount or the terminal helper dropped), the order of lines aside
+(`output_differs`). A session is excluded when more than EXCLUDED_SHARE of its compared outputs differ
 (`select`).
 
 Usage (prepare_stage1_replay.py writes the inputs; on the Docker host):
@@ -102,10 +105,12 @@ class Harness:
     logs_mode: int
     # The tmux socket commands are typed through (None: tmux's default socket).
     socket: str | None
+    # True: Harbor kept /logs/agent/episode-N/{prompt.txt,response.txt,debug.json} per coding-model turn.
+    episode_logs: bool
 
 
-TMUX_SOCKET = Harness("tmux-socket", "stage1replay-nl2bash:tmux-socket", ("tmux",), False, 0o775, "/logs/agent/tmux.sock")
-ASCIINEMA = Harness("asciinema", "stage1replay-nl2bash:asciinema", ("tmux", "asciinema"), True, 0o777, None)
+TMUX_SOCKET = Harness("tmux-socket", "stage1replay-nl2bash:tmux-socket", ("tmux",), False, 0o775, "/logs/agent/tmux.sock", True)
+ASCIINEMA = Harness("asciinema", "stage1replay-nl2bash:asciinema", ("tmux", "asciinema"), True, 0o777, None, False)
 HARNESS_BY_RUN = {
     "7d7b83d6-b00b-4144-93fe-dadc8bd061b2": TMUX_SOCKET,
     "dfaf1ac0-28bc-492e-934e-4e4d8da84430": TMUX_SOCKET,
@@ -167,6 +172,48 @@ def seed_archive(task_archive: bytes, harness: Harness, mtime: float) -> bytes:
     return buffer.getvalue()
 
 
+# Harbor's debug.json and trajectory.json are not in the dataset; an empty JSON object stands in for their content.
+UNKNOWN_LOG = b"{}"
+THINKING = re.compile(r"^<think>.*?</think>", re.DOTALL)
+
+
+def episode_archive(conversation: list[dict], turn: int, harness: Harness, mtime: float) -> bytes:
+    """The files Harbor added to /logs/agent by the time the commands of coding-model turn `turn` (from 1) ran, as a
+    tar to unpack there: the episode folder of that turn (episode-<turn - 1>: prompt.txt, the user message it sent;
+    response.txt, the reply without its thinking; debug.json) when the harness kept them, and trajectory.json (written
+    after each episode, so from turn 2 on). Owned by uid 1000, gid 1005, files 664 and folders 775, as the sessions
+    list them."""
+    files: list[tuple[str, bytes | None]] = []
+    if harness.episode_logs:
+        episode = f"episode-{turn - 1}"
+        reply = THINKING.sub("", conversation[2 * turn - 1]["content"])
+        files += [
+            (episode, None),
+            (f"{episode}/prompt.txt", conversation[2 * turn - 2]["content"].encode()),
+            (f"{episode}/response.txt", reply.encode()),
+            (f"{episode}/debug.json", UNKNOWN_LOG),
+        ]
+    if turn >= 2:
+        files.append(("trajectory.json", UNKNOWN_LOG))
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as out:
+        for name, data in files:
+            info = tarfile.TarInfo(name)
+            info.uid, info.gid, info.mtime = 1000, 1005, mtime
+            if data is None:
+                info.type, info.mode = tarfile.DIRTYPE, 0o775
+                out.addfile(info)
+            else:
+                info.mode, info.size = 0o664, len(data)
+                out.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
+
+
+def command_turns(session: TerminusSession) -> list[int]:
+    """The coding-model turn (from 1) of each command, in the order the replay runs them."""
+    return [number for number, turn in enumerate(session.turns, start=1) for _ in turn.commands]
+
+
 def hostname_of(conversation: list[dict]) -> str:
     """The container's hostname, from the shell prompt on the first message's terminal screen."""
     first = conversation[0]["content"]
@@ -185,18 +232,27 @@ def command_output(region: str, command: str) -> str:
     return region if outputs[0] is None else outputs[0]
 
 
-MONTHS = re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b")
+MONTHS = re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b")
+TIMES = re.compile(r"\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?")
+HASHES = re.compile(r"\b[0-9a-f]{32,}\b")
 SELINUX_DOT = re.compile(r"(?m)^([-dlcbps][-rwxsStT]{9})\.")
 
 
 def _line(text: str) -> str:
-    return re.sub(r"\s+", "", re.sub(r"\d", "", MONTHS.sub("", SELINUX_DOT.sub(r"\1", text))))
+    text = HASHES.sub("", TIMES.sub("", SELINUX_DOT.sub(r"\1", text)))
+    return re.sub(r"\s+", "", re.sub(r"\d", "", MONTHS.sub("", text)))
+
+
+def _own_lines(text: str) -> str:
+    """The text without the lines that show the replay's own machinery: the scout's mount, the terminal helper."""
+    return "\n".join(line for line in text.replace("\r", "").split("\n") if SCOUT_MOUNT not in line and "terminal_helper.py" not in line)
 
 
 def normalised(text: str) -> str:
     """An output without what differs between any two runs of the same commands: whitespace (also line wrapping),
-    digits (sizes, dates, times, process ids), month names, and the SELinux mark after ls permissions."""
-    return _line(text.replace("\r", ""))
+    digits, times, month and day names (dates, sizes, process ids), hashes (of files whose dates differ), the SELinux
+    mark after ls permissions, and lines that show the replay's own machinery (`_own_lines`)."""
+    return _line(_own_lines(text))
 
 
 def output_order_differs(transcript: str, replayed: str) -> bool:
@@ -210,7 +266,7 @@ def output_differs(transcript: str, replayed: str) -> bool:
     the sessions ran on XFS, which lists a copied folder in name order)."""
     if not output_order_differs(transcript, replayed):
         return False
-    lines = [sorted(line for line in map(_line, text.replace("\r", "").split("\n")) if line) for text in (transcript, replayed)]
+    lines = [sorted(line for line in map(_line, _own_lines(text).split("\n")) if line) for text in (transcript, replayed)]
     return lines[0] != lines[1]
 
 
@@ -297,12 +353,18 @@ def task_line(task: str, archive: bytes) -> str:
 class TerminalContainer:
     """One session's container on this machine's Docker; see the module docstring."""
 
-    def __init__(self, name: str, harness: Harness, hostname: str, seeds: bytes, scout: Path) -> None:
+    def __init__(self, name: str, harness: Harness, hostname: str, seeds: bytes, scout: Path, conversation: list[dict], turns: list[int]) -> None:
         self.name = name
         self.harness = harness
         self.hostname = hostname
         self.seeds = seeds
         self.scout = scout
+        self.conversation = conversation
+        # The turn of each command in the order run() is called (command_turns), and the last turn whose Harbor logs
+        # are written.
+        self.turns = turns
+        self.logged = 0
+        self.ran = 0
         self.shell: int | None = None
 
     def _checked(self, args: list[str], timeout: float, stdin: bytes | None = None) -> str:
@@ -339,6 +401,14 @@ class TerminalContainer:
         self.shell = int(self._helper(["start", "--harness", self.harness.name], 120).strip())
 
     def run(self, command: str, timeout: float) -> Ran:
+        if self.ran >= len(self.turns):
+            raise RuntimeError(f"the replay ran more than the session's {len(self.turns)} commands")
+        turn = self.turns[self.ran]
+        self.ran += 1
+        while self.logged < turn:
+            self.logged += 1
+            logs = episode_archive(self.conversation, self.logged, self.harness, time.time())
+            self._checked(["cp", "-a", "-", f"{self.name}:/logs/agent"], 120, logs)
         socket_args = ["--socket", self.harness.socket] if self.harness.socket else []
         out = self._helper(
             ["run", *socket_args, "--shell", str(self.shell), "--limit", f"{timeout:g}"], timeout + DOCKER_SLACK_SECONDS, (command + "\n").encode()
@@ -390,7 +460,9 @@ def replay_entry(entry: dict, archive: bytes, scout: Path, machine: str) -> Repl
         session = parse_terminus(conversation)
         harness = harness_of(entry["run_id"])
         seeds = seed_archive(archive, harness, time.time())
-        container = TerminalContainer(f"stage1replay-{name}", harness, hostname_of(conversation), seeds, scout)
+        container = TerminalContainer(
+            f"stage1replay-{name}", harness, hostname_of(conversation), seeds, scout, conversation, command_turns(session)
+        )
         try:
             container.start()
             replay = replay_one(row_source(entry["task"], name), session, container)

@@ -106,7 +106,8 @@ def descendants(pid: int) -> list[tuple[int, str]]:
 
 
 def start(harness: str) -> int:
-    env = {**os.environ, "TERM": "xterm-256color", "SHELL": "/bin/bash"}
+    # Python sets LC_CTYPE=C.UTF-8 in its own environment when the locale is C (PEP 538); Harbor's tmux did not get it.
+    env = {**{k: v for k, v in os.environ.items() if k != "LC_CTYPE"}, "TERM": "xterm-256color", "SHELL": "/bin/bash"}
     if harness == "tmux-socket":
         # As that Harbor did: a first session starts the server; the history limit set then holds for the pane made
         # after it (raised here, so long outputs keep their prompt line); the first session is gone during the run.
