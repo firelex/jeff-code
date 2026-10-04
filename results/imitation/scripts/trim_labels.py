@@ -19,19 +19,22 @@ a turn whose uncut reply has no usable action (output cap, generation loop) is l
 Only turns that already have a routing label can be sampled; the script reads the routing labeller's output files as
 they grow.
 
-Requests go to servers of the session's model format (the routing labeller's files on a host hold that host's family),
-all turns of one trial to one server, with the routing labeller's load limits (--per-server in flight, no new request
+Requests go to servers of the model format named by --family; a routing-labelled turn recorded in the other format
+raises unless --allow-cross-format is given (owner, 2026-10-04 17:25: FP8 and NVFP4 answer near-identically; the
+sampling noise is larger than the quantisation difference). Every output line records `recording_format` (the
+session's) and `reask_format` (the servers'). All turns of one trial go to one server, with the routing labeller's load limits (--per-server in flight, no new request
 while the server's vLLM queue is above --max-waiting). Each request records its level, kept lines, prompt tokens and the
 prompt tokens saved against the uncut request at the same level (its prompt must equal the routing labeller's request at
 that level, or the recorded turn's for xhigh; a saving is negative when the note costs more than the lines it replaces).
 
-Output: trim-labels-NAME.jsonl per --routing NAME=FILE[,FILE...] in --out-dir: a "turn" line per labelled turn, a
+Output: trim-labels-NAME.jsonl (trim-labels-NAME-TAG.jsonl with --file-tag TAG) per --routing NAME=FILE[,FILE...] in
+--out-dir: a "turn" line per labelled turn, a
 "short" line per routing-labelled turn whose newest output shows at most 40 lines (or has none), an "excluded" line
 when the judge refused the input or the uncut reply had no usable action. Resumable: a rerun skips written turns.
 
 Usage (needs aiohttp; node runs the request builder):
     uv run --with aiohttp==3.12.15 --with tokenizers python trim_labels.py run \\
-        --routing b200=/raid/.../routing-labels-b200.jsonl --servers URL,URL --machine b200-nvfp4 \\
+        --routing b200=/raid/.../routing-labels-b200.jsonl --family nvfp4 --servers URL,URL --machine b200-nvfp4 \\
         --judge-url http://127.0.0.1:18905 --judge-model qwen3.8-max --out-dir OUT --node node \\
         --builder trim_requests.mjs --sample-rate 1.0 [--moved OLD_PREFIX=NEW_PREFIX]
 """
@@ -231,7 +234,7 @@ class TrimLabeller:
 
     def load_done(self):
         for name, _ in self.sources:
-            path = self.out_dir / f"trim-labels-{name}.jsonl"
+            path = trim_file(self.out_dir, name, self.options.file_tag)
             if path.exists():
                 for line in path.read_text().splitlines():
                     self.done.add(json.loads(line)["id"])
@@ -261,12 +264,14 @@ class TrimLabeller:
                 for row in self.new_routing_rows(path):
                     if row["id"] in self.done or not sampled(row["id"], self.options.sample_rate):
                         continue
+                    recording_format = rl.family(row["recording_machine"])
+                    rl.check_format(row["id"], recording_format, self.options.family, self.options.allow_cross_format)
                     trial = resolve_trial(row["trial_dir"], self.moved)
                     turn = {key: row[key] for key in ("id", "trial", "task", "class", "turn", "recording_machine",
                                                         "session_id", "entry_id", "commands", "final_text",
                                                         "recorded")}
                     turn.update({"trial_dir": str(trial), "session_file": str(session_file(trial)),
-                                 "source_host": source, "routing": row})
+                                 "source_host": source, "routing": row, "recording_format": recording_format})
                     key = str(trial)
                     if key not in self.trial_server:
                         self.trial_server[key] = min(self.servers, key=lambda s: s.queued_turns)
@@ -281,7 +286,8 @@ class TrimLabeller:
         built = await self.builder.build(turn)
         base = {"id": turn["id"], "trial": turn["trial"], "trial_dir": turn["trial_dir"], "task": turn["task"],
                 "class": turn["class"], "turn": turn["turn"], "source_host": turn["source_host"],
-                "routing_label": turn["routing"]["label"], "shown_lines": built["shownLines"]}
+                "routing_label": turn["routing"]["label"], "shown_lines": built["shownLines"],
+                "recording_format": turn["recording_format"], "reask_format": self.options.family}
         if not built["eligible"]:
             return {"kind": SHORT, **base, "reason": built["reason"]}
         asker = TrimAsker(self, turn, built, server)
@@ -311,6 +317,7 @@ class TrimLabeller:
                 print(f"LEFT OUT {turn['id']}: {problem}", flush=True)
                 row = {"kind": "excluded", "id": turn["id"], "trial_dir": turn["trial_dir"],
                        "source_host": turn["source_host"], "class": turn["class"],
+                       "recording_format": turn["recording_format"], "reask_format": self.options.family,
                        "reason": rl.JUDGE_REFUSED if isinstance(problem, rl.JudgeRefused) else rl.PROMPT_MISMATCH,
                        "detail": str(problem)}
             server.queued_turns -= 1
@@ -373,7 +380,14 @@ def length_bucket(lines):
     raise ValueError(f"{lines} lines is not a trimmed length")
 
 
+def trim_file(out_dir, source, tag):
+    """The trim label file of one source host: trim-labels-NAME.jsonl, or trim-labels-NAME-TAG.jsonl."""
+    return Path(out_dir) / (f"trim-labels-{source}.jsonl" if tag is None else f"trim-labels-{source}-{tag}.jsonl")
+
+
 def read_rows(paths):
+    """The rows of trim label files. A turn written twice (in one file or across files, e.g. by two trim labellers of
+    the same source host) is an error."""
     rows = []
     for path in paths:
         rows.extend(json.loads(line) for line in Path(path).read_text().splitlines() if line.strip())
@@ -382,6 +396,21 @@ def read_rows(paths):
     if twice:
         raise ValueError(f"{len(twice)} turns appear twice, e.g. {twice[0]}")
     return rows
+
+
+def formats(turn):
+    """(recording format, re-ask format) of a trim "turn" line. Lines written before --family existed carry neither
+    field: each of those trim labellers read only its own host's routing labels and asked that host's servers, so they
+    were re-asked in the recording format."""
+    recording = rl.family(turn["recording_machine"])
+    if "recording_format" in turn and turn["recording_format"] != recording:
+        raise ValueError(f"{turn['id']}: recording_format {turn['recording_format']} but recording machine "
+                         f"{turn['recording_machine']}")
+    if "reask_format" in turn:
+        return recording, turn["reask_format"]
+    if "recording_format" in turn:  # the two fields are written together
+        raise ValueError(f"{turn['id']}: a trim line with recording_format but no reask_format")
+    return recording, recording
 
 
 def _pct(a, b):
@@ -432,6 +461,7 @@ def stats_markdown(rows):
           [length_bucket(low) for low, _ in LENGTH_BUCKETS])
     table("turn class", lambda t: t["class"])
     table("routing level (the level asked)", lambda t: t["routing_label"], ["off", "low", "medium", "xhigh"])
+    table("re-ask format (recorded -> re-asked)", lambda t: "{} -> {}".format(*formats(t)))
 
     w("## How the checks decided\n")
     w("Good = the cut's action was good, whether or not it became the label (all asked cuts are checked).\n")
@@ -489,7 +519,11 @@ def main():
     r.add_argument("--routing", action="append", required=True,
                    help="NAME=FILE[,FILE...]: the routing labeller's output files of one source host")
     r.add_argument("--moved", action="append", help="OLD_PREFIX=NEW_PREFIX: a collection folder that moved")
-    r.add_argument("--servers", required=True, help="comma-separated chat-completions URLs of the sessions' format")
+    r.add_argument("--family", required=True, choices=["fp8", "nvfp4"], help="model format of --servers")
+    r.add_argument("--allow-cross-format", action="store_true",
+                   help="also re-ask turns recorded in the other model format (FP8 on NVFP4 servers or back)")
+    r.add_argument("--file-tag", help="write trim-labels-NAME-TAG.jsonl (a second trim labeller of the same host)")
+    r.add_argument("--servers", required=True, help="comma-separated chat-completions URLs of that format")
     r.add_argument("--machine", required=True)
     r.add_argument("--judge-url", required=True)
     r.add_argument("--judge-model", required=True)

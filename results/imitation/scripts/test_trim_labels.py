@@ -134,7 +134,8 @@ def _turn(turn_id, label, shown, routing="off", saved=500, cls="read"):
     asks = [] if label == "all" else [{"cut": label, "outcome": "ok", "prompt_saved": saved}]
     checks = {"last40": {"good": label == "last40", "by": "intent" if label == "last40" else "judge"}}
     return {"kind": "turn", "id": turn_id, "label": label, "shown_lines": shown, "class": cls, "routing_label": routing,
-            "asks": asks, "checks": checks, "reference_prompt": 10000}
+            "asks": asks, "checks": checks, "reference_prompt": 10000,
+            "recording_machine": "qwen3.8-27b-nvfp4@b200-gpu0"}
 
 
 def test_stats_shares_by_length_class_and_level(tmp_path):
@@ -214,3 +215,67 @@ def test_builder_output_on_a_real_session_shape(tmp_path):
     expected = "\n".join(f"line {n}" for n in range(21, 61)) + "\n\n[Showing lines 21-60 of 60. 20 earlier lines not shown.]"
     assert tool["content"] == expected
     assert set(second["kwargs"]) == {"off", "low", "medium", "xhigh"}
+
+
+# ------------------------------------------------------------------------------------------------ cross-format re-asks
+
+
+def _discovering(tmp_path, family, allow):
+    trial = tmp_path / "runs" / "t__1"
+    (trial / "agent" / "pi" / "sessions").mkdir(parents=True, exist_ok=True)
+    (trial / "agent" / "pi" / "sessions" / "s.jsonl").write_text("{}\n")
+    row = {"kind": "turn", "id": "t__1:e1", "trial": "t__1", "trial_dir": str(trial), "task": "t", "class": "read",
+           "turn": 1, "recording_machine": "qwen3.8-27b-fp8@casdgx01-gpu4", "session_id": "s", "entry_id": "e1",
+           "commands": ["ls"], "final_text": None, "recorded": {}, "label": "off"}
+    routing = tmp_path / "routing-labels-casdgx01-b200.jsonl"
+    routing.write_text(json.dumps(row) + "\n")
+    labeller = tl.TrimLabeller.__new__(tl.TrimLabeller)
+    labeller.options = SimpleNamespace(family=family, allow_cross_format=allow, sample_rate=1.0)
+    labeller.sources = [("casdgx01", [str(routing)])]
+    labeller.moved = []
+    labeller.done = set()
+    labeller.offsets = {}
+    labeller.trial_server = {}
+    server = SimpleNamespace(url="u", queued_turns=0)
+    labeller.servers = [server]
+    labeller.queues = {"u": asyncio.Queue()}
+    return labeller
+
+
+def test_a_turn_of_the_other_format_needs_allow_cross_format(tmp_path):
+    with pytest.raises(ValueError, match="answers nvfp4 sessions only"):
+        _discovering(tmp_path, "nvfp4", False).discover()
+    labeller = _discovering(tmp_path, "nvfp4", True)
+    assert labeller.discover() == 1
+    assert labeller.queues["u"].get_nowait()["recording_format"] == "fp8"
+    assert _discovering(tmp_path, "fp8", False).discover() == 1
+
+
+def test_trim_file_names():
+    assert tl.trim_file("/o", "casdgx01", None) == Path("/o/trim-labels-casdgx01.jsonl")
+    assert tl.trim_file("/o", "casdgx01", "b200") == Path("/o/trim-labels-casdgx01-b200.jsonl")
+
+
+def test_formats_and_the_stats_split_by_re_ask_format():
+    old = _turn("a", "last40", 60)
+    cross = {**_turn("b", "all", 60), "recording_machine": "qwen3.8-27b-fp8@casdgx01-gpu4", "recording_format": "fp8",
+             "reask_format": "nvfp4"}
+    assert tl.formats(old) == ("nvfp4", "nvfp4") and tl.formats(cross) == ("fp8", "nvfp4")
+    text = tl.stats_markdown([old, cross])
+    assert "## Labels by re-ask format (recorded -> re-asked)" in text
+    assert "| fp8 -> nvfp4 | 1 | 0.0% | 0.0% | 0.0% | 0.0% | 100.0% |" in text
+    assert "| nvfp4 -> nvfp4 | 1 | 100.0% |" in text
+    half = dict(cross)
+    del half["reask_format"]
+    with pytest.raises(ValueError, match="no reask_format"):
+        tl.formats(half)
+
+
+def test_a_turn_written_by_two_trim_labellers_is_an_error(tmp_path):
+    first, second = tmp_path / "trim-labels-casdgx01.jsonl", tmp_path / "trim-labels-casdgx01-b200.jsonl"
+    first.write_text(json.dumps(_turn("a", "last40", 60)) + "\n")
+    second.write_text(json.dumps({"kind": "short", "id": "b", "shown_lines": 3}) + "\n")
+    assert len(tl.read_rows([first, second])) == 2
+    second.write_text(json.dumps({"kind": "short", "id": "a", "shown_lines": 3}) + "\n")
+    with pytest.raises(ValueError, match="1 turns appear twice, e.g. a"):
+        tl.read_rows([first, second])

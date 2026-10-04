@@ -92,3 +92,17 @@ def test_the_command_line_writes_the_three_files(tmp_path):
     main(["--rows", str(rows), "--splits", str(splits), "--task-sets", str(sets), "--out", str(tmp_path / "out")])
     assert len((tmp_path / "out" / "train.jsonl").read_text().splitlines()) == 1
     assert Path(tmp_path / "out" / "development.jsonl").read_text() == ""
+
+
+def test_a_turn_in_two_row_files_is_an_error_and_nothing_is_written(tmp_path):
+    # Two trim labellers of one source host (casdgx01 on casdgx01 and on the B200) must never both label a turn.
+    sets, _ = write_task_sets(tmp_path)
+    first, second = tmp_path / "casdgx01.jsonl", tmp_path / "casdgx01-b200.jsonl"
+    first.write_text(json.dumps(trim_row(turn=3)) + "\n")
+    second.write_text(json.dumps(trim_row(turn=4)) + "\n")
+    assert export_trim([first, second], SPLITS, sets, tmp_path / "out", QUESTION) == {
+        "train": 2, "development": 0, "temperature": 0}
+    second.write_text(json.dumps(trim_row(turn=3, label="all")) + "\n")
+    with pytest.raises(ValueError, match="own:trim:train-task:s-1:3 appears more than once"):
+        export_trim([first, second], SPLITS, sets, tmp_path / "out2", QUESTION)
+    assert not (tmp_path / "out2").exists()
