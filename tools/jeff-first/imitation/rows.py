@@ -6,8 +6,9 @@ three pages; "Show more options" moves to the next page. This module writes one 
 
 - source: where the session came from (a dataset name, or "jeff-pi-record" for our own record-mode runs).
 - stage: 1, 2 or 3 (training order; see the imitation data design).
-- quality: "approximate" (menus rebuilt from a transcript), "near-exact" (replayed in the task's image) or "exact"
-  (menus logged live in record mode).
+- quality: "approximate" (menus rebuilt from a transcript), "near-exact" (replayed in the task's image), "exact"
+  (menus logged live in record mode) or "exact-replayed" (own record-mode sessions replayed in the task's image: the
+  logged menus before each coding-model turn, menus rebuilt in the container for the points inside a turn).
 - task, session: the task name and the session (trial) id.
 - decision: the index of this decision point within the session (0, 1, 2, ...); one decision has one or more rows.
 - turn: the index (1-based) of the coding model's turn this decision comes before.
@@ -41,7 +42,7 @@ VIEW_LINES = 40
 VIEW_LINE_CHARS = 200
 PAGE_SIZE = 10
 MAX_PAGES = 3
-QUALITIES = ("approximate", "near-exact", "exact")
+QUALITIES = ("approximate", "near-exact", "exact", "exact-replayed")
 SHOW_MORE = {"id": "show_more", "description": "Show more options"}
 NONE_OF_THESE = {"id": "none_of_these", "description": "None of these: hand over to the coding model"}
 

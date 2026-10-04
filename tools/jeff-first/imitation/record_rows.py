@@ -171,11 +171,24 @@ def _command(call: dict) -> str:
     return f"{call['name']} {json.dumps(call['arguments'], separators=(',', ':'), ensure_ascii=False)}"
 
 
-def record_rows(
-    trace: list[dict], session_files: list[Path], *, cut: bool, source: str = "jeff-pi-record"
-) -> tuple[list[Row], list[str]]:
-    """Rows for every record line of `trace` (lines of other kinds are ignored), and notes on turns given no row.
-    `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
+@dataclass(frozen=True)
+class RecordSession:
+    """One pi session of a trace, checked and ready to label: its rows' shared fields, the task text, its turns as
+    labels.py takes them, the record line of each logged turn (by 1-based turn number) and the session file."""
+
+    session_id: str
+    meta: RowSource
+    task: str
+    turns: list[LabelTurn]
+    records: dict[int, dict]
+    session: Session
+
+
+def record_sessions(
+    trace: list[dict], session_files: list[Path], *, cut: bool, source: str, quality: str
+) -> tuple[list[RecordSession], list[str]]:
+    """The sessions of every record line of `trace` (lines of other kinds are ignored), and notes on turns given no
+    row. `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
     sessions: dict[str, Session] = {}
     notes: list[str] = []
     for path in session_files:
@@ -185,7 +198,7 @@ def record_rows(
     for line in trace:
         if line.get("kind") == "record":
             by_session.setdefault(line["session_id"], {})[line["turn"]] = line
-    rows: list[Row] = []
+    prepared: list[RecordSession] = []
     for session_id, records in by_session.items():
         if session_id not in sessions:
             raise ValueError(f"no pi session file holds the session {session_id} of the trace")
@@ -223,26 +236,47 @@ def record_rows(
         if missing:
             raise ValueError(f"{session_id}: the trace has turns {missing} that the session file does not")
         first = records[min(records)]
-        meta = RowSource(source=source, stage=3, quality="exact", task=first["task_id"], session=session_id)
-        task = first["state"]["task"]
-        labeler = SessionLabeler(turns, follow_stints=False, drop_unmatched_information=False)
+        meta = RowSource(source=source, stage=3, quality=quality, task=first["task_id"], session=session_id)
+        prepared.append(RecordSession(session_id, meta, first["state"]["task"], turns, records, session))
+    return prepared, notes
+
+
+def check_logged_state(prepared: RecordSession, turn: int, history: list[ShellStep]) -> None:
+    """The record line of `turn` must describe the session file's own steps before it (`history`: every step before
+    the turn as the coding model took it, compacted steps included): as many steps as pi's context held, and its last
+    logged step is the session's last command (ValueError otherwise)."""
+    record = prepared.records[turn]
+    covered = len(record["state"]["recentSteps"]) + record["state"]["stepsLeftOut"]
+    kept = history[prepared.session.hidden_steps[turn - 1] :]
+    if covered != len(kept):
+        raise ValueError(
+            f"{prepared.session_id} turn {turn}: the logged state covers {covered} steps, "
+            f"the session file has {len(kept)} steps in pi's context before this turn"
+        )
+    if record["state"]["recentSteps"]:
+        _check_last_step(record["state"]["recentSteps"][-1], kept[-1], f"{prepared.session_id} turn {turn}")
+
+
+def logged_menu(prepared: RecordSession, turn: int) -> Menu:
+    """The menu the scout logged before `turn`."""
+    lists = prepared.records[turn]["lists"]
+    return {"tools": lists["tools"], "arguments_by_tool": lists["arguments_by_tool"]}
+
+
+def record_rows(
+    trace: list[dict], session_files: list[Path], *, cut: bool, source: str = "jeff-pi-record"
+) -> tuple[list[Row], list[str]]:
+    """Rows for every record line of `trace` (lines of other kinds are ignored), and notes on turns given no row.
+    `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
+    prepared_sessions, notes = record_sessions(trace, session_files, cut=cut, source=source, quality="exact")
+    rows: list[Row] = []
+    for prepared in prepared_sessions:
+        labeler = SessionLabeler(prepared.turns, follow_stints=False, drop_unmatched_information=False)
         while (history := labeler.next_point()) is not None:
-            record = records[labeler.current_turn]
-            covered = len(record["state"]["recentSteps"]) + record["state"]["stepsLeftOut"]
-            history = history[session.hidden_steps[labeler.current_turn - 1] :]
-            if covered != len(history):
-                raise ValueError(
-                    f"{session_id} turn {labeler.current_turn}: the logged state covers {covered} steps, "
-                    f"the session file has {len(history)} steps in pi's context before this turn"
-                )
-            if record["state"]["recentSteps"]:
-                _check_last_step(record["state"]["recentSteps"][-1], history[-1], f"{session_id} turn {labeler.current_turn}")
-            menu: Menu = {"tools": record["lists"]["tools"], "arguments_by_tool": record["lists"]["arguments_by_tool"]}
-            labeler.give(menu)
+            check_logged_state(prepared, labeler.current_turn, history)
+            labeler.give(logged_menu(prepared, labeler.current_turn))
+        hidden = prepared.session.hidden_steps
         for decision, point in enumerate(labeler.decisions):
-            rows.extend(
-                rows_for_decision(
-                    meta, decision, point.turn, render_state(task, point.history[session.hidden_steps[point.turn - 1] :]), point.menu, point.choice
-                )
-            )
+            state = render_state(prepared.task, point.history[hidden[point.turn - 1] :])
+            rows.extend(rows_for_decision(prepared.meta, decision, point.turn, state, point.menu, point.choice))
     return rows, notes
