@@ -22,6 +22,8 @@ Usage:
         [--counts COUNTS.json ...] [--seed N]
     python3 collect_queue.py claim STATE_DIR STREAM PID        prints "<task id> <run number>"; exit 3: all running
     python3 collect_queue.py release STATE_DIR STREAM TASK
+    python3 collect_queue.py take-out STATE_DIR TASK...       then on the other host:
+    python3 collect_queue.py put-in STATE_DIR --counts COUNTS.json TASK...   (moves tasks between hosts)
 """
 
 import argparse
@@ -193,6 +195,39 @@ def append_scoring(task_sets: Path, inventory: Path, state: Path, datasets: list
     return picked
 
 
+def take_out(state: Path, tasks: list[str]) -> list[str]:
+    """Removes tasks from this host's queue to move them to another host (put_in there). A running task, or one not in
+    the queue, raises and nothing is removed."""
+    with _locked(state) as claims:
+        queue = json.loads((state / "queue.json").read_text())
+        missing = [t for t in tasks if t not in queue["order"]]
+        if missing:
+            raise ValueError(f"not in {state}: {missing}")
+        running = sorted({held["task"] for held in claims["running"].values()} & set(tasks))
+        if running:
+            raise ValueError(f"running now, not moved: {running}")
+        queue["order"] = [t for t in queue["order"] if t not in tasks]
+        for t in tasks:
+            queue["finished_before"].pop(t, None)
+            claims["claims"].pop(t, None)
+        queue.setdefault("moved_out", []).extend(tasks)
+        _write_queue(state, queue)
+    return tasks
+
+
+def put_in(state: Path, tasks: list[str], finished: dict[str, int]) -> None:
+    """Adds tasks moved from another host after this queue's tasks; `finished`: their finished sessions so far."""
+    with _locked(state):
+        queue = json.loads((state / "queue.json").read_text())
+        already = sorted(set(tasks) & set(queue["order"]))
+        if already:
+            raise ValueError(f"{state}: already queued: {already}")
+        queue["order"] += tasks
+        queue["finished_before"].update({t: finished[t] for t in tasks if finished.get(t)})
+        queue.setdefault("moved_in", []).extend(tasks)
+        _write_queue(state, queue)
+
+
 def claim(state: Path, stream: str, pid: int, free_gb: float | None = None, stream_version: int = 1) -> tuple[str, int] | None | str:
     """`free_gb`: free space on Docker's disk; below MIN_FREE_GB nothing is claimed (LOW_DISK). A stream older than
     the queue's `min_stream_version` gets OLD_STREAM (it ends; its tmux session is restarted with hub_launch.sh)."""
@@ -276,6 +311,13 @@ def main(argv: list[str]) -> None:
     k.add_argument("stream")
     k.add_argument("pid", type=int)
     k.add_argument("--stream-version", type=int, default=1)
+    to = sub.add_parser("take-out")
+    to.add_argument("state", type=Path)
+    to.add_argument("tasks", nargs="+")
+    pi = sub.add_parser("put-in")
+    pi.add_argument("state", type=Path)
+    pi.add_argument("--counts", type=Path, required=True, help="finished sessions per task (count) from the old host")
+    pi.add_argument("tasks", nargs="+")
     v = sub.add_parser("require-stream-version")
     v.add_argument("state", type=Path)
     v.add_argument("version", type=int)
@@ -330,6 +372,10 @@ def main(argv: list[str]) -> None:
             print(f"{root} has less than {MIN_FREE_GB} GB free: not claiming", file=sys.stderr)
             sys.exit(3)
         print(f"{got[0]} {got[1]}")
+    elif args.command == "take-out":
+        print("\n".join(take_out(args.state, args.tasks)))
+    elif args.command == "put-in":
+        put_in(args.state, args.tasks, json.loads(args.counts.read_text()))
     elif args.command == "require-stream-version":
         require_stream_version(args.state, args.version)
     elif args.command == "append-scoring":

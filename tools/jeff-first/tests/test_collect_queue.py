@@ -274,3 +274,25 @@ def test_scoring_tasks_are_seeded_held_out_tasks_spread_over_datasets_after_the_
     assert queue["order"] == ["a", *picked] and queue["scoring"] == picked
     with pytest.raises(ValueError, match="already queued"):
         append_scoring(sets, inventory, state, ["terminal-bench-pro/terminal-bench-pro"], 2, seed=1, skip=[])
+
+
+def test_tasks_move_between_hosts_only_when_not_running(tmp_path):
+    from collect_queue import put_in, take_out
+
+    (tmp_path / "x").mkdir()
+    src = make_queue(tmp_path / "x", ["a", "b", "c"])
+    (tmp_path / "y").mkdir()
+    dst = make_queue(tmp_path / "y", ["d"])
+    me = os.getpid()
+    assert claim(src, "s1", me) == ("a", 1)
+    with pytest.raises(ValueError, match="running"):
+        take_out(src, ["a", "b"])
+    with pytest.raises(ValueError, match="not in"):
+        take_out(src, ["z"])
+    assert take_out(src, ["b"]) == ["b"]
+    assert json.loads((src / "queue.json").read_text())["order"] == ["a", "c"]
+    put_in(dst, ["b"], {"b": 1})
+    queue = json.loads((dst / "queue.json").read_text())
+    assert queue["order"] == ["d", "b"] and queue["finished_before"] == {"b": 1}
+    with pytest.raises(ValueError, match="already queued"):
+        put_in(dst, ["d"], {})
