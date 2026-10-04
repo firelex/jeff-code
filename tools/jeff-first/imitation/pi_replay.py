@@ -577,7 +577,8 @@ class PiContainer:
             "runApproval": self.run_approval,
         }
         inner = "\n".join([". ~/.nvm/nvm.sh", *_exports(self.menu_env), f"cd {shlex.quote(self.cwd)}", f"exec node {MENU_CLI} --live"])
-        out = self._checked(["exec", "-i", "-u", "root", self.name, "bash", "-c", inner], 300, json.dumps(point) + "\n")
+        # Building a menu can take minutes (pi's own trace logs up to 206 s for one turn: it reads every revealed text file).
+        out = self._checked(["exec", "-i", "-u", "root", self.name, "bash", "-c", inner], COMMAND_CAP_SECONDS, json.dumps(point) + "\n")
         lines = [line for line in out.splitlines() if line.strip()]
         if len(lines) != 1:
             raise RuntimeError(f"the menu CLI wrote {len(lines)} lines for one point: {out[:500]!r}")
