@@ -21,6 +21,8 @@ For each trial (see `replay_trial`):
    pass. pi ran the calls of one turn at the same time; here they run one after another, so a menu can be built
    between them. When a turn's calls end sooner than the session spent on them (from the assistant message to its
    last tool result, `batch_seconds`), the replay waits the rest, so background programs get the same start-up time.
+   When pi cut a call's output and saved all of it in a file (/tmp/pi-bash-<id>.log, named in its truncation notice),
+   the replay saves its own output at that path, so the file exists later as it did in the session.
 3. Points (labels.py SessionLabeler with stints followed, as stage 1): before each coding-model turn, and after each
    stint step inside a turn. The first command matching a menu option is a row; its recorded output joins the
    history as the scout's step (shown with the option's own command); the next matching command is the next row,
@@ -85,7 +87,7 @@ DOCKER_SLACK_SECONDS = 60.0
 # The most bytes of one command's replayed output kept for the comparison (pi shows at most 50 KB of its end).
 OUTPUT_KEEP_BYTES = 1_000_000
 # pi's bash tool shows the last 2,000 lines or 50 KB of an output and then this notice (tools/bash.ts).
-TRUNCATION_NOTICE = re.compile(r"\n\n\[Showing (?:lines \d+-\d+ of \d+(?: \([^)]*\))?|last [^\]]*?)\. Full output: [^\]]*\]$")
+TRUNCATION_NOTICE = re.compile(r"\n\n\[Showing (?:lines \d+-\d+ of \d+(?: \([^)]*\))?|last [^\]]*?)\. Full output: ([^\]]*)\]$")
 # The commands Harbor's JeffPi agent runs before pi (harbor_agent/jeff_pi.py and Harbor's Pi agent), as trial.log
 # shows them; the curl install runs only when the image has no curl.
 SETUP_PATTERNS = (
@@ -109,7 +111,7 @@ class PiRan:
 
 
 class Container(Protocol):
-    def run(self, command: str, timeout: float) -> PiRan: ...
+    def run(self, command: str, timeout: float, full_output_path: str | None) -> PiRan: ...
 
     def menu(self, task: str, steps: list[ShellStep]) -> Menu: ...
 
@@ -317,7 +319,8 @@ def replay_record_session(prepared: RecordSession, batches: list[float], contain
             turn_index, index = order[done]
             command = prepared.turns[turn_index].commands[index]
             limit = _timeout(calls[turn_index][index]["arguments"])
-            ran = container.run(command.text, limit)
+            notice = None if command.output is None else TRUNCATION_NOTICE.search(command.output)
+            ran = container.run(command.text, limit, None if notice is None else notice.group(1))
             batch_ran += ran.seconds
             differs = [
                 command.output is not None
@@ -442,13 +445,16 @@ class PiContainer:
         self.menu_env = menu_env
         self.run_approval = run_approval
 
-    def run(self, command: str, timeout: float) -> PiRan:
+    def run(self, command: str, timeout: float, full_output_path: str | None) -> PiRan:
+        """Run one bash call; with `full_output_path` (pi cut this call's output and saved all of it there), the
+        replayed output is saved at that path too."""
         self.count += 1
         number = self.count
+        keep = "" if full_output_path is None else f"cp {STATE}/out-{number} {shlex.quote(full_output_path)}; "
         inner = (
             f"cat > {STATE}/cmd-{number}.sh && "
             f"timeout -k 5 {timeout:g} bash {STATE}/cmd-{number}.sh > {STATE}/out-{number} 2>&1 < /dev/null; "
-            f"echo $? > {STATE}/status-{number}; head -c {OUTPUT_KEEP_BYTES} {STATE}/out-{number}"
+            f"echo $? > {STATE}/status-{number}; {keep}head -c {OUTPUT_KEEP_BYTES} {STATE}/out-{number}"
         )
         started = time.monotonic()
         output = self._checked(["exec", "-i", "-u", "root", self.name, "bash", "-c", inner], timeout + DOCKER_SLACK_SECONDS, command_script(command, self.cwd, self.env))

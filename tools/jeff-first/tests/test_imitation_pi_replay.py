@@ -104,14 +104,16 @@ class FakeContainer:
         self.log = []
         self.timeouts = []
         self.slept = []
+        self.full_output_paths = []
         self.menu_steps = []
         self.outputs = outputs or {}
         self.menus = list(menus or [])
         self.seconds = seconds
 
-    def run(self, command, timeout):
+    def run(self, command, timeout, full_output_path):
         self.log.append(f"run {command.splitlines()[0]}")
         self.timeouts.append(timeout)
+        self.full_output_paths.append(full_output_path)
         output, code = self.outputs.get(command, ("", 0))
         return PiRan(output, code, self.seconds, False)
 
@@ -333,3 +335,14 @@ def test_docker_output_is_read_as_pi_reads_it_with_invalid_utf8_replaced(monkeyp
     container = PiContainer("stage3replay-x", "image", 1, "2G", Path("/scout"))
     assert container._checked(["exec", "x"], 10) == "caf�\n"
     assert seen["encoding"] == "utf-8" and seen["errors"] == "replace"
+
+
+def test_a_truncated_output_is_saved_where_pi_saved_the_full_output(tmp_path):
+    # pi keeps the full output of a long command in /tmp/pi-bash-<id>.log and names it; that file is on the disk
+    # from then on (later menus may offer it), so the replay saves its own full output there.
+    shown = "end\n\n[Showing lines 1999-4000 of 4000. Full output: /tmp/pi-bash-bade5f4c3e5e6376.log]"
+    entries = [assistant(bash("c1", "seq 4000")), result("c1", shown), assistant(bash("c2", "ls")), result("c2", "a")]
+    trace = [record(1, [tool_call("seq 4000")]), record(2, [tool_call("ls")], recent=[new_shape("seq 4000", shown)])]
+    container = FakeContainer()
+    replay_record_session(prepared(tmp_path, entries, trace), [0.0, 0.0], container, machine="m")
+    assert container.full_output_paths == ["/tmp/pi-bash-bade5f4c3e5e6376.log"]
