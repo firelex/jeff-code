@@ -69,7 +69,7 @@ SENT_XHIGH = {"enable_thinking": True, "reasoning_effort": "xhigh"}
 LABELLED_STOPS = ("toolUse", "stop")
 SKIP_REASONS = {"length": "reply hit the output cap (length)", "error": "the request failed (error)",
                 "aborted": "the request was aborted"}
-JUDGE_CHECK_RATE = 0.05  # share of judge calls whose full prompt is stored (for the hand check)
+JUDGE_CHECK_RATE = 0.2  # share of judge calls whose full input is stored (for the 300-pair hand check)
 CALIBRATION_SEED = "routing-calibration-20261004"
 # Qwen (NVFP4) sometimes calls a tool that does not exist; ceiling.py's turn classifier raises on such a session.
 OTHER_TOOL = "a reply calls a tool other than bash (the trial is left out: ceiling.py cannot classify it)"
