@@ -1,34 +1,33 @@
 """Output-trimming labels: does the coding model still take a good step when it sees only the end of the newest output?
 
 For a sampled recorded Qwen3.8-27B turn of the xhigh collection whose newest tool output (the tool result just before
-the turn) shows more than 40 lines, this script asks the same request again with that output shortened (owner,
-2026-10-04): first the three 40-line cuts together (its last 40 lines; its first 20 and last 20; its first 40), and
-when none of them is good and more than 200 lines show, its last 200 lines. Calibration turns (a fixed random
---calibration-rate of turns) also ask the unshortened request at the same level and check it the same way: how often
-the level's own reply differs from the recorded one without any shortening (the noise floor of the label). The shortened text is made by JeffFirst's
-own function (output-trim.ts, through trim_requests.ts): the kept lines plus a note in pi's truncation form saying how
-many lines are not shown. Label = the first good 40-line cut in the order last40, first20last20, first40; else last200
-when good; else "all". Every asked cut is checked and recorded.
+the turn) shows more than 40 lines, this script asks the same request at the turn's ROUTING LABEL (the cheapest good
+thinking level from routing_labels.py; off, low, medium or xhigh, as run time would ask it) in a paired, deterministic
+comparison (controller, 2026-10-04): the UNCUT request and each CUT request, all at temperature 0. The cut text is made by
+JeffFirst's own function (output-trim.ts, through trim_requests.ts): the kept lines plus a note in pi's truncation form
+saying how many lines are not shown. First the uncut request and the three 40-line cuts together (its last 40 lines; its
+first 20 and last 20; its first 40), and when none of the cuts is good and more than 200 lines show, its last 200 lines.
+Label = the first good 40-line cut in the order last40, first20last20, first40; else last200 when good; else "all".
+Every asked request is checked and recorded.
 
-Each turn is asked at its ROUTING LABEL (owner, 2026-10-04: the cheapest good thinking level from routing_labels.py:
-off = thinking off at temperature 0, low / medium / xhigh as the routing labeller sends them), so the label tests the
-combination that runs at run time. Only turns that already have a routing label can be sampled; the script reads the
-routing labeller's output files as they grow.
-
-Good = as in the routing labels: the same step as the RECORDED xhigh action without asking (routing_labels.free_match:
-the same commands, or the same intent with every target named in full), else the judge's YES (the owner's validated
-prompt, Qwen3.8-Max through judge_service.py, thinking off, temperature 0; the judge sees the recent steps of the
-recorded, unshortened request). A reply without a usable action is not good and not judged.
+Good = the cut request's action is the same step as the UNCUT temperature-0 action without asking
+(routing_labels.free_match: the same commands, or the same intent with every target named in full), else the judge's YES
+with the uncut action as Step 1 and the cut action as Step 2 (the owner's validated prompt, Qwen3.8-Max through
+judge_service.py, thinking off, temperature 0; the judge sees the recent steps of the uncut request). The label then
+measures only the effect of the cut, not sampling noise. A cut reply without a usable action is not good and not judged;
+a turn whose uncut reply has no usable action (output cap, generation loop) is left out ("excluded", with the reason).
+Only turns that already have a routing label can be sampled; the script reads the routing labeller's output files as
+they grow.
 
 Requests go to servers of the session's model format (the routing labeller's files on a host hold that host's family),
 all turns of one trial to one server, with the routing labeller's load limits (--per-server in flight, no new request
 while the server's vLLM queue is above --max-waiting). Each request records its level, kept lines, prompt tokens and the
-prompt tokens saved against the unshortened request at the same level (the routing labeller's request for that level,
-or the recorded turn for xhigh; negative when the note costs more than the few lines it replaces).
+prompt tokens saved against the uncut request at the same level (its prompt must equal the routing labeller's request at
+that level, or the recorded turn's for xhigh; a saving is negative when the note costs more than the lines it replaces).
 
 Output: trim-labels-NAME.jsonl per --routing NAME=FILE[,FILE...] in --out-dir: a "turn" line per labelled turn, a
 "short" line per routing-labelled turn whose newest output shows at most 40 lines (or has none), an "excluded" line
-when the judge refused the input. Resumable: a rerun skips written turns.
+when the judge refused the input or the uncut reply had no usable action. Resumable: a rerun skips written turns.
 
 Usage (needs aiohttp; node runs the request builder):
     uv run --with aiohttp==3.12.15 --with tokenizers python trim_labels.py run \\
@@ -58,16 +57,17 @@ FORTY = ("last40", "first20last20", "first40")  # asked together; the label is t
 WIDE = "last200"  # asked when no 40-line cut is good
 LABELS = FORTY + (WIDE, "all")
 SAMPLE_SEED = "trim-sample-20261004"
-CALIBRATION_SEED = "trim-calibration-20261004"
 SHORT = "short"
+UNCUT = "all"
+UNUSABLE_UNCUT = "the uncut temperature-0 reply has no usable action (output cap, generation loop or bad call)"
 
 
 def sampled(turn_id, rate):
     return rl.fraction(f"{SAMPLE_SEED}:{turn_id}") < rate
 
 
-def in_calibration(turn_id, rate):
-    return rl.fraction(f"{CALIBRATION_SEED}:{turn_id}") < rate
+class UnusableUncut(Exception):
+    """The uncut request's reply has no usable action, so there is nothing to compare the cuts with."""
 
 
 def reference_prompt(routing_row):
@@ -82,35 +82,44 @@ def reference_prompt(routing_row):
     return asks[0]["prompt_tokens"]
 
 
-async def trim_cascade(asker, recorded, available, calibration=False):
+async def trim_cascade(asker, available):
     """The label of one turn. `asker.ask(cut)` returns a reply ({"commands": list or None, "final_text"}) of the request
-    with the newest output cut that way; `asker.judge(reference, alternative, key)` returns {"verdict": bool,
-    "reason"}. `available` = the cuts that shorten this output (output-trim.ts availableCuts). A calibration turn also
-    asks and checks the unshortened request ("all"), which does not change the label."""
-    replies, checks = {}, {}
+    with the newest output cut that way ("all" = uncut); `asker.judge(reference, alternative, key)` returns {"verdict":
+    bool, "reason"}. `available` = the cuts that shorten this output (output-trim.ts availableCuts). Raises
+    UnusableUncut when the uncut reply has no usable action."""
+    asked = [UNCUT] + [cut for cut in FORTY if cut in available]
+    replies = dict(zip(asked, await asyncio.gather(*(asker.ask(cut) for cut in asked))))
+    uncut = replies[UNCUT]
+    if uncut["commands"] is None:
+        raise UnusableUncut(UNUSABLE_UNCUT)
+    checks = {}
 
     async def check(cut):
-        reply = await asker.ask(cut)
-        replies[cut] = reply
+        reply = replies[cut]
         if reply["commands"] is None:
             checks[cut] = {"good": False, "by": "no usable action"}
-        elif rl.free_match(reply["commands"], recorded["commands"]):
+        elif rl.free_match(reply["commands"], uncut["commands"]):
             checks[cut] = {"good": True, "by": "intent"}
         else:
-            verdict = await asker.judge(recorded, reply, f"{cut} vs recorded")
+            verdict = await asker.judge(uncut, reply, f"{cut} vs uncut")
             checks[cut] = {"good": verdict["verdict"], "by": "judge"}
 
-    await asyncio.gather(*(check(cut) for cut in FORTY if cut in available), *([check("all")] if calibration else []))
+    await asyncio.gather(*(check(cut) for cut in asked[1:]))
     label = next((cut for cut in FORTY if cut in checks and checks[cut]["good"]), None)
     if label is None and WIDE in available:
+        replies[WIDE] = await asker.ask(WIDE)
         await check(WIDE)
         if checks[WIDE]["good"]:
             label = WIDE
-    return {"label": label or "all", "replies": replies, "checks": checks}
+    return {"label": label or UNCUT, "replies": replies, "checks": checks}
 
 
-def trimmed_body(built, cut, level):
-    return rl.variant_body({"body": built["trimmed"][cut], "kwargs": built["kwargs"]}, level)
+def paired_body(built, cut, level):
+    """The request at `level` with the newest output cut (`cut`, or "all" for the uncut request), at temperature 0."""
+    source = built["body"] if cut == UNCUT else built["trimmed"][cut]
+    body = rl.variant_body({"body": source, "kwargs": built["kwargs"]}, level)
+    body["temperature"] = 0
+    return body
 
 
 def resolve_trial(trial_dir, moved):
@@ -166,7 +175,7 @@ class TrimBuilder:
 
 class TrimAsker:
     def __init__(self, labeller, turn, built, server):
-        """ask("all") sends the unshortened request at the turn's level (calibration)."""
+        """ask(cut) sends the request with the newest output cut that way ("all" = uncut) at the turn's level, T=0."""
         self.labeller = labeller
         self.turn = turn
         self.built = built
@@ -174,16 +183,16 @@ class TrimAsker:
         self.level = turn["routing"]["label"]
         self.reference_prompt = reference_prompt(turn["routing"])
         self.asks = []
-        # The routing labeller's judge call: recent steps from the recorded (unshortened) request.
+        # The routing labeller's judge call: recent steps from the uncut request.
         self.judge_asker = rl.TurnAsker(labeller, turn, built, server)
 
     async def ask(self, cut):
-        body = rl.variant_body(self.built, self.level) if cut == "all" else trimmed_body(self.built, cut, self.level)
+        body = paired_body(self.built, cut, self.level)
         what = f"{self.turn['id']} {self.level} {cut}"
         record = await rl.stream(self.labeller.http, self.server, body, what)
         commands = rl.usable_commands(record)
         saved = None if record["prompt_tokens"] is None else self.reference_prompt - record["prompt_tokens"]
-        if cut == "all" and saved not in (None, 0):
+        if cut == UNCUT and saved not in (None, 0):
             raise RuntimeError(f"{what}: the unshortened request's prompt differs from the routing request's by {saved}")
         record.update({"level": self.level, "cut": cut, "commands": commands,
                        "final_text": record["content"] if commands == [] else None, "prompt_saved": saved})
@@ -276,15 +285,16 @@ class TrimLabeller:
             return {"kind": SHORT, **base, "reason": built["reason"]}
         asker = TrimAsker(self, turn, built, server)
         started = time.monotonic()
-        calibration = in_calibration(turn["id"], self.options.calibration_rate)
-        result = await trim_cascade(asker, {"commands": turn["commands"], "final_text": turn["final_text"]},
-                                    set(built["trimmed"]), calibration)
+        try:
+            result = await trim_cascade(asker, set(built["trimmed"]))
+        except UnusableUncut as problem:
+            # Not a fallback: nothing to compare the cuts with; left out with its reason and the asked replies.
+            return {"kind": "excluded", **base, "reason": str(problem), "asks": asker.asks}
         return {"kind": "turn", **base, "recording_machine": turn["recording_machine"],
                 "session_id": turn["session_id"], "entry_id": turn["entry_id"], "commands": turn["commands"],
                 "final_text": turn["final_text"], "recorded": turn["recorded"],
                 "total_lines": built["totalLines"], "reference_prompt": asker.reference_prompt,
-                "replay_machine": server.machine, "server": server.url, "calibration": calibration,
-                "label": result["label"],
+                "replay_machine": server.machine, "server": server.url, "label": result["label"],
                 "checks": result["checks"], "asks": asker.asks, "judges": asker.judge_asker.judges,
                 "labelled_s": time.monotonic() - started, "labelled_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
 
@@ -390,13 +400,15 @@ def stats_markdown(rows):
     w = out.append
     w("# Output-trimming labels: how much of the newest tool output does the coding model need?\n")
     w("Generated by `results/imitation/scripts/trim_labels.py stats`. Each sampled routing-labelled Qwen3.8-27B turn "
-      "whose newest tool output shows more than 40 lines is asked again at its routing level with that output cut to "
-      "its last 40 lines, its first 20 and last 20, and its first 40 (then, if none is good and more than 200 lines "
-      "show, its last 200), with a note in pi's truncation form. Good = the same step as the recorded xhigh action, or "
-      "the judge's YES (Qwen3.8-Max, thinking off). Label = the first good 40-line cut (last40, first20last20, "
-      "first40), else last200 when good, else all.\n")
+      "whose newest tool output shows more than 40 lines is asked again at its routing level, all at temperature 0: "
+      "uncut, and with that output cut to its last 40 lines, its first 20 and last 20, and its first 40 (then, if none "
+      "is good and more than 200 lines show, its last 200), with a note in pi's truncation form. Good = the same step "
+      "as the uncut temperature-0 action, or the judge's YES (Qwen3.8-Max, thinking off; Step 1 uncut, Step 2 cut). "
+      "Label = the first good 40-line cut (last40, first20last20, first40), else last200 when good, else all.\n")
+    reasons = collections.Counter(r["reason"] for r in excluded)
     w(f"Routing-labelled turns read: {len(rows)}; newest output at most 40 lines or none: {len(short)} "
-      f"({_pct(len(short), len(rows))}); labelled: {len(turns)}; left out (judge refused): {len(excluded)}.\n")
+      f"({_pct(len(short), len(rows))}); labelled: {len(turns)}; left out: {len(excluded)}"
+      + (f" ({', '.join(f'{r}: {n}' for r, n in sorted(reasons.items()))})" if reasons else "") + ".\n")
 
     def table(title, key, groups_order=None):
         w(f"## Labels by {title}\n")
@@ -428,18 +440,6 @@ def stats_markdown(rows):
         w(f"| {cut} | {len(checks)} | {_pct(sum(c['good'] for c in checks), len(checks))} | {by[('intent', True)]} | {by[('judge', True)]} | {by[('judge', False)]} | "
           f"{by[('no usable action', False)]} |")
     w("")
-    calibration = [t for t in turns if t.get("calibration")]
-    w("## Calibration: the unshortened request at the same level\n")
-    if calibration:
-        good = sum(t["checks"]["all"]["good"] for t in calibration)
-        any_cut = sum(any(t["checks"][c]["good"] for c in FORTY + (WIDE,) if c in t["checks"]) for t in calibration)
-        w(f"Calibration turns: {len(calibration)}. Unshortened reply good: {_pct(good, len(calibration))}; some cut "
-          f"good: {_pct(any_cut, len(calibration))}. By routing level: " + ", ".join(
-              f"{level} {_pct(sum(t['checks']['all']['good'] for t in calibration if t['routing_label'] == level), n)} "
-              f"of {n}" for level in ("off", "low", "medium", "xhigh")
-              for n in [sum(t["routing_label"] == level for t in calibration)] if n) + ".\n")
-    else:
-        w("No calibration turns yet.\n")
     w("## Tokens\n")
     total_saved = sum(saved_tokens(t) for t in turns)
     total_prompt = sum(t["reference_prompt"] for t in turns)
@@ -475,7 +475,7 @@ def join_rows(rows, stage3_rows):
                     "class": turn["class"], "state": stage3["state"],
                     "trim": {"label": turn["label"], "total_lines": turn["total_lines"],
                              "shown_lines": turn["shown_lines"], "routing_label": turn["routing_label"],
-                             "checks": turn["checks"], "calibration": turn["calibration"]}})
+                             "checks": turn["checks"]}})
     return out, {"labelled turns": len(turns), "joined": len(out), "no stage-3 row": missing}
 
 
@@ -494,8 +494,6 @@ def main():
     r.add_argument("--node", required=True)
     r.add_argument("--builder", required=True, help="trim_requests.ts or its bundle trim_requests.mjs")
     r.add_argument("--sample-rate", type=float, required=True, help="share of routing-labelled turns sampled (0-1]")
-    r.add_argument("--calibration-rate", type=float, required=True,
-                   help="share of turns that also ask the unshortened request (noise floor)")
     r.add_argument("--per-server", type=int, default=8)
     r.add_argument("--max-waiting", type=int, default=4)
     r.add_argument("--poll", type=float, default=300)
@@ -503,7 +501,8 @@ def main():
     r.add_argument("--exit-when-idle", action="store_true")
     j = sub.add_parser("join", help="trimming rows: the trim labels joined onto the stage-3 rows (one per turn)")
     j.add_argument("--labels", nargs="+", required=True)
-    j.add_argument("--stage3-rows", required=True)
+    j.add_argument("--stage3-rows", nargs="+", required=True,
+                   help="stage-3 rows files of all collections (one per host or conversion)")
     j.add_argument("--out", required=True)
     st = sub.add_parser("stats")
     st.add_argument("--labels", nargs="+", required=True)
@@ -512,8 +511,6 @@ def main():
     if options.step == "run":
         if not 0 < options.sample_rate <= 1:
             raise ValueError(f"--sample-rate must be in (0, 1], got {options.sample_rate}")
-        if not 0 <= options.calibration_rate <= 1:
-            raise ValueError(f"--calibration-rate must be in [0, 1], got {options.calibration_rate}")
         try:
             asyncio.run(TrimLabeller(options).run())
         except BaseException:  # noqa: BLE001 - not swallowed: printed, then the process ends with code 1
@@ -522,7 +519,8 @@ def main():
             sys.stderr.flush()
             os._exit(1)
     elif options.step == "join":
-        stage3 = [json.loads(line) for line in Path(options.stage3_rows).read_text().splitlines()]
+        stage3 = [json.loads(line) for path in options.stage3_rows for line in Path(path).read_text().splitlines()
+                  if line.strip()]
         rows, counts = join_rows(read_rows(options.labels), stage3)
         Path(options.out).write_text("".join(json.dumps(row) + "\n" for row in rows))
         print(counts)

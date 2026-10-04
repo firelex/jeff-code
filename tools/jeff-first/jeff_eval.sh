@@ -19,10 +19,13 @@
 #   CONCURRENCY     tasks at a time
 #   TASK            Terminal-Bench 2.0 names, or <org>/<dataset>:<task> hub ids (then JEFF_RUN_TASK_SETS and
 #                   JEFF_RUN_TASK_INVENTORY must be set, see run_phase0.sh)
+# Environment: JEFF_FIRST_OUTPUT_TRIM (required): off, fixed:<all|last200|last40|first40|first20last20>, or
+#   jeff:<trimming adapter> with JEFF_FIRST_JEFF_TRIM_THRESHOLD (the service is JEFF_URL); a trimming adapter is checked
+#   at the service like the others.
 # Fixed: pi thinking "high" (the router sets each request's level), output cap 32768 tokens, run approval all, time
 # multiplier 6 (as the collection).
 set -euo pipefail
-[ $# -ge 12 ] || { sed -n '2,25p' "$0" >&2; exit 2; }
+[ $# -ge 12 ] || { sed -n '2,28p' "$0" >&2; exit 2; }
 RUN_DIR=$1 TARBALL=$2 QWEN_URL=$3 DRIVER=$4 JEFF_URL=$5 STEP_ADAPTER=$6 STEP_THRESHOLD=$7 ROUTER=$8 ROUTER_THRESHOLD=$9
 OUT=${10} CONCURRENCY=${11}
 shift 11
@@ -32,6 +35,8 @@ cd "$RUN_DIR"
 health=$(curl -sf --max-time 10 "$JEFF_URL/health") || { echo "the Jeff service at $JEFF_URL does not answer /health" >&2; exit 1; }
 adapters=("$STEP_ADAPTER")
 if [[ "$ROUTER" == jeff:* ]]; then adapters+=("${ROUTER#jeff:}"); fi
+: "${JEFF_FIRST_OUTPUT_TRIM:?set JEFF_FIRST_OUTPUT_TRIM (off, fixed:<choice> or jeff:<trimming adapter>)}"
+if [[ "$JEFF_FIRST_OUTPUT_TRIM" == jeff:* ]]; then adapters+=("${JEFF_FIRST_OUTPUT_TRIM#jeff:}"); fi
 for adapter in "${adapters[@]}"; do
 	[ "$adapter" = jeff ] && continue
 	python3 -c 'import json, sys; health = json.loads(sys.argv[1]); sys.exit(0 if sys.argv[2] in health["adapters"] else 1)' "$health" "$adapter" \
