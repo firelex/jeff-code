@@ -9,7 +9,7 @@ import { ROUTER_OPTIONS, ROUTER_QUESTION } from "../src/core/jeff-first/router-q
 import type { JeffState } from "../src/core/jeff-first/state.ts";
 import { renderState } from "../src/core/jeff-first/teacher-prompt.ts";
 import { jeffRouter } from "../src/core/jeff-first/thinking.ts";
-import { answer, type FakeJeff, startFakeJeff } from "./jeff-first-fake-jeff.ts";
+import { answer, type FakeJeff, FITS, startFakeJeff } from "./jeff-first-fake-jeff.ts";
 
 /** Short waits so retry tests run fast. */
 const FAST: JeffServicePolicy = { timeoutMs: 300, retryDelaysMs: [10, 20], busyRetryMs: 5, busyGiveUpMs: 200 };
@@ -61,6 +61,90 @@ describe("JeffChooser", () => {
 		expect(choice.picks[0].reason).toMatch(
 			/^jeff-step gave read the highest probability, 0\.700, at least the threshold 0\.5/,
 		);
+	});
+
+	it("asks first whether the question fits, and asks it as it is when it does", async () => {
+		jeff = await startFakeJeff((sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }));
+		const choice = await new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5).choose(state, {
+			level: "tool",
+			page: 1,
+			options: tools,
+		});
+		expect(jeff.fits).toEqual([{ state: renderState(state), question: jeff.requests[0].questions.q }]);
+		expect(choice.jeffCut).toBeNull();
+		expect(choice.picks[0].reason).not.toMatch(/cut/);
+	});
+
+	it("asks with the state the service cut to fit, and records the cut", async () => {
+		const cut = {
+			state: "Task:\nFix it.\n[... 12 lines left out ...]\nlast line",
+			tokens_before: 9249,
+			tokens_after: 8184,
+			lines_left_out: 12,
+			limit: 8192,
+		};
+		jeff = await startFakeJeff(
+			(sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }),
+			() => ({ status: 200, body: JSON.stringify({ cut }) }),
+		);
+		const choice = await new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5).choose(state, {
+			level: "tool",
+			page: 1,
+			options: tools,
+		});
+		expect(jeff.requests[0].state).toBe(cut.state);
+		expect(choice.jeffCut).toEqual({ tokens_before: 9249, tokens_after: 8184, lines_left_out: 12, limit: 8192 });
+		expect(choice.picks[0].reason).toMatch(/the state was cut to fit, 9249 to 8184 tokens\)$/);
+	});
+
+	it("retries the fit question while the service is busy, then asks", async () => {
+		jeff = await startFakeJeff(
+			(sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }),
+			(_sent, index) => (index < 2 ? { status: 529, body: "{}" } : FITS),
+		);
+		const choice = await new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5).choose(state, {
+			level: "tool",
+			page: 1,
+			options: tools,
+		});
+		expect(jeff.fits).toHaveLength(3);
+		expect(choice.picks[0].reason).toMatch(/the service was busy 2 times/);
+	});
+
+	it("fails without asking when the question cannot be cut to fit", async () => {
+		jeff = await startFakeJeff(
+			(sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }),
+			() => ({ status: 422, body: '{"detail":"the question and its options alone are too long"}' }),
+		);
+		await expect(
+			new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5).choose(state, {
+				level: "tool",
+				page: 1,
+				options: tools,
+			}),
+		).rejects.toThrow(/answered 422 to \/v1\/fit: .*alone are too long/);
+		expect(jeff.requests).toHaveLength(0);
+	});
+
+	it("fails on a cut that does not fit or an answer that is neither a cut nor null", async () => {
+		const ask = async (body: string) => {
+			jeff = await startFakeJeff(
+				(sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }),
+				() => ({ status: 200, body }),
+			);
+			const chooser = new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5);
+			const result = chooser.choose(state, { level: "tool", page: 1, options: tools });
+			return result.finally(() => jeff?.close());
+		};
+		await expect(
+			ask(
+				JSON.stringify({
+					cut: { state: "x", tokens_before: 9000, tokens_after: 8200, lines_left_out: 3, limit: 8192 },
+				}),
+			),
+		).rejects.toThrow(/a cut that does not fit/);
+		await expect(ask("{}")).rejects.toThrow(/without a cut or null/);
+		jeff = undefined;
 	});
 
 	it("hands over on a tool page when the most likely option is below the threshold", async () => {
@@ -138,7 +222,7 @@ describe("JeffChooser", () => {
 		});
 		expect(choice.optionId).toBe("read");
 		expect(choice.picks[0].failedAttempts.map((failed) => failed.error)).toEqual([
-			expect.stringMatching(/answered 500: boom/),
+			expect.stringMatching(/answered 500 to \/v1\/systemone: boom/),
 			expect.stringMatching(/gave no answer within 0\.3 seconds/),
 		]);
 	});
@@ -151,7 +235,7 @@ describe("JeffChooser", () => {
 				page: 1,
 				options: tools,
 			}),
-		).rejects.toThrow(/the Jeff service at .* answered 422: \{"detail":"Unknown model."\}/);
+		).rejects.toThrow(/the Jeff service at .* answered 422 to \/v1\/systemone: \{"detail":"Unknown model."\}/);
 		expect(jeff.requests).toHaveLength(1);
 	});
 
@@ -264,7 +348,11 @@ describe("jeffRouter", () => {
 			},
 		]);
 		expect(Object.keys(ROUTER_OPTIONS)).toEqual(["off", "low", "medium", "xhigh"]);
-		expect(choice).toEqual({ level: "off", probabilities: { off: 0.7, low: 0.1, medium: 0.1, xhigh: 0.1 } });
+		expect(choice).toEqual({
+			level: "off",
+			probabilities: { off: 0.7, low: 0.1, medium: 0.1, xhigh: 0.1 },
+			cut: null,
+		});
 	});
 
 	it.each([

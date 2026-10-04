@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { JsonObject, StopReason } from "@earendil-works/pi-ai";
 import type { Pick } from "./chooser.ts";
 import type { RunApproval } from "./config.ts";
+import type { JeffCut } from "./jeff-service.ts";
 import type { ArgumentOption, ToolKind, ToolOption } from "./lists.ts";
 import type { MenuMatch, MenuOption, MenuToolCall } from "./menu.ts";
 import type { JeffState } from "./state.ts";
@@ -44,6 +45,8 @@ export interface LevelRecord {
 	shares: Record<string, number>;
 	picks: Pick[];
 	chosen: string;
+	/** Jeff only: how its question was cut to fit its token limit (jeff-service.ts); null when it fit as it was. */
+	jeff_cut: JeffCut | null;
 }
 
 /** One line per decision in teacher mode: Jeff's place, taken by the teacher. */
@@ -209,6 +212,9 @@ export interface QwenRequestRecord {
 	router: string;
 	/** The trained router's probability per level on attempt 1; null for a fixed router and on attempt 2. */
 	router_probabilities: Record<QwenThinkingLevel, number> | null;
+	/** How the trained router's question was cut to fit Jeff's token limit, on attempt 1; null when it fit, for a fixed
+	 * router and on attempt 2. */
+	router_cut: JeffCut | null;
 	thinking_level: QwenThinkingLevel;
 	/** chat_template_kwargs as sent (format qwen-chat-template); null where the request had no such field. */
 	sent: { enable_thinking: boolean | null; reasoning_effort: string | null };

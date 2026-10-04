@@ -104,6 +104,7 @@ function levelRecord(level: Level, choice: Choice, chooser: string): LevelRecord
 		shares: choice.shares,
 		picks: choice.picks,
 		chosen: choice.optionId,
+		jeff_cut: choice.jeffCut,
 	};
 }
 

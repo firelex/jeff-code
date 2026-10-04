@@ -2,7 +2,7 @@ import { appendFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
-import { JEFF_SERVICE_POLICY, type JeffQuestion, JeffService } from "./jeff-service.ts";
+import { JEFF_SERVICE_POLICY, type JeffAnswer, type JeffCut, type JeffQuestion, JeffService } from "./jeff-service.ts";
 import {
 	availableCuts,
 	parseToolOutput,
@@ -79,13 +79,15 @@ export function trimJeffQuestion(state: JeffState, totalLines: number): JeffQues
 
 /** The part of the Jeff service the trimmer uses (jeff-service.ts JeffService). */
 export interface TrimJeff {
-	ask(model: string, question: JeffQuestion): Promise<{ probabilities: Record<string, number>; ms: number }>;
+	ask(model: string, question: JeffQuestion): Promise<Pick<JeffAnswer, "probabilities" | "ms" | "cut">>;
 }
 
 export interface TrimDecision {
 	choice: TrimChoice;
 	probabilities: Record<TrimChoice, number> | null;
 	jeffMs: number | null;
+	/** How Jeff's question was cut to fit its token limit; null when it fit, and for a fixed choice. */
+	jeffCut: JeffCut | null;
 }
 
 export interface OutputTrimDecider {
@@ -97,7 +99,7 @@ export interface OutputTrimDecider {
 export function fixedTrimDecider(choice: TrimChoice): OutputTrimDecider {
 	return {
 		name: `fixed:${choice}`,
-		choose: async () => ({ choice, probabilities: null, jeffMs: null }),
+		choose: async () => ({ choice, probabilities: null, jeffMs: null, jeffCut: null }),
 	};
 }
 
@@ -114,7 +116,7 @@ export function jeffTrimDecider(jeff: TrimJeff, adapter: string, threshold: numb
 			let best: TrimChoice = "all";
 			for (const choice of TRIM_CHOICES) if (probabilities[choice] > probabilities[best]) best = choice;
 			const choice = best === "all" || probabilities[best] >= threshold ? best : "all";
-			return { choice, probabilities, jeffMs: answer.ms };
+			return { choice, probabilities, jeffMs: answer.ms, jeffCut: answer.cut };
 		},
 	};
 }
@@ -151,6 +153,8 @@ export interface OutputTrimRecord {
 	chars: { before: number; after: number };
 	/** The output as the command produced it, when shortened; else null. */
 	full_output: string | null;
+	/** How Jeff's question was cut to fit its token limit (jeff-service.ts); null when it fit, and for a fixed choice. */
+	jeff_cut: JeffCut | null;
 	timings_ms: { jeff: number | null };
 }
 
@@ -232,6 +236,7 @@ export function createOutputTrimmer(options: {
 			shortened: shortened !== undefined,
 			chars: { before: text.length, after: (shortened ?? text).length },
 			full_output: shortened === undefined ? null : text,
+			jeff_cut: decision.jeffCut,
 			timings_ms: { jeff: decision.jeffMs },
 		};
 		appendFileSync(options.traceFile, `${JSON.stringify(record)}\n`);

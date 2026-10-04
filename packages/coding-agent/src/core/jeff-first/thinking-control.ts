@@ -162,7 +162,13 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 		const thisTurn = turn;
 
 		// The router's probabilities and time apply to the first request only; a re-ask always runs at REASK_LEVEL.
-		let routed: { probabilities: QwenRequestRecord["router_probabilities"]; ms: number } | undefined;
+		let routed:
+			| {
+					probabilities: QwenRequestRecord["router_probabilities"];
+					cut: QwenRequestRecord["router_cut"];
+					ms: number;
+			  }
+			| undefined;
 		const writeLine = (
 			attempt: Attempt,
 			number: 1 | 2,
@@ -180,6 +186,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 				driver: model.id,
 				router: options.router.name,
 				router_probabilities: number === 1 && routed ? routed.probabilities : null,
+				router_cut: number === 1 && routed ? routed.cut : null,
 				thinking_level: attempt.level,
 				sent: attempt.sent,
 				outcome,
@@ -205,7 +212,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 			task ??= taskText(context.messages);
 			const routerStarted = performance.now();
 			const choice = await options.router.levelFor(trimState(task, collectSteps(context.messages)));
-			routed = { probabilities: choice.probabilities, ms: performance.now() - routerStarted };
+			routed = { probabilities: choice.probabilities, cut: choice.cut, ms: performance.now() - routerStarted };
 			const level = choice.level;
 			if (level !== "off" && !model.reasoning) {
 				throw new Error(

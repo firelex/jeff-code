@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import type { JeffService } from "./jeff-service.ts";
+import type { JeffCut, JeffService } from "./jeff-service.ts";
 import { NONE_OF_THESE } from "./pages.ts";
 import type { JeffState } from "./state.ts";
 import {
@@ -45,6 +45,8 @@ export interface Choice {
 	optionId: string;
 	shares: Record<string, number>;
 	picks: Pick[];
+	/** How Jeff's question was cut to fit its token limit; null when it fit, and always for the teacher. */
+	jeffCut: JeffCut | null;
 }
 
 /** A teacher failure worth retrying: no answer in time, no connection, rate limited, or a server error. */
@@ -68,7 +70,7 @@ export function tally(optionIds: string[], picks: Pick[]): Choice {
 		if ((counts.get(pick.optionId) ?? 0) > (counts.get(optionId) ?? 0)) optionId = pick.optionId;
 	}
 	const shares = Object.fromEntries(optionIds.map((id) => [id, (counts.get(id) ?? 0) / picks.length]));
-	return { optionId, shares, picks };
+	return { optionId, shares, picks, jeffCut: null };
 }
 
 function excerpt(text: string): string {
@@ -238,14 +240,19 @@ export class JeffChooser implements Chooser {
 		const taken = probability >= this.threshold;
 		const optionId = taken ? best : handOver;
 		const busy = answer.busyWaits > 0 ? `; the service was busy ${answer.busyWaits} times` : "";
+		const cut =
+			answer.cut === null
+				? ""
+				: `; the state was cut to fit, ${answer.cut.tokens_before} to ${answer.cut.tokens_after} tokens`;
 		const reason =
 			`${answer.servedBy} gave ${best} the highest probability, ${probability.toFixed(3)}, ` +
 			`${taken ? "at least" : "below"} the threshold ${this.threshold}${taken ? "" : `: hand over (${handOver})`}` +
-			` (${Math.round(answer.ms)} ms${busy})`;
+			` (${Math.round(answer.ms)} ms${busy}${cut})`;
 		return {
 			optionId,
 			shares: answer.probabilities,
 			picks: [{ optionId, reason, failedAttempts: answer.failedAttempts }],
+			jeffCut: answer.cut,
 		};
 	}
 }

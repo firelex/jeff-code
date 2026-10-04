@@ -28,6 +28,17 @@ export interface JeffQuestion {
 	criteria: Record<string, string>;
 }
 
+/**
+ * How a question's state was cut to fit Jeff's token limit (the service's POST /v1/fit, tools/jeff-first/jeff_fit.py):
+ * the prompt's length in Jeff's tokens before and after, the lines of the state left out, and the limit.
+ */
+export interface JeffCut {
+	tokens_before: number;
+	tokens_after: number;
+	lines_left_out: number;
+	limit: number;
+}
+
 export interface JeffAnswer {
 	/** Each option's probability, by option id. */
 	probabilities: Record<string, number>;
@@ -38,6 +49,8 @@ export interface JeffAnswer {
 	/** How often the service answered "busy" before this answer. */
 	busyWaits: number;
 	failedAttempts: FailedAttempt[];
+	/** null when the question fit Jeff's token limit as it was; otherwise how its state was cut to fit. */
+	cut: JeffCut | null;
 }
 
 /** jeff-serve's names for the base model itself (no adapter): an untrained-adapter test run asks for "jeff". */
@@ -66,7 +79,11 @@ function describeFetchError(error: unknown): string {
  * Jeff's decision service: jeff-dev's own server (jeff-serve, POST /v1/systemone) with one base Jeff checkpoint loaded
  * and its LoRA adapters beside it; a request names the adapter ("model") and gets back the probability of each option.
  * The service builds the prompt from the state, question and options exactly as Jeff's training does (jeff-dev
- * model.py decision_messages).
+ * model.py decision_messages). Jeff reads at most 8,192 tokens, so every question is first sent to POST /v1/fit, which
+ * answers whether the prompt fits and, when it does not, the state cut to fit by the rule the training rows were cut
+ * with (tools/jeff-first/jeff_fit.py: the start and the end of the state are kept, the middle is replaced by one line
+ * saying how many lines were left out; the question and options are never cut). The question is then asked with that
+ * state.
  */
 export class JeffService {
 	readonly url: string;
@@ -78,20 +95,49 @@ export class JeffService {
 	}
 
 	async ask(model: string, question: JeffQuestion): Promise<JeffAnswer> {
-		const body = JSON.stringify({
-			model,
-			state: question.state,
-			questions: { q: { type: "choice", instructions: question.instructions, criteria: question.criteria } },
-		});
-		const failedAttempts: FailedAttempt[] = [];
 		const started = performance.now();
+		const asked = { type: "choice", instructions: question.instructions, criteria: question.criteria };
+		const fitted = await this.call("/v1/fit", JSON.stringify({ state: question.state, question: asked }), (text) =>
+			this.readFit(text),
+		);
+		const state = fitted.value === null ? question.state : fitted.value.state;
+		const answered = await this.call(
+			"/v1/systemone",
+			JSON.stringify({ model, state, questions: { q: asked } }),
+			(text) => this.readAnswer(text, model, question),
+		);
+		const cut =
+			fitted.value === null
+				? null
+				: {
+						tokens_before: fitted.value.tokens_before,
+						tokens_after: fitted.value.tokens_after,
+						lines_left_out: fitted.value.lines_left_out,
+						limit: fitted.value.limit,
+					};
+		return {
+			...answered.value,
+			ms: performance.now() - started,
+			busyWaits: fitted.busyWaits + answered.busyWaits,
+			failedAttempts: [...fitted.failedAttempts, ...answered.failedAttempts],
+			cut,
+		};
+	}
+
+	/** One request, retried while the service is busy and after timeouts, lost connections and server errors. */
+	private async call<T>(
+		path: string,
+		body: string,
+		read: (text: string) => T,
+	): Promise<{ value: T; busyWaits: number; failedAttempts: FailedAttempt[] }> {
+		const failedAttempts: FailedAttempt[] = [];
 		let busyWaits = 0;
 		let busySince: number | undefined;
 		for (let attempt = 0; ; ) {
 			const attemptStarted = performance.now();
 			try {
-				const { probabilities, servedBy } = await this.post(body, model, question);
-				return { probabilities, servedBy, ms: performance.now() - started, busyWaits, failedAttempts };
+				const value = read(await this.post(path, body));
+				return { value, busyWaits, failedAttempts };
 			} catch (error) {
 				if (error instanceof BusyError) {
 					busyWaits++;
@@ -120,15 +166,12 @@ export class JeffService {
 		}
 	}
 
-	private async post(
-		body: string,
-		model: string,
-		question: JeffQuestion,
-	): Promise<{ probabilities: Record<string, number>; servedBy: string }> {
+	/** The body of a successful answer; a busy answer, a retryable failure or any other failure is thrown. */
+	private async post(path: string, body: string): Promise<string> {
 		let response: Response;
 		let text: string;
 		try {
-			response = await fetch(`${this.url}/v1/systemone`, {
+			response = await fetch(`${this.url}${path}`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body,
@@ -145,15 +188,50 @@ export class JeffService {
 		}
 		if (response.status === 529) throw new BusyError("busy");
 		if (!response.ok) {
-			const message = `the Jeff service at ${this.url} answered ${response.status}: ${excerpt(text)}`;
+			const message = `the Jeff service at ${this.url} answered ${response.status} to ${path}: ${excerpt(text)}`;
 			throw response.status >= 500 ? new RetryableError(message) : new Error(message);
 		}
-		let reply: unknown;
+		return text;
+	}
+
+	private parse(text: string, path: string): unknown {
 		try {
-			reply = JSON.parse(text);
+			return JSON.parse(text);
 		} catch {
-			throw new Error(`the Jeff service at ${this.url} answered with a body that is not JSON: ${excerpt(text)}`);
+			throw new Error(
+				`the Jeff service at ${this.url} answered ${path} with a body that is not JSON: ${excerpt(text)}`,
+			);
 		}
+	}
+
+	/** POST /v1/fit's answer: null when the question fits as it is, else the cut state and its lengths. */
+	private readFit(text: string): (JeffCut & { state: string }) | null {
+		const reply = this.parse(text, "/v1/fit") as { cut?: unknown };
+		if (reply.cut === null) return null;
+		const cut = reply.cut as Record<string, unknown> | undefined;
+		const counts = ["tokens_before", "tokens_after", "lines_left_out", "limit"] as const;
+		if (
+			typeof cut !== "object" ||
+			typeof cut.state !== "string" ||
+			counts.some((key) => typeof cut[key] !== "number" || !Number.isInteger(cut[key]))
+		) {
+			throw new Error(`the Jeff service at ${this.url} answered /v1/fit without a cut or null: ${excerpt(text)}`);
+		}
+		const value = cut as unknown as JeffCut & { state: string };
+		if (!(value.tokens_after <= value.limit && value.tokens_before > value.limit)) {
+			throw new Error(
+				`the Jeff service at ${this.url} answered /v1/fit with a cut that does not fit: ${excerpt(text)}`,
+			);
+		}
+		return value;
+	}
+
+	private readAnswer(
+		text: string,
+		model: string,
+		question: JeffQuestion,
+	): { probabilities: Record<string, number>; servedBy: string } {
+		const reply = this.parse(text, "/v1/systemone");
 		const { model: servedBy, answers } = reply as { model?: unknown; answers?: Record<string, unknown> };
 		const answer = answers?.q as { type?: unknown; probabilities?: unknown } | undefined;
 		if (typeof servedBy !== "string" || answer?.type !== "choice" || typeof answer.probabilities !== "object") {

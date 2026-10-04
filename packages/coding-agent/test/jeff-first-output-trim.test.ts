@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import type { JeffCut } from "../src/core/jeff-first/jeff-service.ts";
 import {
 	availableCuts,
 	parseToolOutput,
@@ -107,18 +108,24 @@ describe("JeffFirst output trimming", () => {
 
 	const state: JeffState = { task: "t", recentSteps: [], stepsLeftOut: 0 };
 
-	function fakeJeff(probabilities: Record<string, number>) {
+	function fakeJeff(probabilities: Record<string, number>, cut: JeffCut | null = null) {
 		const asked: string[] = [];
 		return {
 			asked,
 			jeff: {
 				ask: async (model: string) => {
 					asked.push(model);
-					return { probabilities, ms: 3 };
+					return { probabilities, ms: 3, cut };
 				},
 			},
 		};
 	}
+
+	it("passes on how Jeff's question was cut to fit", async () => {
+		const cut: JeffCut = { tokens_before: 9000, tokens_after: 8100, lines_left_out: 50, limit: 8192 };
+		const jeff = fakeJeff({ all: 0.9, last200: 0.1, last40: 0, first40: 0, first20last20: 0 }, cut);
+		expect((await jeffTrimDecider(jeff.jeff, "trim", 0.5).choose(state, 100)).jeffCut).toEqual(cut);
+	});
 
 	it("takes Jeff's most likely cut only when it reaches the threshold", async () => {
 		const confident = fakeJeff({ all: 0.1, last200: 0.1, last40: 0.6, first40: 0.1, first20last20: 0.1 });
@@ -164,7 +171,7 @@ describe("JeffFirst output trimming", () => {
 					name: "test",
 					choose: async (seen) => {
 						states.push(seen);
-						return { choice: "first40", probabilities: null, jeffMs: null };
+						return { choice: "first40", probabilities: null, jeffMs: null, jeffCut: null };
 					},
 				},
 				taskId: "t",
@@ -197,6 +204,11 @@ describe("JeffFirst output trimming", () => {
 	it("names a fixed decider by its choice", async () => {
 		const decider = fixedTrimDecider("last200");
 		expect(decider.name).toBe("fixed:last200");
-		expect(await decider.choose(state, 500)).toEqual({ choice: "last200", probabilities: null, jeffMs: null });
+		expect(await decider.choose(state, 500)).toEqual({
+			choice: "last200",
+			probabilities: null,
+			jeffMs: null,
+			jeffCut: null,
+		});
 	});
 });

@@ -1,4 +1,4 @@
-import { JEFF_SERVICE_POLICY, JeffService } from "./jeff-service.ts";
+import { JEFF_SERVICE_POLICY, type JeffCut, JeffService } from "./jeff-service.ts";
 import { ROUTER_OPTIONS, ROUTER_QUESTION } from "./router-question.ts";
 import type { JeffState } from "./state.ts";
 import { renderState } from "./teacher-prompt.ts";
@@ -15,6 +15,8 @@ export const QWEN_THINKING_LEVELS: readonly QwenThinkingLevel[] = ["off", "low",
 export interface RouterChoice {
 	level: QwenThinkingLevel;
 	probabilities: Record<QwenThinkingLevel, number> | null;
+	/** How the trained router's question was cut to fit Jeff's token limit; null when it fit, and for a fixed level. */
+	cut: JeffCut | null;
 }
 
 /**
@@ -33,7 +35,7 @@ export type ThinkingRouterSpec =
 	| { kind: "jeff"; url: string; adapter: string; threshold: number };
 
 export function fixedRouter(level: QwenThinkingLevel): ThinkingRouter {
-	return { name: `fixed:${level}`, levelFor: async () => ({ level, probabilities: null }) };
+	return { name: `fixed:${level}`, levelFor: async () => ({ level, probabilities: null, cut: null }) };
 }
 
 /**
@@ -58,7 +60,7 @@ export function jeffRouter(service: JeffService, adapter: string, threshold: num
 			let best: QwenThinkingLevel = "off";
 			for (const level of QWEN_THINKING_LEVELS) if (probabilities[level] > probabilities[best]) best = level;
 			const level = best === "xhigh" || probabilities[best] >= threshold ? best : "xhigh";
-			return { level, probabilities };
+			return { level, probabilities, cut: answer.cut };
 		},
 	};
 }
