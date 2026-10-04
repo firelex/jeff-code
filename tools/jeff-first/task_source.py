@@ -21,6 +21,7 @@ Usage (run_phase0.sh calls these):
     python3 task_source.py harbor-args TASK_SETS INVENTORY MULTIPLIER TASK
         prints: <dataset@ref> <task package name for -i> <agent timeout multiplier> <file-safe name> <offline|online>
     python3 task_source.py image TASK_SETS INVENTORY TASK     the image to pull before the session, or "-"
+    python3 task_source.py side TASK_SETS INVENTORY TASK      training, held_out or excluded (bare TB 2.0 names: training)
 """
 
 import json
@@ -160,6 +161,9 @@ def main(argv: list[str]) -> None:
     if len(argv) == 5 and argv[0] == "harbor-args":
         sets = load_task_sets(Path(argv[1]), Path(argv[2]))
         print(" ".join(hub_harbor_args(sets, argv[4], float(argv[3]))))
+        return
+    if len(argv) == 4 and argv[0] == "side":
+        print(load_task_sets(Path(argv[1]), Path(argv[2])).side(argv[3]) if is_hub_task(argv[3]) else "training")
         return
     if len(argv) == 4 and argv[0] == "image":
         image = load_task_sets(Path(argv[1]), Path(argv[2])).resolve(argv[3]).image if is_hub_task(argv[3]) else None

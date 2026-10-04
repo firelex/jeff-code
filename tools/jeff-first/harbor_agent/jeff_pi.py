@@ -106,12 +106,19 @@ class JeffPi(Pi):
 
     @override
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
-        if self.options.allowed_hosts is not None:
-            hosts = [host.strip() for host in self.options.allowed_hosts.split(",")]
-            if not all(hosts):
-                raise ValueError(f"allowed_hosts {self.options.allowed_hosts!r} has an empty entry")
-            await cut_off(environment, hosts)
-        await super().run(instruction, environment, context)
+        if self.options.allowed_hosts is None:
+            await super().run(instruction, environment, context)
+            return
+        hosts = [host.strip() for host in self.options.allowed_hosts.split(",")]
+        if not all(hosts):
+            raise ValueError(f"allowed_hosts {self.options.allowed_hosts!r} has an empty entry")
+        before = environment.network_policy
+        await cut_off(environment, hosts)
+        try:
+            await super().run(instruction, environment, context)
+        finally:
+            # The tests get the internet back: some SWE-rebench tests run `uv run`, which syncs packages.
+            await environment.set_network_policy(before)
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:

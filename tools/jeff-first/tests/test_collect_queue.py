@@ -166,6 +166,7 @@ def test_hub_launch_takes_the_streams_urls_and_drivers_of_the_old_launcher(tmp_p
         f"hub-b200-gpu7-s6: bash {c}/hub/tools/jeff-first/hub_stream.sh {c} {c}/hub/queue http://192.168.3.12:8892 runs-collect-xhigh-hub/b200-gpu7-s6 qwen3.8-27b-nvfp4@b200-gpu7-vllm0.29 b200-gpu7-s6",
     ]
     assert "b200: 3 tasks of 4" in result.stdout or "b200: 2 tasks of 4" in result.stdout
+    assert "b200: 2 streams; dry run" in result.stdout
     assert not (collect / "hub" / "queue").exists()  # a dry run plans into a temporary folder
 
 
@@ -232,3 +233,44 @@ def test_a_session_that_never_started_is_released_without_counting_as_a_run(tmp_
     assert claim(state, "s1", me) == ("a", 1)
     release(state, "s1", "a", ran=False)  # e.g. Docker Hub's pull limit was hit before the session
     assert claim(state, "s1", me) == ("a", 1)
+
+
+def test_old_streams_are_drained_when_the_queue_needs_a_newer_stream(tmp_path):
+    from collect_queue import OLD_STREAM, require_stream_version
+
+    state = make_queue(tmp_path, ["a", "b"])
+    me = os.getpid()
+    assert claim(state, "s1", me) == ("a", 1)
+    require_stream_version(state, 2)
+    release(state, "s1", "a")
+    assert claim(state, "s1", me) is OLD_STREAM  # the old stream's loop then ends
+    assert claim(state, "s1", me, stream_version=2) == ("b", 1)
+
+
+def test_scoring_tasks_are_seeded_held_out_tasks_spread_over_datasets_after_the_queue(tmp_path):
+    from collect_queue import append_scoring
+
+    sets, inventory = task_sets(tmp_path, n=2)
+    data = json.loads(sets.read_text())
+    data["datasets"]["terminal-bench-pro"]["held_out"] = [f"h{i}" for i in range(10)]
+    sets.write_text(json.dumps(data))
+    rows = json.loads(inventory.read_text())
+    rows += [{"dataset": "terminal-bench-pro", "task": f"h{i}", "task_name": f"terminal-bench-pro/h{i}", "agent_timeout_sec": 900.0, "gpus": 0, "mcp_servers": 0, "cpus": 1, "memory_mb": 2048, "compose_services": []} for i in range(10)]
+    inventory.write_text(json.dumps(rows))
+    add_dataset(sets, inventory, "skillsbench", "benchflow/skillsbench", ["k0"])
+    data = json.loads(sets.read_text())
+    data["datasets"]["skillsbench"]["held_out"] = ["s0", "s1", "s2"]
+    sets.write_text(json.dumps(data))
+    rows = json.loads(inventory.read_text())
+    rows += [{"dataset": "skillsbench", "task": f"s{i}", "task_name": f"benchflow/s{i}", "agent_timeout_sec": 900.0, "gpus": 0, "mcp_servers": 0, "cpus": 1, "memory_mb": 2048, "compose_services": []} for i in range(3)]
+    rows[-1]["gpus"] = 1  # not runnable: never picked
+    inventory.write_text(json.dumps(rows))
+    state = make_queue(tmp_path, ["a"])
+    picked = append_scoring(sets, inventory, state, ["terminal-bench-pro/terminal-bench-pro", "benchflow/skillsbench"], 6, seed=1, skip=[tid("h3")])
+    assert len(picked) == 6
+    assert sum(t.startswith("benchflow/") for t in picked) == 2  # spread: both runnable SkillsBench tasks, then Pro
+    assert tid("h3") not in picked and "benchflow/skillsbench:s2" not in picked
+    queue = json.loads((state / "queue.json").read_text())
+    assert queue["order"] == ["a", *picked] and queue["scoring"] == picked
+    with pytest.raises(ValueError, match="already queued"):
+        append_scoring(sets, inventory, state, ["terminal-bench-pro/terminal-bench-pro"], 2, seed=1, skip=[])

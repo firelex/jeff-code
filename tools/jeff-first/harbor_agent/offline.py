@@ -10,7 +10,8 @@ at run time instead, after the agent's setup (installing node and pi needs the i
 - OfflineDocker: EgressDocker with no network at all from the moment the container has started, for checking with
   Harbor's oracle agent (`-a oracle`, which runs the task's reference solution and needs no setup) that a task's
   solution and tests work offline.
-The policy is not switched back after the agent, so the tests also run without internet.
+JeffPi switches the policy back after pi, so the tests run with the internet (tests that run `uv run` sync packages;
+checked 2026-10-04: confluence-markdown-exporter-92's reference solution passes online and fails offline).
 """
 
 from typing import override

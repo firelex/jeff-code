@@ -31,10 +31,14 @@ if [ ! -f "$QUEUE/queue.json" ]; then
 	if [ "$dry_run" = 1 ]; then target=$(mktemp -d)/queue; fi
 	python3 "$TOOLS/collect_queue.py" plan "$HUB/task-sets.json" "$HUB/task-sets-inventory.json" "$target" "$HOST" "$@" "${counts[@]}"
 fi
+started=0 running=0
 for line in "${streams[@]}"; do
 	read -r stream url driver <<< "$line"
 	command="bash $TOOLS/hub_stream.sh $C $QUEUE $url runs-collect-xhigh-hub/$stream $driver $stream"
 	if [ "$dry_run" = 1 ]; then echo "hub-$stream: $command"; continue; fi
+	# A stream still running keeps its session (rerun this script to restart streams that ended, e.g. drained ones).
+	if tmux -L jeffcollect has-session -t "=hub-$stream" 2>/dev/null; then running=$((running + 1)); continue; fi
 	tmux -L jeffcollect new-session -d -s "hub-$stream" "$command"
+	started=$((started + 1))
 done
-echo "${#streams[@]} streams $( [ "$dry_run" = 1 ] && echo "(dry run)" || echo started) on $HOST"
+echo "$HOST: ${#streams[@]} streams; $( [ "$dry_run" = 1 ] && echo "dry run" || echo "started $started, already running $running")"

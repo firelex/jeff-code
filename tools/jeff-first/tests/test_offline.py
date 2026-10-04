@@ -10,6 +10,7 @@ from harbor_agent.offline import EgressDocker, OfflineDocker
 class FakeEnvironment:
     def __init__(self):
         self.policies = []
+        self.network_policy = NetworkPolicy(network_mode=NetworkMode.PUBLIC)
 
     async def set_network_policy(self, policy):
         self.policies.append(policy)
@@ -30,8 +31,8 @@ async def test_jeff_pi_cuts_the_container_off_except_the_model_host_before_pi_ru
     await make_agent(tmp_path, allowed_hosts="192.168.3.12").run("task", environment, None)
     allow = NetworkPolicy(network_mode=NetworkMode.ALLOWLIST, allowed_hosts=["192.168.3.12"])
     assert order == [("pi runs", [allow])]
-    # Not restored afterwards: the tests run in the same container without internet too.
-    assert environment.policies == [allow]
+    # Restored afterwards, so the tests have the internet.
+    assert environment.policies == [allow, NetworkPolicy(network_mode=NetworkMode.PUBLIC)]
 
 
 async def test_jeff_pi_leaves_the_network_alone_without_allowed_hosts(tmp_path, monkeypatch):

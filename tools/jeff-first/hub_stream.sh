@@ -8,6 +8,9 @@
 # session (image_pull.py: one pull at a time per host, at least PULL_INTERVAL seconds apart, default 40, so the two
 # hosts sharing one Docker Hub account stay under its 200 pulls per hour) and removed after it. On Docker Hub's
 # rate-limit error the claim is released without counting as a run and the stream waits 15 minutes.
+# Held-out tasks (scoring sessions, collect_queue.py append-scoring) go to COLLECT_DIR/runs-scoring-heldout/<stream>/
+# instead of OUT_FOLDER, so no training conversion reads them. This is stream version 2: a queue that requires it
+# (collect_queue.py require-stream-version) stops version-1 streams at their next claim.
 # Usage: hub_stream.sh COLLECT_DIR QUEUE_DIR URL OUT_FOLDER DRIVER_BUILD STREAM
 #   COLLECT_DIR holds jeff-pi-scout-8db5381f3.tgz and hub/ (tools/jeff-first, task-sets.json, task-sets-inventory.json)
 set -euo pipefail
@@ -25,11 +28,17 @@ export JEFF_RUN_TASK_SETS=$HUB/task-sets.json JEFF_RUN_TASK_INVENTORY=$HUB/task-
 mkdir -p "$OUT"
 while true; do
 	status=0
-	got=$(python3 "$HUB/tools/jeff-first/collect_queue.py" claim "$QUEUE" "$STREAM" $$) || status=$?
+	got=$(python3 "$HUB/tools/jeff-first/collect_queue.py" claim "$QUEUE" "$STREAM" $$ --stream-version 2) || status=$?
 	if [ "$status" = 3 ]; then sleep 60; continue; fi
 	[ "$status" = 0 ] || { echo "$(date -Is) claim failed (exit $status)" >> "$OUT/run.log"; exit "$status"; }
 	read -r task run <<< "$got"
 	echo "$(date -Is) claimed $task (run $run)" >> "$OUT/run.log"
+	side=$(python3 "$HUB/tools/jeff-first/task_source.py" side "$HUB/task-sets.json" "$HUB/task-sets-inventory.json" "$task")
+	case "$side" in
+		training) dest=$OUT ;;
+		held_out) dest=$C/runs-scoring-heldout/$STREAM ;;
+		*) echo "$(date -Is) $task is $side: not run" >> "$OUT/run.log"; exit 1 ;;
+	esac
 	image=$(python3 "$HUB/tools/jeff-first/task_source.py" image "$HUB/task-sets.json" "$HUB/task-sets-inventory.json" "$task")
 	if [ "$image" != - ]; then
 		status=0
@@ -46,8 +55,8 @@ while true; do
 			continue
 		fi
 	fi
-	mkdir -p "$OUT/round$run"
-	bash "$HUB/tools/jeff-first/run_phase0.sh" "$HUB/task-sets.json" "$TGZ" "$URL" "$OUT/round$run" 1 high bash qwen3.8-27b record 6 "$task" \
+	mkdir -p "$dest/round$run"
+	bash "$HUB/tools/jeff-first/run_phase0.sh" "$HUB/task-sets.json" "$TGZ" "$URL" "$dest/round$run" 1 high bash qwen3.8-27b record 6 "$task" \
 		>> "$OUT/run.log" 2>&1 || echo "$(date -Is) session on $task exited $?" >> "$OUT/run.log"
 	python3 "$HUB/tools/jeff-first/collect_queue.py" release "$QUEUE" "$STREAM" "$task"
 	if [ "$image" != - ]; then

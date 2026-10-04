@@ -41,6 +41,7 @@ from task_source import load_task_sets
 SEED = 20261004
 ALL_RUNNING = None
 LOW_DISK = "low disk"
+OLD_STREAM = "old stream"
 # Free space Docker's disk must keep; below it no task is claimed (streams wait), so pulled images and builds never
 # fill the disk.
 MIN_FREE_GB = 150
@@ -133,18 +134,74 @@ def append(task_sets: Path, inventory: Path, state: Path, host: str, counts: dic
         queue["order"] += mine
         queue["finished_before"].update({t: counts[t] for t in mine if counts.get(t)})
         queue.setdefault("appended", []).append({"datasets": datasets, "hosts": [f"{h}:{n}{':small' if s else ''}" for h, n, s in hosts], "seed": seed, "tasks": len(mine), "of": len(new)})
-        tmp = state / "queue.json.tmp"
-        tmp.write_text(json.dumps(queue, indent=1) + "\n")
-        os.replace(tmp, queue_path)
+        _write_queue(state, queue)
     return mine
 
 
-def claim(state: Path, stream: str, pid: int, free_gb: float | None = None) -> tuple[str, int] | None | str:
-    """`free_gb`: free space on Docker's disk; below MIN_FREE_GB nothing is claimed (LOW_DISK)."""
+def _write_queue(state: Path, queue: dict) -> None:
+    tmp = state / "queue.json.tmp"
+    tmp.write_text(json.dumps(queue, indent=1) + "\n")
+    os.replace(tmp, state / "queue.json")
+
+
+def require_stream_version(state: Path, version: int) -> None:
+    """Streams older than `version` stop at their next claim (after finishing their running session)."""
+    with _locked(state):
+        queue = json.loads((state / "queue.json").read_text())
+        queue["min_stream_version"] = version
+        _write_queue(state, queue)
+
+
+def append_scoring(task_sets: Path, inventory: Path, state: Path, datasets: list[str], count: int, seed: int, skip: list[str]) -> list[str]:
+    """Held-out tasks for scoring sessions (never trained on; hub_stream.sh writes them to runs-scoring-heldout/):
+    `count` tasks drawn with `seed` from the held-out sides of `datasets`, taken in turn from each dataset so they
+    spread evenly, leaving out `skip` and tasks that cannot run (GPU, MCP tools, excluded). Appended after the queue."""
+    sets = load_task_sets(task_sets, inventory)
+    rng = random.Random(seed)
+    pools = []
+    for hub in datasets:
+        entry = sets.datasets.get(hub)
+        if entry is None:
+            raise ValueError(f"{hub} is not a pinned hub dataset of {task_sets}")
+        pool = []
+        for task in sorted(entry["held_out"]):
+            task_id = f"{hub}:{task}"
+            if task_id in skip:
+                continue
+            try:
+                sets.resolve(task_id)
+            except ValueError:
+                continue
+            pool.append(task_id)
+        rng.shuffle(pool)
+        pools.append(pool)
+    picked: list[str] = []
+    while len(picked) < count and any(pools):
+        for pool in pools:
+            if pool and len(picked) < count:
+                picked.append(pool.pop())
+    if len(picked) < count:
+        raise ValueError(f"only {len(picked)} runnable held-out tasks in {datasets}, {count} asked")
+    with _locked(state):
+        queue = json.loads((state / "queue.json").read_text())
+        already = sorted(set(picked) & set(queue["order"]))
+        if already:
+            raise ValueError(f"{state}: {len(already)} of the scoring tasks are already queued (e.g. {already[0]})")
+        queue["order"] += picked
+        queue["scoring"] = queue.get("scoring", []) + picked
+        _write_queue(state, queue)
+    return picked
+
+
+def claim(state: Path, stream: str, pid: int, free_gb: float | None = None, stream_version: int = 1) -> tuple[str, int] | None | str:
+    """`free_gb`: free space on Docker's disk; below MIN_FREE_GB nothing is claimed (LOW_DISK). A stream older than
+    the queue's `min_stream_version` gets OLD_STREAM (it ends; its tmux session is restarted with hub_launch.sh)."""
     if free_gb is not None and free_gb < MIN_FREE_GB:
         return LOW_DISK
     with _locked(state) as claims:
         queue = json.loads((state / "queue.json").read_text())
+        if stream_version < queue.get("min_stream_version", 1):
+            return OLD_STREAM
         running = claims["running"]
         for name in [name for name, held in running.items() if not _alive(held["pid"])]:
             del running[name]
@@ -218,6 +275,18 @@ def main(argv: list[str]) -> None:
     k.add_argument("state", type=Path)
     k.add_argument("stream")
     k.add_argument("pid", type=int)
+    k.add_argument("--stream-version", type=int, default=1)
+    v = sub.add_parser("require-stream-version")
+    v.add_argument("state", type=Path)
+    v.add_argument("version", type=int)
+    sc = sub.add_parser("append-scoring")
+    sc.add_argument("task_sets", type=Path)
+    sc.add_argument("inventory", type=Path)
+    sc.add_argument("state", type=Path)
+    sc.add_argument("--dataset", action="append", required=True)
+    sc.add_argument("--count", type=int, required=True)
+    sc.add_argument("--seed", type=int, default=SEED)
+    sc.add_argument("--skip-file", type=Path, help="task ids to leave out, one per line")
     r = sub.add_parser("release")
     r.add_argument("state", type=Path)
     r.add_argument("stream")
@@ -251,13 +320,22 @@ def main(argv: list[str]) -> None:
         print(f"{args.this_host}: {len(order)} tasks of {sum(len(q) for q in queues.values())}; " + ", ".join(f"{h} {len(q)}" for h, q in queues.items()))
     elif args.command == "claim":
         root = subprocess.run(["docker", "info", "-f", "{{.DockerRootDir}}"], capture_output=True, text=True, check=True).stdout.strip()
-        got = claim(args.state, args.stream, args.pid, free_gb=shutil.disk_usage(root).free / 1e9)
+        got = claim(args.state, args.stream, args.pid, free_gb=shutil.disk_usage(root).free / 1e9, stream_version=args.stream_version)
         if got is ALL_RUNNING:
             sys.exit(3)
+        if got == OLD_STREAM:
+            print(f"stream {args.stream} is older than the queue needs: restart it with the current hub_stream.sh", file=sys.stderr)
+            sys.exit(5)
         if got == LOW_DISK:
             print(f"{root} has less than {MIN_FREE_GB} GB free: not claiming", file=sys.stderr)
             sys.exit(3)
         print(f"{got[0]} {got[1]}")
+    elif args.command == "require-stream-version":
+        require_stream_version(args.state, args.version)
+    elif args.command == "append-scoring":
+        skip = args.skip_file.read_text().split() if args.skip_file else []
+        picked = append_scoring(args.task_sets, args.inventory, args.state, args.dataset, args.count, args.seed, skip)
+        print("\n".join(picked))
     else:
         release(args.state, args.stream, args.task, ran=not args.not_run)
 

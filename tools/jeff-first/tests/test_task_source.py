@@ -186,3 +186,11 @@ def test_swe_rebench_runs_offline_from_a_rotated_image(tmp_path):
     assert subprocess.run([*run, task_id], capture_output=True, text=True, check=True).stdout.strip() == "swerebench/sweb.eval.x86_64.aspp_1776_pelita-863:latest"
     assert subprocess.run([*run, "terminal-bench-pro/terminal-bench-pro:fix-a"], capture_output=True, text=True, check=True).stdout.strip() == "-"
     assert subprocess.run([*run, "adaptive-rejection-sampler"], capture_output=True, text=True, check=True).stdout.strip() == "-"
+
+
+def test_the_cli_names_a_tasks_side(tmp_path):
+    sets_path, inventory_path = write_task_sets(tmp_path)
+    run = [sys.executable, str(HERE / "task_source.py"), "side", str(sets_path), str(inventory_path)]
+    side = lambda task: subprocess.run([*run, task], capture_output=True, text=True, check=True).stdout.strip()
+    assert side("terminal-bench-pro/terminal-bench-pro:held-c") == "held_out"
+    assert side("terminal-bench-pro/terminal-bench-pro:fix-a") == "training"
