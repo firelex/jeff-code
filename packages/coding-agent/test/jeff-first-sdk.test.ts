@@ -1,9 +1,17 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Api, type AssistantMessage, createAssistantMessageEventStream, type Model } from "@earendil-works/pi-ai";
+import {
+	type Api,
+	type AssistantMessage,
+	type Context,
+	createAssistantMessageEventStream,
+	type Model,
+	type ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
+import { trimQuestion } from "../src/core/jeff-first/output-trim.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -77,11 +85,12 @@ describe("JeffFirst through createAgentSession", () => {
 		const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 		await authStorage.modify(model.provider, async () => ({ type: "api_key", key: "test" }));
 		const registry = await createModelRegistry(authStorage, join(agentDir, "models.json"));
-		const provider = { calls: 0 };
+		const provider = { calls: 0, contexts: [] as Context[] };
 		registry.registerProvider(model.provider, {
 			api: model.api,
-			streamSimple: () => {
+			streamSimple: (_model, context) => {
 				provider.calls++;
+				provider.contexts.push(structuredClone(context));
 				const stream = createAssistantMessageEventStream();
 				stream.end(
 					provider.calls === 1
@@ -134,6 +143,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
+		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
 		const { session } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
 		session.dispose();
@@ -177,6 +187,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
+		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
 		const { session } = await startSession([
 			{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "printf 'see notes.md' > notes.md && ls" } },
 			{ type: "toolCall", id: "b2", name: "bash", arguments: { command: "cat notes.md" } },
@@ -220,6 +231,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
+		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
 		const { session, provider } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
 		session.dispose();
@@ -269,6 +281,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "jeff:jeff-router");
+		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
 		vi.stubEnv("JEFF_FIRST_JEFF_ROUTER_THRESHOLD", "0.5");
 		const { session, provider } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
@@ -303,6 +316,121 @@ describe("JeffFirst through createAgentSession", () => {
 			"jeff-step",
 			"jeff-router",
 		]);
+	});
+
+	function recordModeWithTrim(value: string) {
+		vi.stubEnv("JEFF_FIRST_MODE", "record");
+		vi.stubEnv("JEFF_FIRST_TRACE_FILE", join(traceDir, "trace.jsonl"));
+		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
+		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
+		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
+		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
+		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", value);
+	}
+	const seq100: AssistantMessage["content"] = [
+		{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "seq 1 100" } },
+	];
+	const lines100 = Array.from({ length: 100 }, (_, index) => String(index + 1));
+
+	function traceLines() {
+		return readFileSync(join(traceDir, "trace.jsonl"), "utf8")
+			.trimEnd()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+	}
+
+	it("shortens a long new output before it enters the session, and keeps the whole output in the trace", async () => {
+		recordModeWithTrim("fixed:last40");
+		const { session, provider } = await startSession(seq100);
+		await session.prompt("Count to 100.");
+		session.dispose();
+		const shortened = `${lines100.slice(60).join("\n")}\n\n[Showing lines 61-100 of 100. 60 earlier lines not shown.]`;
+		const result = session.messages.find((m) => m.role === "toolResult") as ToolResultMessage;
+		expect(result.content).toEqual([{ type: "text", text: shortened }]);
+		const sent = provider.contexts[1].messages.find((m) => m.role === "toolResult") as ToolResultMessage;
+		expect(sent.content).toEqual([{ type: "text", text: shortened }]);
+		const trim = traceLines().filter((l) => l.kind === "output_trim");
+		expect(trim).toHaveLength(1);
+		expect(trim[0]).toMatchObject({
+			schema: "jeff-first-trace/7",
+			tool_call_id: "b1",
+			trimmer: "fixed:last40",
+			shown_lines: 100,
+			total_lines: 100,
+			available: ["last40", "first40", "first20last20"],
+			choice: "last40",
+			probabilities: null,
+			shortened: true,
+			full_output: `${lines100.join("\n")}\n`,
+		});
+	});
+
+	it("leaves outputs of at most 40 lines alone, without a trace line", async () => {
+		recordModeWithTrim("fixed:last40");
+		const { session } = await startSession([
+			{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "seq 1 40" } },
+		]);
+		await session.prompt("Count to 40.");
+		session.dispose();
+		const result = session.messages.find((m) => m.role === "toolResult") as ToolResultMessage;
+		expect(result.content).toEqual([{ type: "text", text: `${lines100.slice(0, 40).join("\n")}\n` }]);
+		expect(traceLines().filter((l) => l.kind === "output_trim")).toEqual([]);
+	});
+
+	it("asks Jeff's trimming adapter the trimming question and follows a confident answer", async () => {
+		const jeff = await startFakeJeff((sent) =>
+			jeffAnswer(sent.model, { all: 0.05, last200: 0.05, last40: 0.05, first40: 0.05, first20last20: 0.8 }),
+		);
+		recordModeWithTrim("jeff:jeff-trim");
+		vi.stubEnv("JEFF_FIRST_JEFF_URL", jeff.url);
+		vi.stubEnv("JEFF_FIRST_JEFF_TRIM_THRESHOLD", "0.7");
+		const { session } = await startSession(seq100);
+		await session.prompt("Count to 100.");
+		session.dispose();
+		await jeff.close();
+		expect(jeff.requests).toHaveLength(1);
+		const question = jeff.requests[0];
+		expect(question.model).toBe("jeff-trim");
+		expect(question.questions.q.instructions).toBe(trimQuestion(100));
+		expect(Object.keys(question.questions.q.criteria)).toEqual([
+			"all",
+			"last200",
+			"last40",
+			"first40",
+			"first20last20",
+		]);
+		// Jeff sees the whole new output's end, as the state shows any step.
+		expect(question.state).toContain("$ seq 1 100\n[61 earlier lines not shown]\n62\n");
+		const result = session.messages.find((m) => m.role === "toolResult") as ToolResultMessage;
+		expect(result.content).toEqual([
+			{
+				type: "text",
+				text: `${lines100.slice(0, 20).join("\n")}\n\n[Showing lines 1-20 and 81-100 of 100. 60 lines in between not shown.]\n\n${lines100.slice(80).join("\n")}`,
+			},
+		]);
+		const trim = traceLines().find((l) => l.kind === "output_trim");
+		expect(trim).toMatchObject({ trimmer: "jeff:jeff-trim", choice: "first20last20", shortened: true });
+		expect(trim.probabilities.first20last20).toBe(0.8);
+	});
+
+	it("keeps the whole output when Jeff's most likely cut is below the threshold", async () => {
+		const jeff = await startFakeJeff((sent) =>
+			jeffAnswer(sent.model, { all: 0.1, last200: 0.1, last40: 0.6, first40: 0.1, first20last20: 0.1 }),
+		);
+		recordModeWithTrim("jeff:jeff-trim");
+		vi.stubEnv("JEFF_FIRST_JEFF_URL", jeff.url);
+		vi.stubEnv("JEFF_FIRST_JEFF_TRIM_THRESHOLD", "0.7");
+		const { session } = await startSession(seq100);
+		await session.prompt("Count to 100.");
+		session.dispose();
+		await jeff.close();
+		const result = session.messages.find((m) => m.role === "toolResult") as ToolResultMessage;
+		expect(result.content).toEqual([{ type: "text", text: `${lines100.join("\n")}\n` }]);
+		expect(traceLines().find((l) => l.kind === "output_trim")).toMatchObject({
+			choice: "all",
+			shortened: false,
+			full_output: null,
+		});
 	});
 
 	it("does not retry a JeffFirst failure even when its text looks transient", async () => {

@@ -1,3 +1,4 @@
+import { type OutputTrimSpec, readOutputTrimSpec } from "./output-trim-control.ts";
 import { readThinkingRouterSpec, readThreshold, type ThinkingRouterSpec } from "./thinking.ts";
 
 /**
@@ -19,6 +20,7 @@ export type JeffFirstConfig =
 			runApproval: RunApproval;
 			driverBuild: string;
 			thinkingRouter: ThinkingRouterSpec;
+			outputTrim: OutputTrimSpec;
 	  }
 	| {
 			mode: "jeff";
@@ -32,6 +34,7 @@ export type JeffFirstConfig =
 			runApproval: RunApproval;
 			driverBuild: string;
 			thinkingRouter: ThinkingRouterSpec;
+			outputTrim: OutputTrimSpec;
 	  }
 	| {
 			mode: "record";
@@ -40,6 +43,7 @@ export type JeffFirstConfig =
 			runApproval: RunApproval;
 			driverBuild: string;
 			thinkingRouter: ThinkingRouterSpec;
+			outputTrim: OutputTrimSpec;
 	  };
 
 function required(env: NodeJS.ProcessEnv, mode: string, name: string, meaning: string): string {
@@ -84,7 +88,15 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 			"JEFF_FIRST_DRIVER_BUILD",
 			"the exact build of the large model, for example qwen3.8-27b-nvfp4@spark-head",
 		);
-		return { mode, traceFile, taskId, runApproval, driverBuild, thinkingRouter: readThinkingRouterSpec(env, mode) };
+		return {
+			mode,
+			traceFile,
+			taskId,
+			runApproval,
+			driverBuild,
+			thinkingRouter: readThinkingRouterSpec(env, mode),
+			outputTrim: readOutputTrimSpec(env, mode),
+		};
 	}
 	if (mode === "jeff") {
 		const jeffUrl = required(
@@ -122,6 +134,7 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 			runApproval,
 			driverBuild,
 			thinkingRouter: readThinkingRouterSpec(env, mode),
+			outputTrim: readOutputTrimSpec(env, mode),
 		};
 	}
 	const teacherUrl = required(
@@ -152,5 +165,6 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 		runApproval,
 		driverBuild,
 		thinkingRouter: readThinkingRouterSpec(env, mode),
+		outputTrim: readOutputTrimSpec(env, mode),
 	};
 }

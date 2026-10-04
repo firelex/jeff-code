@@ -53,6 +53,7 @@ describe("readJeffFirstConfig", () => {
 				JEFF_FIRST_RUN_APPROVAL: "all",
 				JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
 				JEFF_FIRST_THINKING_ROUTER: "fixed:medium",
+				JEFF_FIRST_OUTPUT_TRIM: "off",
 			}),
 		).toEqual({
 			mode: "teacher",
@@ -63,6 +64,7 @@ describe("readJeffFirstConfig", () => {
 			runApproval: "all",
 			driverBuild: "qwen3.8-27b-nvfp4@spark-head",
 			thinkingRouter: { kind: "fixed", level: "medium" },
+			outputTrim: { kind: "off" },
 		});
 	});
 
@@ -100,6 +102,7 @@ describe("readJeffFirstConfig", () => {
 		JEFF_FIRST_TEACHER_MODEL: "m",
 		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
 		JEFF_FIRST_THINKING_ROUTER: "fixed:xhigh",
+		JEFF_FIRST_OUTPUT_TRIM: "off",
 	};
 
 	it("rejects teacher mode without a run-approval setting, naming the three values", () => {
@@ -124,6 +127,7 @@ describe("readJeffFirstConfig", () => {
 		JEFF_FIRST_RUN_APPROVAL: "all",
 		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-nvfp4@spark-head",
 		JEFF_FIRST_THINKING_ROUTER: "fixed:off",
+		JEFF_FIRST_OUTPUT_TRIM: "fixed:last40",
 	};
 
 	it("reads a full record config", () => {
@@ -134,7 +138,68 @@ describe("readJeffFirstConfig", () => {
 			runApproval: "all",
 			driverBuild: "qwen3.8-27b-nvfp4@spark-head",
 			thinkingRouter: { kind: "fixed", level: "off" },
+			outputTrim: { kind: "fixed", choice: "last40" },
 		});
+	});
+
+	it("reads each output trimming setting", () => {
+		for (const choice of ["all", "last200", "last40", "first40", "first20last20"]) {
+			expect(readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_OUTPUT_TRIM: `fixed:${choice}` })).toMatchObject({
+				outputTrim: { kind: "fixed", choice },
+			});
+		}
+		expect(readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_OUTPUT_TRIM: "off" })).toMatchObject({
+			outputTrim: { kind: "off" },
+		});
+	});
+
+	it("rejects record, teacher and jeff mode without an output trimming setting, naming the values", () => {
+		const { JEFF_FIRST_OUTPUT_TRIM: _, ...record } = recordEnv;
+		expect(() => readJeffFirstConfig(record)).toThrow(
+			/JEFF_FIRST_OUTPUT_TRIM.*off, fixed:all, fixed:last200, fixed:last40, fixed:first40, fixed:first20last20 or jeff:<trimming adapter>/,
+		);
+		const { JEFF_FIRST_OUTPUT_TRIM: __, ...teacher } = teacherEnv;
+		expect(() => readJeffFirstConfig({ ...teacher, JEFF_FIRST_RUN_APPROVAL: "all" })).toThrow(
+			/JEFF_FIRST_OUTPUT_TRIM/,
+		);
+	});
+
+	it("rejects a malformed output trimming setting", () => {
+		for (const value of ["40", "fixed:", "fixed:200", "fixed:last-40", "Fixed:all", "jeff", "on"]) {
+			expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_OUTPUT_TRIM: value })).toThrow(
+				new RegExp(`JEFF_FIRST_OUTPUT_TRIM must be off, .* got "${value}"`),
+			);
+		}
+		expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_OUTPUT_TRIM: "jeff:" })).toThrow(
+			/needs the trimming adapter's name/,
+		);
+	});
+
+	it("reads the Jeff trimming adapter with its service and threshold", () => {
+		expect(
+			readJeffFirstConfig({
+				...recordEnv,
+				JEFF_FIRST_OUTPUT_TRIM: "jeff:jeff-trim",
+				JEFF_FIRST_JEFF_URL: "http://192.168.2.10:8920",
+				JEFF_FIRST_JEFF_TRIM_THRESHOLD: "0.6",
+			}),
+		).toMatchObject({
+			outputTrim: { kind: "jeff", url: "http://192.168.2.10:8920", adapter: "jeff-trim", threshold: 0.6 },
+		});
+		expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_OUTPUT_TRIM: "jeff:t" })).toThrow(
+			/JEFF_FIRST_OUTPUT_TRIM=jeff:t needs JEFF_FIRST_JEFF_URL/,
+		);
+		expect(() =>
+			readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_OUTPUT_TRIM: "jeff:t", JEFF_FIRST_JEFF_URL: "http://j" }),
+		).toThrow(/JEFF_FIRST_JEFF_TRIM_THRESHOLD/);
+		expect(() =>
+			readJeffFirstConfig({
+				...recordEnv,
+				JEFF_FIRST_OUTPUT_TRIM: "jeff:t",
+				JEFF_FIRST_JEFF_URL: "http://j",
+				JEFF_FIRST_JEFF_TRIM_THRESHOLD: "2",
+			}),
+		).toThrow(/JEFF_FIRST_JEFF_TRIM_THRESHOLD must be a number from 0 to 1/);
 	});
 
 	it("reads each fixed thinking level", () => {
@@ -199,6 +264,7 @@ describe("readJeffFirstConfig", () => {
 		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-fp8@casdgx01-gpu0",
 		JEFF_FIRST_THINKING_ROUTER: "jeff:jeff-router",
 		JEFF_FIRST_JEFF_ROUTER_THRESHOLD: "0.4",
+		JEFF_FIRST_OUTPUT_TRIM: "fixed:all",
 	};
 
 	it("reads jeff mode with the service, the step adapter and threshold, and the Jeff router", () => {
@@ -212,6 +278,7 @@ describe("readJeffFirstConfig", () => {
 			runApproval: "all",
 			driverBuild: "qwen3.8-27b-fp8@casdgx01-gpu0",
 			thinkingRouter: { kind: "jeff", url: "http://192.168.2.10:8920", adapter: "jeff-router", threshold: 0.4 },
+			outputTrim: { kind: "fixed", choice: "all" },
 		});
 	});
 
@@ -230,6 +297,7 @@ describe("readJeffFirstConfig", () => {
 		"JEFF_FIRST_DRIVER_BUILD",
 		"JEFF_FIRST_THINKING_ROUTER",
 		"JEFF_FIRST_JEFF_ROUTER_THRESHOLD",
+		"JEFF_FIRST_OUTPUT_TRIM",
 	])("rejects jeff mode without %s", (name) => {
 		const env: Record<string, string> = { ...jeffEnv };
 		delete env[name];

@@ -18,6 +18,7 @@ import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefi
 import { GlmTeacher, JeffChooser, TEACHER_RETRY_POLICY } from "./jeff-first/chooser.ts";
 import { readJeffFirstConfig } from "./jeff-first/config.ts";
 import { JEFF_SERVICE_POLICY, JeffService } from "./jeff-first/jeff-service.ts";
+import { createOutputTrimmer, createTrimDecider } from "./jeff-first/output-trim-control.ts";
 import { createRecorder, type Recorder } from "./jeff-first/record.ts";
 import { createScoutStreamFn } from "./jeff-first/scout.ts";
 import { createShadowStreamFn } from "./jeff-first/stream.ts";
@@ -512,6 +513,19 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		sessionManager.appendThinkingLevelChange(thinkingLevel);
 	}
 
+	// JeffFirst output trimming (teacher, record and jeff modes): a long new output of the coding model may be shortened
+	// before it enters the session; the trace keeps the whole output.
+	const toolResultTransform =
+		(jeffFirst.mode === "teacher" || jeffFirst.mode === "record" || jeffFirst.mode === "jeff") &&
+		jeffFirst.outputTrim.kind !== "off"
+			? createOutputTrimmer({
+					decider: createTrimDecider(jeffFirst.outputTrim),
+					taskId: jeffFirst.taskId,
+					traceFile: jeffFirst.traceFile,
+					sessionId: () => sessionManager.getSessionId(),
+				})
+			: undefined;
+
 	const session = new AgentSession({
 		agent,
 		sessionManager,
@@ -528,6 +542,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		excludedToolNames,
 		extensionRunnerRef,
 		sessionStartEvent: options.sessionStartEvent,
+		toolResultTransform,
 	});
 
 	const extensionsResult = resourceLoader.getExtensions();

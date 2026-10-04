@@ -113,6 +113,7 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
+import type { ToolResultInput } from "./jeff-first/output-trim-control.ts";
 import { JEFF_FIRST_ERROR_PREFIX } from "./jeff-first/stream.ts";
 import { type BashExecutionMessage, type CustomMessage, convertToLlm } from "./messages.ts";
 import { ModelRegistry } from "./model-registry.ts";
@@ -281,6 +282,11 @@ export interface AgentSessionConfig {
 	extensionRunnerRef?: { current?: ExtensionRunner };
 	/** Session start event metadata emitted when extensions bind to this runtime. */
 	sessionStartEvent?: SessionStartEvent;
+	/**
+	 * Replaces the content of a finished tool call (not one another tool made) before the result enters the session;
+	 * undefined keeps it. Runs after the extensions' `tool_result` handlers. JeffFirst shortens long new outputs here.
+	 */
+	toolResultTransform?: (input: ToolResultInput) => Promise<(TextContent | ImageContent)[] | undefined>;
 }
 
 export interface ExtensionBindings {
@@ -435,6 +441,7 @@ export class AgentSession {
 	private _excludedToolNames?: Set<string>;
 	private _baseToolsOverride?: Record<string, AgentTool>;
 	private _sessionStartEvent: SessionStartEvent;
+	private _toolResultTransform?: (input: ToolResultInput) => Promise<(TextContent | ImageContent)[] | undefined>;
 	private _extensionUIContext?: ExtensionUIContext;
 	private _extensionMode: ExtensionMode = "print";
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
@@ -480,6 +487,7 @@ export class AgentSession {
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
+		this._toolResultTransform = config.toolResultTransform;
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -653,9 +661,12 @@ export class AgentSession {
 		}
 	}
 
-	/** `tool_result` handlers and image normalization. `parentToolCallId` is set for calls another tool made. */
+	/**
+	 * `tool_result` handlers, the session's tool result transform (top-level calls only) and image normalization.
+	 * `parentToolCallId` is set for calls another tool made.
+	 */
 	private async _afterToolCall(
-		{ toolCall, args, result, isError }: AfterToolCallContext,
+		{ toolCall, args, result, isError, assistantMessage, context }: AfterToolCallContext,
 		parentToolCallId?: string,
 	): Promise<AfterToolCallResult | undefined> {
 		const runner = this._extensionRunner;
@@ -674,7 +685,19 @@ export class AgentSession {
 				})
 			: undefined;
 
-		const content = hookResult?.content ?? result.content ?? [];
+		const hooked = hookResult?.content ?? result.content ?? [];
+		const transformed =
+			this._toolResultTransform && parentToolCallId === undefined
+				? await this._toolResultTransform({
+						toolName: toolCall.name,
+						toolCallId: toolCall.id,
+						content: hooked,
+						isError: hookResult?.isError ?? isError,
+						assistantMessage,
+						messages: context.messages,
+					})
+				: undefined;
+		const content = transformed ?? hooked;
 		// Runs after the extension hook so images injected or replaced by extensions are normalized too.
 		const resizeOptions = this._limitsModel()?.inputLimits?.images?.resize;
 		const normalizedContent = await normalizeToolResultImages(content, {
@@ -682,15 +705,20 @@ export class AgentSession {
 			...(resizeOptions ? { resizeOptions } : {}),
 		});
 
-		if (!hookResult && normalizedContent === content) {
+		if (!hookResult && !transformed && normalizedContent === content) {
 			return undefined;
 		}
 
-		// The hook result already dropped structured content that replaced content no longer matches.
+		// The hook result already dropped structured content that replaced content no longer matches; transformed
+		// content drops it too (it may hold the whole output the transform shortened).
 		return {
 			content: normalizedContent,
 			details: hookResult?.details,
-			structuredContent: hookResult ? hookResult.structuredContent : result.structuredContent,
+			structuredContent: transformed
+				? undefined
+				: hookResult
+					? hookResult.structuredContent
+					: result.structuredContent,
 			isError: hookResult?.isError ?? isError,
 			usage: hookResult?.usage,
 		};
