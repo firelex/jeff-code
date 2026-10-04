@@ -1,11 +1,10 @@
 """Containers without internet for the agent phase and the tests (SWE-rebench): the model's host stays reachable."""
 
 from harbor.agents.installed.pi import Pi
-from harbor.agents.oracle import OracleAgent
 from harbor.models.task.config import NetworkMode, NetworkPolicy
 
 from harbor_agent.jeff_pi import JeffPi
-from harbor_agent.offline import EgressDocker, OfflineOracle
+from harbor_agent.offline import EgressDocker, OfflineDocker
 
 
 class FakeEnvironment:
@@ -46,17 +45,19 @@ async def test_jeff_pi_leaves_the_network_alone_without_allowed_hosts(tmp_path, 
     assert environment.policies == []
 
 
-async def test_the_offline_oracle_runs_the_reference_solution_without_network(tmp_path, monkeypatch):
-    environment = FakeEnvironment()
+async def test_offline_docker_has_no_network_once_started(monkeypatch):
     seen = []
 
-    async def run(self, instruction, env, context):
-        seen.append(list(env.policies))
+    async def start(self, force_build):
+        seen.append("started")
 
-    monkeypatch.setattr(OracleAgent, "run", run)
-    agent = OfflineOracle.__new__(OfflineOracle)
-    await agent.run("task", environment, None)
-    assert seen == [[NetworkPolicy(network_mode=NetworkMode.NO_NETWORK)]]
+    async def set_network_policy(self, policy):
+        seen.append(policy)
+
+    monkeypatch.setattr(EgressDocker, "start", start)
+    monkeypatch.setattr(OfflineDocker, "set_network_policy", set_network_policy)
+    await OfflineDocker.__new__(OfflineDocker).start(False)
+    assert seen == ["started", NetworkPolicy(network_mode=NetworkMode.NO_NETWORK)]
 
 
 def test_egress_docker_always_starts_the_egress_control_sidecar():

@@ -7,17 +7,16 @@ at run time instead, after the agent's setup (installing node and pi needs the i
   `harbor run --env harbor_agent.offline:EgressDocker`. If the host kernel cannot run the sidecar's rules, Harbor
   leaves the sidecar out and the policy switch below raises.
 - JeffPi's `allowed_hosts` option (jeff_pi.py) switches to an allowlist of the model's host just before pi runs.
-- OfflineOracle: Harbor's oracle agent (runs the task's reference solution) with no network at all, to check that a
-  task's solution and tests work offline.
+- OfflineDocker: EgressDocker with no network at all from the moment the container has started, for checking with
+  Harbor's oracle agent (`-a oracle`, which runs the task's reference solution and needs no setup) that a task's
+  solution and tests work offline.
 The policy is not switched back after the agent, so the tests also run without internet.
 """
 
 from typing import override
 
-from harbor.agents.oracle import OracleAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.environments.docker.docker import DockerEnvironment
-from harbor.models.agent.context import AgentContext
 from harbor.models.task.config import NetworkMode, NetworkPolicy
 
 
@@ -37,8 +36,8 @@ async def cut_off(environment: BaseEnvironment, allowed_hosts: list[str]) -> Non
     await environment.set_network_policy(policy)
 
 
-class OfflineOracle(OracleAgent):
+class OfflineDocker(EgressDocker):
     @override
-    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
-        await cut_off(environment, [])
-        await super().run(instruction, environment, context)
+    async def start(self, force_build: bool) -> None:
+        await super().start(force_build)
+        await cut_off(self, [])
