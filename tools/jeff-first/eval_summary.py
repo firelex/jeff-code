@@ -45,11 +45,21 @@ def main() -> None:
         print()
 
 
-def section(planned: int, rows: list[dict]) -> None:
+def pct(values: list[int], q: float) -> int:
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(q * len(ordered)))]
+
+
+def section(planned: int, all_rows: list[dict]) -> None:
+    superseded = [r for r in all_rows if r.get("superseded")]
+    rows = [r for r in all_rows if not r.get("superseded")]
     by_arm = defaultdict(list)
     for r in rows:
         by_arm[r["arm"]].append(r)
-    print(f"planned sessions: {planned} ({planned // 4} per arm); started {len(rows)}")
+    print(
+        f"planned sessions: {planned} ({planned // 4} per arm); started {len(all_rows)}; "
+        f"left out as before the Jeff capacity fix (rerun): {len(superseded)}"
+    )
     header = (
         "arm | finished | running | passed | pass rate | wall s median/mean | Qwen gen s/session | turns/session | "
         "turns at off | guard loop/runaway | forced xhigh | limit cuts | Jeff steps | trim cuts/questions | errors"
@@ -109,7 +119,7 @@ def section(planned: int, rows: list[dict]) -> None:
     for r in rows:
         if r["state"] == "finished" and r.get("reward") == 1 and r.get("agent_s"):
             solved[(r["arm"], r["task"])].append(r["agent_s"])
-            block_solved[(r["arm"], r["block"])] = r["agent_s"]
+            block_solved[(r["arm"], r["pair_block"])] = r["agent_s"]
     for arm in ARMS[1:]:
         per_task = [
             statistics.mean(solved[(arm, t)]) / statistics.mean(solved[("a1-baseline", t)])
@@ -122,6 +132,14 @@ def section(planned: int, rows: list[dict]) -> None:
             if a == arm and ("a1-baseline", b) in block_solved
         ]
         print(f"  {arm}: per task {ratio_stats(per_task)}; per block {ratio_stats(per_block)}")
+    print()
+    print("Jeff latency per question, ms (median / p90 / n) in the sessions counted above:")
+    for arm in ARMS[2:]:
+        parts = []
+        for key, name in (("step_ms_per_question", "step"), ("router_ms", "router"), ("trim_ms", "trim")):
+            values = [v for u in by_arm.get(arm, []) for v in u.get(key, [])]
+            parts.append(f"{name} {pct(values, 0.5)} / {pct(values, 0.9)} / {len(values)}" if values else f"{name} -")
+        print(f"  {arm}: " + "; ".join(parts))
     print()
     errs = [r for r in rows if r["state"] == "finished" and r.get("error")]
     if errs:

@@ -17,6 +17,7 @@ followon writes the follow-on queues (queue2-HOST.json): for each benchmark in t
         task_source.py gives it (at most 15 minutes x the multiplier). --first-block-to HOST puts the first block of
         the benchmark named by --first-block-of into a one-block queue (queue-check-HOST.json) for a check run.
 finish  records a session's end (its run_phase0.sh exit status); prints "complete" when it was the block's last session.
+rerun   (see eval_rerun.py) blocks may hold fewer arms and carry server_pin: such a block opens only on that server.
 upcoming prints the tasks of the next N blocks not yet started, one per line (for image prefetching).
 take-unfit removes the unstarted blocks whose longest possible session no longer ends by --deadline and prints them as
         JSON (to append them to the other host's queue).
@@ -237,15 +238,18 @@ def claim(args: argparse.Namespace) -> int:
             print(b["block"], arm, b["task"], b["attempt"], b.get("benchmark", "terminal-bench-2"))
             return 0
 
+        def mine(b: dict) -> bool:  # a block pinned to a server (a rerun) opens only there
+            return b.get("server_pin") in (None, args.server)
+
         for b in state["blocks"]:
-            if b["server"] == args.server and len(b["units"]) < 4 and fits(b["task"]):
+            if b["server"] == args.server and len(b["units"]) < len(b["arms"]) and fits(b["task"]):
                 return take(b)
         for b in state["blocks"]:
-            if b["server"] is None and fits(b["task"]):
+            if b["server"] is None and mine(b) and fits(b["task"]):
                 b["server"], b["opened"] = args.server, t.isoformat()
                 return take(b)
-        open_here = [b for b in state["blocks"] if b["server"] == args.server and len(b["units"]) < 4]
-        unstarted = [b for b in state["blocks"] if b["server"] is None]
+        open_here = [b for b in state["blocks"] if b["server"] == args.server and len(b["units"]) < len(b["arms"])]
+        unstarted = [b for b in state["blocks"] if b["server"] is None and mine(b)]
         if deadline is not None and not any(fits(b["task"]) for b in open_here + unstarted):
             return 4
         return 4 if not open_here and not unstarted else 3
@@ -260,7 +264,7 @@ def finish(args: argparse.Namespace) -> None:
             raise SystemExit(f"{args.block} {args.arm} is not running on stream {args.stream}: {unit}")
         unit.update(finished=now().isoformat(), status=args.status)
         queue.save()
-        if len(b["units"]) == 4 and all(u["finished"] is not None for u in b["units"].values()):
+        if len(b["units"]) == len(b["arms"]) and all(u["finished"] is not None for u in b["units"].values()):
             print("complete")
 
 
@@ -286,7 +290,7 @@ def status(args: argparse.Namespace) -> None:
                 "host": state["host"],
                 "blocks": len(state["blocks"]),
                 "unstarted_blocks": sum(b["server"] is None for b in state["blocks"]),
-                "sessions": 4 * len(state["blocks"]),
+                "sessions": sum(len(b["arms"]) for b in state["blocks"]),
                 "running": sum(u["finished"] is None for u in units),
                 "finished": sum(u["finished"] is not None for u in units),
                 "nonzero_exit": sum(u["status"] not in (None, 0, "0") for u in units),

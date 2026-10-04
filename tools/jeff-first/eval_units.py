@@ -49,6 +49,9 @@ def trace_counts(trace: Path) -> dict:
         "decisions": 0,
         "trim_questions": 0,
         "trim_cuts": 0,
+        "router_ms": [],
+        "trim_ms": [],
+        "step_ms_per_question": [],
     }
     for text in trace.read_text(encoding="utf-8").splitlines():
         if not text.strip():
@@ -66,14 +69,20 @@ def trace_counts(trace: Path) -> dict:
                     c["router_levels"][line["router_level"]] = c["router_levels"].get(line["router_level"], 0) + 1
                 if line["timings_ms"]["router"] is not None:
                     c["router_s"] += line["timings_ms"]["router"] / 1000
+                    if line["router"].startswith(("jeff:", "jeff-off-unless:")):
+                        c["router_ms"].append(round(line["timings_ms"]["router"]))
                 c["forced_xhigh"] += line["forced_xhigh"] is not None
                 if line["guard"] is not None:
                     c["guard_" + line["guard"]["trigger"]] += 1
         elif kind == "decision":
             c["decisions"] += 1
             c["jeff_steps"] += line["action"]["kind"] == "step"
+            if line["levels"] and line["levels"][0]["chooser"].startswith("jeff:"):
+                c["step_ms_per_question"].append(round(line["timings_ms"]["chooser"] / len(line["levels"])))
         elif kind == "output_trim":
             c["trim_questions"] += line["trimmer"].startswith("jeff:")
+            if line["timings_ms"]["jeff"] is not None:
+                c["trim_ms"].append(round(line["timings_ms"]["jeff"]))
             c["trim_cuts"] += bool(line["shortened"])
     return c
 
@@ -86,8 +95,10 @@ def benchmark_of(folder: Path) -> str:
 
 
 def unit(folder: Path) -> dict:
-    arm, task, attempt = folder.parts[-3], folder.parts[-2], int(folder.parts[-1].removeprefix("attempt"))
+    arm, task, attempt = folder.parts[-3], folder.parts[-2], folder.parts[-1].removeprefix("attempt")
     row: dict = {"arm": arm, "task": task, "attempt": attempt, "folder": str(folder), "benchmark": benchmark_of(folder)}
+    superseded = folder / "superseded.txt"
+    row["superseded"] = superseded.read_text().strip() if superseded.exists() else None
     meta_path = folder / "meta.json"
     if not meta_path.exists():
         row["state"] = "running"
@@ -95,6 +106,7 @@ def unit(folder: Path) -> dict:
     meta = json.loads(meta_path.read_text())
     row.update({k: meta[k] for k in ("host", "server", "stream", "block", "task", "started", "finished", "exit")})
     row["benchmark"] = meta.get("benchmark", "terminal-bench-2")
+    row["pair_block"] = meta["block"].removesuffix("r")
     row["state"] = "finished"
     results = sorted(folder.glob("*/*/result.json"))
     if str(meta["exit"]).startswith("pull-failed"):
