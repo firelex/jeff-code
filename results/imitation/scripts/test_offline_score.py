@@ -212,7 +212,22 @@ def bundle(tmp_path):
             "questions_sha256": {d: os_.sha256_file(folder / f"questions-{d}.jsonl") for d in os_.DECISIONS},
             "turns_sha256": os_.sha256_file(folder / "turns.jsonl")}
     (folder / "meta.json").write_text(json.dumps(meta))
+    write_fit_report(folder, {})
     return folder, turns
+
+
+def write_fit_report(folder, cut_ids):
+    """BUNDLE/cut/fit-report.json as jeff_prompt.py fit-examples writes it, for the bundle's question files."""
+    files = {}
+    for decision in os_.DECISIONS:
+        path = folder / f"questions-{decision}.jsonl"
+        ids = cut_ids.get(decision, [])
+        files[path.name] = {"input": str(path), "input_sha256": os_.sha256_file(path), "rows": len(os_.read_jsonl(path)),
+                            "rows_cut": len(ids), "longest_before": 9000, "longest_after": 8100,
+                            "cut": [{"id": i, "tokens_before": 9000, "tokens_after": 8100, "lines_left_out": 40}
+                                    for i in ids]}
+    (folder / "cut").mkdir(exist_ok=True)
+    (folder / "cut" / "fit-report.json").write_text(json.dumps({"limit": 8192, "files": files}))
 
 
 def run_score(tmp_path, folder, kind, decision_ms=0.0):
@@ -282,21 +297,13 @@ def test_predictions_must_cover_every_question_with_its_options(tmp_path):
     q = [question("q1", ["a", "b"], "a")]
     path = tmp_path / "p.jsonl"
     os_.write_jsonl(path, [{"id": "q1", "options": ["b", "a"], "probabilities": [0.3, 0.7]}])
-    assert os_.read_predictions(path, q, frozenset()) == {"q1": (["a", "b"], [0.7, 0.3])}
+    assert os_.read_predictions(path, q) == {"q1": (["a", "b"], [0.7, 0.3])}
     os_.write_jsonl(path, [{"id": "q1", "options": ["a", "c"], "probabilities": [0.3, 0.7]}])
     with pytest.raises(ValueError):
-        os_.read_predictions(path, q, frozenset())
+        os_.read_predictions(path, q)
     os_.write_jsonl(path, [])
     with pytest.raises(ValueError):
-        os_.read_predictions(path, q, frozenset())
-    # an over-length refusal is accepted only for a question the bundle lists as over length
-    os_.write_jsonl(path, [{"id": "q1", "options": ["a", "b"], "over_length": True}])
-    assert os_.read_predictions(path, q, frozenset({"q1"})) == {"q1": None}
-    with pytest.raises(ValueError):
-        os_.read_predictions(path, q, frozenset())
-    os_.write_jsonl(path, [{"id": "q1", "options": ["a", "b"], "probabilities": [0.3, 0.7]}])
-    with pytest.raises(ValueError):
-        os_.read_predictions(path, q, frozenset({"q1"}))
+        os_.read_predictions(path, q)
 
 
 def test_best_at_picks_the_largest_saving_within_the_wrong_rate():
@@ -326,32 +333,25 @@ def test_compare_ranks_variants_on_the_same_bundle(tmp_path):
                   "--out", str(out)])
 
 
-def test_over_length_questions_are_errors_not_savings(tmp_path):
+def test_cut_questions_are_scored_like_the_others_and_counted(tmp_path):
     folder, _ = bundle(tmp_path)
-    # b's argument page is refused as too long: b cannot be covered, and its turn counts as an error
-    preds = {}
-    for decision in os_.DECISIONS:
-        out = tmp_path / "base" / f"{decision}.jsonl"
-        os_.main(["oracle", "--kind", "labels", "--decision", decision, "--bundle", str(folder), "--out", str(out)])
-        preds[decision] = out
-    rows = os_.read_jsonl(preds["step"])
-    rows = [{"id": r["id"], "options": r["options"], "over_length": True} if r["id"] == "b:arg" else r for r in rows]
-    os_.write_jsonl(preds["step"], rows)
-    with pytest.raises(ValueError):  # not yet recorded in the bundle
-        os_.main(["score", "--bundle", str(folder), "--name", "x", "--step", str(preds["step"]), "--router",
-                  str(preds["router"]), "--trim", str(preds["trim"]), "--decision-ms", "0", "--out", str(tmp_path / "x")])
-    os_.main(["over-length", "--bundle", str(folder), "--step", str(preds["step"]), "--router", str(preds["router"]),
-              "--trim", str(preds["trim"])])
-    assert [q["id"] for q in os_.read_jsonl(folder / "questions-step.fit.jsonl")] == ["a:tool", "b:tool", "c:tool"]
-    os_.main(["score", "--bundle", str(folder), "--name", "x", "--step", str(preds["step"]), "--router",
-              str(preds["router"]), "--trim", str(preds["trim"]), "--decision-ms", "0", "--out", str(tmp_path / "x")])
-    result = json.loads((tmp_path / "x.json").read_text())
-    step = result["tables"]["step"][0]
-    assert step["errors"] == 1 and step["covered"] == 0 and step["wrong"] == 0
-    combined = result["combined_common"][0]
-    # a: router 8 s + trim 0.5 s; b: error, nothing; c: xhigh
-    assert combined["errors"] == 1 and combined["gross_saved_s"] == pytest.approx(8.5)
-    # the label oracle now skips the refused question
-    os_.main(["oracle", "--kind", "labels", "--decision", "step", "--bundle", str(folder), "--out",
-              str(tmp_path / "o.jsonl")])
-    assert any(r.get("over_length") for r in os_.read_jsonl(tmp_path / "o.jsonl"))
+    write_fit_report(folder, {"step": ["b:arg"]})
+    result = run_score(tmp_path, folder, "labels")
+    assert result["cut_to_fit"] == {"step": 1, "router": 0, "trim": 0}
+    # b's argument page was cut, and Jeff still covers turn b as without the cut
+    assert result["tables"]["step"][0]["covered"] == 1
+    assert "Questions cut to fit Jeff's 8,192-token limit (as the run time cuts them; scored like the others): step 1, " \
+        "router 0, trim 0." in (tmp_path / "scores" / "labels.md").read_text()
+
+
+def test_score_needs_the_bundle_cut_to_fit(tmp_path):
+    folder, _ = bundle(tmp_path)
+    (folder / "cut" / "fit-report.json").unlink()
+    with pytest.raises(ValueError, match="cut the bundle's questions to fit first"):
+        run_score(tmp_path, folder, "labels")
+    write_fit_report(folder, {})
+    report = json.loads((folder / "cut" / "fit-report.json").read_text())
+    report["files"]["questions-trim.jsonl"]["input_sha256"] = "other"  # a report made from other question files
+    (folder / "cut" / "fit-report.json").write_text(json.dumps(report))
+    with pytest.raises(ValueError, match="cut other questions-trim.jsonl than this bundle's"):
+        run_score(tmp_path, folder, "fixed")

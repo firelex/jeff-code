@@ -21,8 +21,14 @@ Subcommands:
   Example format jeff-dev's `jeff.evaluate` reads). Held-out = the tasks the exporters put in the development or
   temperature split (export_routing.split_of: splits.json for Terminal-Bench 2.0, the seeded stage-1 rule per hub
   task), or the scoring tasks (held-out side of task-sets.json, listed in the collection's scoring-tasks.txt).
+- (not here) cut to fit: Jeff reads at most 8,192 tokens, and at run time a longer question's state is cut to fit
+  (tools/jeff-first/jeff_fit.py, the rule the training rows are cut with too). The bundle's questions are cut the same
+  way once, with jeff-dev's Python: `jeff_prompt.py fit-examples --processor <checkpoint or Qwen3.5-0.8B processor
+  folder> --layout live-last --workers 8 --unfittable fail --out BUNDLE/cut BUNDLE/questions-*.jsonl` (offline_variant.sh does it).
+  Predictions are made on BUNDLE/cut/questions-X.jsonl; a cut question is scored like any other, and the score
+  reports how many were cut (BUNDLE/cut/fit-report.json, which must exist and match the bundle).
 - predict: every option's probability for every question of one decision, from a running jeff-serve (POST
-  /v1/systemone, one request at a time; busy answers are retried). Writes predictions in jeff.evaluate's format (id,
+  /v1/systemone, one request at a time; busy answers are retried). A question over Jeff's limit (not cut) is an error. Writes predictions in jeff.evaluate's format (id,
   options, probabilities), so `python -m jeff.evaluate --local --checkpoint <variant> --data questions-X.jsonl --output
   X.json` (X.predictions.jsonl) is an equivalent second way for a checkpoint not loaded in a service.
 - oracle: sanity predictions with probability 1 on one option: "labels" (the labels themselves) or "fixed" (router
@@ -61,7 +67,7 @@ Usage (from results/imitation/scripts; needs aiohttp and tokenizers as routing_l
     uv run --with aiohttp==3.12.15 --with tokenizers python offline_score.py build --routing-labels F [F ...] \\
         --trim-labels F [F ...] --trials DIR [DIR ...] --split development --split temperature --out BUNDLE ...
     uv run ... python offline_score.py predict --url http://192.168.3.12:8920 --model jeff-router \\
-        --questions BUNDLE/questions-router.jsonl --out PRED/router.predictions.jsonl
+        --questions BUNDLE/cut/questions-router.jsonl --out PRED/router.predictions.jsonl
     uv run ... python offline_score.py score --bundle BUNDLE --name NAME --step P --router P --trim P \\
         --decision-ms 178 --out OUT/NAME
 """
@@ -442,17 +448,8 @@ def build(args):
 # ------------------------------------------------------------------------------------------------ predictions
 
 
-OVER_LENGTH = re.compile(r"exceeds the \d+-token limit")
-
-
-class OverLength(Exception):
-    """jeff-serve refused the question because its prompt is longer than the model's limit (status 422). The run time
-    gets the same refusal for the same state and question, and ends the turn with a JeffFirst error."""
-
-
 def post_question(url, model, question, timeout_s, busy_give_up_s):
-    """One question to jeff-serve; returns (probabilities by option id, served-by name, busy waits). Raises
-    OverLength for a prompt over the model's limit."""
+    """One question to jeff-serve; returns (probabilities by option id, served-by name, busy waits)."""
     body = json.dumps({"model": model, "state": question["state"],
                        "questions": {"q": question["question"]}}).encode()
     busy = 0
@@ -467,8 +464,6 @@ def post_question(url, model, question, timeout_s, busy_give_up_s):
         except urllib.error.HTTPError as error:
             if error.code != 529:
                 detail = error.read()[:500].decode(errors="replace")
-                if error.code == 422 and OVER_LENGTH.search(detail):
-                    raise OverLength(detail) from error
                 raise RuntimeError(f"{url} answered {error.code} for {question['id']}: {detail}") from error
             busy += 1
             if time.monotonic() - started > busy_give_up_s:
@@ -493,24 +488,17 @@ def predict(args):
     out.parent.mkdir(parents=True, exist_ok=True)
     latencies = []
     busy_total = 0
-    over_length = 0
     started = time.monotonic()
     with out.open("a", encoding="utf-8") as stream:
         for index, question in enumerate(todo, start=1):
             asked = time.monotonic()
             options = list(question["question"]["criteria"])
-            try:
-                probabilities, served, busy = post_question(args.url, args.model, question, args.timeout,
-                                                            args.busy_give_up)
-                latency = (time.monotonic() - asked) * 1000
-                latencies.append(latency)
-                busy_total += busy
-                row = {"id": question["id"], "options": options, "probabilities": [probabilities[o] for o in options],
-                       "model": served, "latency_ms": round(latency, 1), "busy_waits": busy}
-            except OverLength as refusal:
-                over_length += 1
-                row = {"id": question["id"], "options": options, "over_length": True, "detail": str(refusal),
-                       "model": args.model}
+            probabilities, served, busy = post_question(args.url, args.model, question, args.timeout, args.busy_give_up)
+            latency = (time.monotonic() - asked) * 1000
+            latencies.append(latency)
+            busy_total += busy
+            row = {"id": question["id"], "options": options, "probabilities": [probabilities[o] for o in options],
+                   "model": served, "latency_ms": round(latency, 1), "busy_waits": busy}
             stream.write(json.dumps(row) + "\n")
             stream.flush()
             if index % args.progress == 0 or index == len(todo):
@@ -518,23 +506,18 @@ def predict(args):
                 ordered = sorted(latencies) or [float("nan")]
                 print(f"{index}/{len(todo)} ({len(done)} done before): {index / elapsed:.2f} questions/s, median "
                       f"{ordered[len(ordered) // 2]:.0f} ms, p90 {ordered[math.ceil(0.9 * len(ordered)) - 1]:.0f} ms, "
-                      f"busy waits {busy_total}, over the length limit {over_length}", flush=True)
+                      f"busy waits {busy_total}", flush=True)
             if args.pause_ms:
                 time.sleep(args.pause_ms / 1000)
 
 
 def oracle(args):
-    """Predictions with probability 1 on one option for every question of one decision that is not over the length
-    limit (bundle over-length.json)."""
+    """Predictions with probability 1 on one option for every question of one decision."""
     questions = read_jsonl(Path(args.bundle) / f"questions-{args.decision}.jsonl")
-    refused = bundle_over_length(args.bundle)[args.decision]
     fixed = {"router": "xhigh", "trim": UNCUT}
     rows = []
     for question in questions:
         options = list(question["question"]["criteria"])
-        if question["id"] in refused:
-            rows.append({"id": question["id"], "options": options, "over_length": True, "model": f"oracle:{args.kind}"})
-            continue
         if args.kind == "labels":
             pick = question["label"]
         elif args.decision == "step":
@@ -549,10 +532,8 @@ def oracle(args):
     write_jsonl(args.out, rows)
 
 
-def read_predictions(path, questions, over_length):
-    """id -> (options in the question's order, probabilities), or None for a question in the bundle's over-length list
-    (over-length.json: jeff-serve refused it as longer than the model's limit). Every other question needs exactly one
-    prediction with the question's options (jeff.evaluate's predictions and this script's have the criteria order; any
+def read_predictions(path, questions):
+    """id -> (options in the question's order, probabilities). Every question needs exactly one prediction with the question's options (jeff.evaluate's predictions and this script's have the criteria order; any
     order is read)."""
     by_id = {}
     for row in read_jsonl(path):
@@ -562,17 +543,8 @@ def read_predictions(path, questions, over_length):
     result = {}
     for question in questions:
         row = by_id.get(question["id"])
-        if question["id"] in over_length:
-            if row is not None and not row.get("over_length"):
-                raise ValueError(f"{path}: a prediction for {question['id']}, which the bundle lists as over the "
-                                 "length limit")
-            result[question["id"]] = None
-            continue
         if row is None:
             raise ValueError(f"{path}: no prediction for {question['id']}")
-        if row.get("over_length"):
-            raise ValueError(f"{path}: {question['id']} was refused as over the length limit but is not in the "
-                             "bundle's over-length.json; run the over-length command on a complete prediction run")
         options = list(question["question"]["criteria"])
         if sorted(row["options"]) != sorted(options):
             raise ValueError(f"{path}: {question['id']} predicted options {row['options']}, asked {options}")
@@ -582,32 +554,6 @@ def read_predictions(path, questions, over_length):
     if extra:
         raise ValueError(f"{path}: {len(extra)} predictions for questions not in the bundle, e.g. {min(extra)}")
     return result
-
-
-def over_length_command(args):
-    """Record which questions jeff-serve refused as over the length limit (from complete `predict` runs of any model:
-    the limit and the prompt are the model's, the same for every variant of one base), and write
-    questions-<decision>.fit.jsonl without them for `jeff.evaluate --local`, which stops on such a row."""
-    folder = Path(args.bundle)
-    _, _, _, questions = load_bundle(folder)
-    ids = {}
-    for decision in DECISIONS:
-        path = getattr(args, decision)
-        rows = {row["id"]: row for row in read_jsonl(path)}
-        missing = [q["id"] for q in questions[decision] if q["id"] not in rows]
-        if missing:
-            raise ValueError(f"{path}: {len(missing)} questions not predicted yet, e.g. {missing[0]}")
-        ids[decision] = sorted(row["id"] for row in rows.values() if row.get("over_length"))
-    record = folder / "over-length.json"
-    if record.exists() and json.loads(record.read_text())["ids"] != ids:
-        raise ValueError(f"{record} already lists other questions; build a new bundle instead of changing it")
-    record.write_text(json.dumps({"from": {d: str(Path(getattr(args, d)).resolve()) for d in DECISIONS}, "ids": ids},
-                                 indent=1) + "\n")
-    for decision in DECISIONS:
-        refused = set(ids[decision])
-        write_jsonl(folder / f"questions-{decision}.fit.jsonl",
-                    [q for q in questions[decision] if q["id"] not in refused])
-    print(json.dumps({d: len(v) for d, v in ids.items()}))
 
 
 def most_likely(prediction):
@@ -624,16 +570,13 @@ def most_likely(prediction):
 
 
 def step_outcome(turn, predictions, labels, threshold, cap):
-    """(outcome, pages asked, steps taken): outcome "covered", "handover", "wrong" (see the module docstring) or
-    "error" (a page over Jeff's length limit: the run time ends the turn with an error)."""
+    """(outcome, pages asked, steps taken): outcome "covered", "handover" or "wrong" (see the module docstring)."""
     pages = 0
     for index, rows in enumerate(turn["step"]):
         if index >= cap:
             return "handover", pages, index
         for rid in rows:
             pages += 1
-            if predictions[rid] is None:
-                return "error", pages, index
             pick, probability = most_likely(predictions[rid])
             if probability < threshold or pick in HAND_OVER_IDS:
                 return "handover", pages, index
@@ -647,9 +590,7 @@ def router_outcome(turn, prediction, threshold):
     Measured = recorded seconds minus the re-ask's wall seconds (the brief's definition). Load-matched = the chosen
     level's output tokens at the recorded reply's own seconds per output token: the re-asks ran on servers busier
     than during the recording (about 40 against 74 tokens per second on the B200), which the measured difference
-    charges to the cheaper level. Level None: the question is over Jeff's length limit (an error at run time)."""
-    if prediction is None:
-        return None, False, 0.0, 0.0, 0, False
+    charges to the cheaper level."""
     best, probability = most_likely(prediction)
     level = best if best == "xhigh" or probability >= threshold else "xhigh"
     label = turn["router"]["label"]
@@ -667,9 +608,7 @@ def router_outcome(turn, prediction, threshold):
 
 
 def trim_outcome(turn, prediction, threshold, rates):
-    """(cut, wrong, prompt tokens saved, seconds saved, unjudged); cut None: over Jeff's length limit."""
-    if prediction is None:
-        return None, False, 0, 0.0, False
+    """(cut, wrong, prompt tokens saved, seconds saved, unjudged)."""
     best, probability = most_likely(prediction)
     cut = best if best == UNCUT or probability >= threshold else UNCUT
     if cut == UNCUT:
@@ -695,11 +634,21 @@ def load_bundle(folder):
     return meta, turns, sessions, questions
 
 
-def bundle_over_length(folder):
-    """The bundle's over-length question ids per decision (over-length.json), empty when none was recorded."""
-    record = Path(folder) / "over-length.json"
-    ids = json.loads(record.read_text())["ids"] if record.exists() else {}
-    return {d: frozenset(ids.get(d, ())) for d in DECISIONS}
+def bundle_cuts(folder, meta):
+    """How many of the bundle's questions were cut to fit Jeff's limit, per decision, from BUNDLE/cut/fit-report.json
+    (jeff_prompt.py fit-examples), which must have cut exactly this bundle's question files."""
+    record = Path(folder) / "cut" / "fit-report.json"
+    if not record.exists():
+        raise ValueError(f"{record} does not exist: cut the bundle's questions to fit first (jeff_prompt.py "
+                         "fit-examples, see the module docstring) and predict on BUNDLE/cut/questions-*.jsonl")
+    files = json.loads(record.read_text())["files"]
+    counts = {}
+    for decision in DECISIONS:
+        entry = files[f"questions-{decision}.jsonl"]
+        if entry["input_sha256"] != meta["questions_sha256"][decision]:
+            raise ValueError(f"{record} cut other questions-{decision}.jsonl than this bundle's")
+        counts[decision] = entry["rows_cut"]
+    return counts
 
 
 class Scorer:
@@ -725,19 +674,19 @@ class Scorer:
             if decision == "step":
                 outcome, pages, steps = step_outcome(turn, self.predictions["step"], self.labels, threshold, self.cap)
                 saved = turn["rec_s"] if outcome == "covered" else 0.0
-                results.append({"wrong": outcome == "wrong", "error": outcome == "error", "saved": saved,
+                results.append({"wrong": outcome == "wrong", "saved": saved,
                                 "matched": saved, "jeff": pages * self.decision_s, "outcome": outcome, "steps": steps})
             elif decision == "router":
                 level, wrong, saved, matched, out, unmeasured = router_outcome(
                     turn, self.predictions["router"][f"route:{turn['id']}"], threshold)
-                results.append({"wrong": wrong, "error": level is None, "saved": saved, "matched": matched,
+                results.append({"wrong": wrong, "saved": saved, "matched": matched,
                                 "jeff": self.decision_s, "level": level, "out": out, "unmeasured": unmeasured})
             elif turn["trim"] is None:
                 results.append(None)
             else:
                 cut, wrong, tokens, saved, unjudged = trim_outcome(
                     turn, self.predictions["trim"][f"trim:{turn['id']}"], threshold, self.rates)
-                results.append({"wrong": wrong, "error": cut is None, "saved": saved, "matched": saved,
+                results.append({"wrong": wrong, "saved": saved, "matched": saved,
                                 "jeff": self.decision_s, "cut": cut, "tokens": tokens, "unjudged": unjudged,
                                 "repeat_tokens": tokens * turn["later_requests"]})
         return results
@@ -754,14 +703,13 @@ class Scorer:
         scored = [r for r in results if r is not None]
         n = len(scored)
         row = {"threshold": threshold, **self.totals(sum(r["wrong"] for r in scored), n, sum(r["saved"] for r in scored),
-                                                     sum(r["matched"] for r in scored), sum(r["jeff"] for r in scored)),
-               "errors": sum(r["error"] for r in scored)}
+                                                     sum(r["matched"] for r in scored), sum(r["jeff"] for r in scored))}
         if decision == "step":
             outcomes = collections.Counter(r["outcome"] for r in scored)
             row.update({"covered": outcomes["covered"], "coverage": outcomes["covered"] / n,
                         "handover": outcomes["handover"], "steps_taken": sum(r["steps"] for r in scored)})
         elif decision == "router":
-            levels = collections.Counter(r["level"] for r in scored if r["level"] is not None)
+            levels = collections.Counter(r["level"] for r in scored)
             cheaper = sum(levels[level] for level in CHEAP_LEVELS)
             out = sum(r["out"] for r in scored)
             row.update({"levels": dict(levels), "cheaper": cheaper, "coverage": cheaper / n,
@@ -769,7 +717,7 @@ class Scorer:
                         "output_tokens_saved": out, "output_tokens_saved_share": out / self.rec_out,
                         "unmeasured": sum(r["unmeasured"] for r in scored)})
         else:
-            cuts = collections.Counter(r["cut"] for r in scored if r["cut"] is not None)
+            cuts = collections.Counter(r["cut"] for r in scored)
             cut = sum(count for choice, count in cuts.items() if choice != UNCUT)
             row.update({"cuts": dict(cuts), "cut": cut, "coverage": cut / n if n else 0.0,
                         "wrong_of_cut": row["wrong"] / cut if cut else 0.0,
@@ -781,32 +729,28 @@ class Scorer:
     def combined(self, step, router, trim):
         """The three decisions on the same turns, from per-turn results at one threshold each: a covered turn saves
         the turn (no Qwen request, so no router question); otherwise the router's saving; plus the trim saving."""
-        wrong = errors = 0
+        wrong = 0
         gross = matched = jeff = 0.0
         covered = 0
         for s, r, t in zip(step, router, trim, strict=True):
             turn_wrong = s["wrong"]
-            turn_error = s["error"]
             jeff += s["jeff"]
             if s["outcome"] == "covered":
                 covered += 1
                 gross += s["saved"]
                 matched += s["saved"]
-            elif not s["wrong"] and not s["error"]:
+            elif not s["wrong"]:
                 turn_wrong = r["wrong"]
-                turn_error = r["error"]
                 gross += r["saved"]
                 matched += r["matched"]
                 jeff += r["jeff"]
             if t is not None:
                 turn_wrong = turn_wrong or t["wrong"]
-                turn_error = turn_error or t["error"]
                 gross += t["saved"]
                 matched += t["saved"]
                 jeff += t["jeff"]
             wrong += turn_wrong
-            errors += turn_error
-        return {"turns": len(step), "covered": covered, "errors": errors,
+        return {"turns": len(step), "covered": covered,
                 **self.totals(wrong, len(step), gross, matched, jeff)}
 
 
@@ -817,11 +761,10 @@ TIME_MODES = {"measured": ("net_saved_s", "net_saved_share_gen", "net_saved_shar
 
 
 def accuracy(predictions, questions):
-    """Share of the answered questions whose most likely option is the label (None without any)."""
-    answered = [q for q in questions if predictions[q["id"]] is not None]
-    if not answered:
+    """Share of the questions whose most likely option is the label (None without any)."""
+    if not questions:
         return None
-    return sum(most_likely(predictions[q["id"]])[0] == q["label"] for q in answered) / len(answered)
+    return sum(most_likely(predictions[q["id"]])[0] == q["label"] for q in questions) / len(questions)
 
 
 def best_at(rows, target, key="net_saved_s"):
@@ -833,8 +776,8 @@ def best_at(rows, target, key="net_saved_s"):
 
 def score(args):
     meta, turns, sessions, questions = load_bundle(args.bundle)
-    over_length = bundle_over_length(args.bundle)
-    predictions = {d: read_predictions(getattr(args, d), questions[d], over_length[d]) for d in DECISIONS}
+    cuts = bundle_cuts(args.bundle, meta)
+    predictions = {d: read_predictions(getattr(args, d), questions[d]) for d in DECISIONS}
     scorer = Scorer(meta, turns, sessions, questions, predictions, args.decision_ms / 1000)
     thresholds = sorted(set(args.thresholds))
     per_turn = {d: {t: scorer.per_turn(d, t) for t in thresholds} for d in DECISIONS}
@@ -869,7 +812,7 @@ def score(args):
                    "rec_out": scorer.rec_out, "router_labels": dict(collections.Counter(labels_router)),
                    "label_routed_output_saved_share": 1 - routed / scorer.rec_out},
         "accuracy": {d: accuracy(predictions[d], questions[d]) for d in DECISIONS},
-        "over_length": {d: len(over_length[d]) for d in DECISIONS},
+        "cut_to_fit": cuts,
         "tables": tables, "combined_common": common, "at_targets": at_targets,
     }
     out = Path(args.out)
@@ -907,7 +850,7 @@ TIME_NOTE = ("Router seconds two ways. 'measured' (the brief's rule): recorded x
 
 
 def table(rows, decision):
-    head = ("| threshold | decisions | wrong | wrong rate | over length | coverage | gross saved s | Jeff s | net saved s | "
+    head = ("| threshold | decisions | wrong | wrong rate | coverage | gross saved s | Jeff s | net saved s | "
             "% of gen | % of gen + tool |")
     extra = {"step": " steps taken |",
              "router": " net saved, load-matched (% of gen) | cheaper choices wrong | output tokens saved | unmeasured |",
@@ -915,7 +858,7 @@ def table(rows, decision):
     lines = [head + extra, "|" + "---:|" * (head.count("|") - 1 + extra.count("|"))]
     for row in rows:
         cells = [f"{row['threshold']:.2f}", str(row["decisions"]), str(row["wrong"]), pct(row["wrong_rate"]),
-                 str(row["errors"]), pct(row["coverage"]), f"{row['gross_saved_s']:.0f}", f"{row['jeff_s']:.0f}",
+                 pct(row["coverage"]), f"{row['gross_saved_s']:.0f}", f"{row['jeff_s']:.0f}",
                  f"{row['net_saved_s']:.0f}", pct(row["net_saved_share_gen"]), pct(row["net_saved_share_gen_tool"])]
         if decision == "step":
             cells.append(str(row["steps_taken"]))
@@ -958,9 +901,8 @@ def markdown(result, meta):
                    "servers, vLLM prefill counters)" for m, r in meta["prefill"].items()) + ".\n")
     out.append("Top-choice accuracy against the labels: " + ", ".join(
         f"{d} {'-' if a is None else pct(a)}" for d, a in result["accuracy"].items()) + ".\n")
-    out.append("Questions over Jeff's length limit (jeff-serve refuses them; at run time the turn ends with a JeffFirst "
-               "error; scored as no saving and counted under 'over length', not as wrong): " + ", ".join(
-                   f"{d} {n}" for d, n in result["over_length"].items()) + ".\n")
+    out.append("Questions cut to fit Jeff's 8,192-token limit (as the run time cuts them; scored like the others): "
+               + ", ".join(f"{d} {n}" for d, n in result["cut_to_fit"].items()) + ".\n")
     out.append(TIME_NOTE)
     for mode in TIME_MODES:
         out.append(f"## Best thresholds at fixed wrong-choice rates ({mode} router seconds)\n")
@@ -973,12 +915,11 @@ def markdown(result, meta):
             out.append(f"| {pct(float(target))} | " + " | ".join(target_cells(entry, mode)) + " |")
         out.append("")
     out.append("## All three decisions, one common threshold\n")
-    out.append("| threshold | wrong turns | wrong rate | turns over length | covered by Jeff | gross saved s | Jeff s | "
+    out.append("| threshold | wrong turns | wrong rate | covered by Jeff | gross saved s | Jeff s | "
                "net saved s | % of gen | % of gen + tool | net saved, load-matched (% of gen) |")
-    out.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    out.append("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for row in result["combined_common"]:
-        out.append(f"| {row['threshold']:.2f} | {row['wrong']} | {pct(row['wrong_rate'])} | {row['errors']} | "
-                   f"{row['covered']} | "
+        out.append(f"| {row['threshold']:.2f} | {row['wrong']} | {pct(row['wrong_rate'])} | {row['covered']} | "
                    f"{row['gross_saved_s']:.0f} | {row['jeff_s']:.0f} | {row['net_saved_s']:.0f} | "
                    f"{pct(row['net_saved_share_gen'])} | {pct(row['net_saved_share_gen_tool'])} | "
                    f"{row['matched_net_saved_s']:.0f} ({pct(row['matched_net_saved_share_gen'])}) |")
@@ -1043,10 +984,6 @@ def main(argv=None):
     p.add_argument("--pause-ms", type=float, default=0, help="wait after each question (to leave the GPU to others)")
     p.add_argument("--limit", type=int, help="at most this many questions in this run")
     p.add_argument("--progress", type=int, default=100)
-    v = commands.add_parser("over-length", help="record the questions jeff-serve refused as too long; write .fit files")
-    v.add_argument("--bundle", required=True)
-    for decision in DECISIONS:
-        v.add_argument(f"--{decision}", required=True, help=f"complete predictions for questions-{decision}.jsonl")
     o = commands.add_parser("oracle", help="sanity predictions: the labels, or the fixed safe choice")
     o.add_argument("--kind", choices=("labels", "fixed"), required=True)
     o.add_argument("--decision", choices=DECISIONS, required=True)
@@ -1064,7 +1001,7 @@ def main(argv=None):
     c.add_argument("--scores", nargs="+", required=True)
     c.add_argument("--out", required=True)
     args = parser.parse_args(argv)
-    {"build": build, "predict": predict, "over-length": over_length_command, "oracle": oracle, "score": score,
+    {"build": build, "predict": predict, "oracle": oracle, "score": score,
      "compare": compare}[args.command](args)
 
 

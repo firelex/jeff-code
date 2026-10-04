@@ -4,14 +4,14 @@ way jeff-serve computes them, for offline_score.py score.
 Runs with jeff-dev's Python (it imports jeff): the checkpoint is loaded with jeff.models.load_decision_model (a LoRA
 adapter folder loads its base with the adapter attached, at the serving precision "model", as jeff-serve's shared
 adapters; a full checkpoint loads as itself), and each question's probabilities are softmax(logits / the checkpoint's
-temperature), as jeff.server.distributions. A question whose prompt is over the model's 8192-token limit (jeff-serve
-answers 422 for it, and the run time ends the turn with an error) is written as {"over_length": true}; offline_score.py
-over-length records those ids in the bundle. Rows are batched (--batch-size); padding in a batch can move the
+temperature), as jeff.server.distributions. Give it the bundle's questions cut to fit Jeff's 8,192-token limit
+(BUNDLE/cut/questions-X.jsonl, see offline_score.py); a question over the limit stops it with jeff-dev's error. Rows
+are batched (--batch-size); padding in a batch can move the
 probabilities in the last bf16 digits compared with jeff-serve, which answers one question at a time.
 
 Usage (from a jeff-dev checkout):
     CUDA_VISIBLE_DEVICES=3 .venv/bin/python /path/to/jeff_predict.py --checkpoint CKPT \\
-        --questions BUNDLE/questions-router.jsonl --out OUT/router.predictions.jsonl
+        --questions BUNDLE/cut/questions-router.jsonl --out OUT/router.predictions.jsonl
 """
 
 import argparse
@@ -23,9 +23,6 @@ from pathlib import Path
 import torch
 from jeff.lora import is_adapter
 from jeff.models import load_decision_model
-
-OVER_LENGTH = "exceeds the"
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -45,20 +42,9 @@ def main(argv=None):
     model.eval()
     loaded = time.monotonic()
     rows = {}
-    fits = []
-    for question in questions:
-        try:
-            model.prepare([question])
-        except ValueError as error:
-            if OVER_LENGTH not in str(error):
-                raise
-            rows[question["id"]] = {"id": question["id"], "options": list(question["question"]["criteria"]),
-                                    "over_length": True, "detail": str(error)}
-            continue
-        fits.append(question)
     with torch.inference_mode():
-        for start in range(0, len(fits), args.batch_size):
-            batch_rows = fits[start:start + args.batch_size]
+        for start in range(0, len(questions), args.batch_size):
+            batch_rows = questions[start:start + args.batch_size]
             batch = model.prepare(batch_rows)
             probabilities = (model(batch) / model.temperature).softmax(-1).cpu().tolist()
             for question, values, count in zip(batch_rows, probabilities, batch.counts, strict=True):
@@ -74,9 +60,8 @@ def main(argv=None):
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text("".join(json.dumps(rows[q["id"]]) + "\n" for q in questions), encoding="utf-8")
     done = time.monotonic()
-    over = sum(1 for row in rows.values() if row.get("over_length"))
-    print(f"{len(questions)} questions ({over} over the length limit): load {loaded - started:.0f} s, "
-          f"{len(fits) / max(done - loaded, 1e-9):.1f} questions/s")
+    print(f"{len(questions)} questions: load {loaded - started:.0f} s, "
+          f"{len(questions) / max(done - loaded, 1e-9):.1f} questions/s")
 
 
 if __name__ == "__main__":
