@@ -15,6 +15,10 @@ TASK_DOCKERFILE = (
     "# Create /output directory for task outputs\nRUN mkdir -p /output\n\nCOPY seeds/ /workspace/\n"
 )
 
+INFERREDBUGS_DOCKERFILE = (
+    "FROM ubuntu:24.04\n\nWORKDIR /app\n\nRUN apt-get update && apt-get install -y python3 python3-pip && rm -rf /var/lib/apt/lists/*\n"
+)
+
 
 def task_archive(dockerfile: str = TASK_DOCKERFILE, seeds: dict[str, bytes | None] | None = None) -> bytes:
     """A task folder as the nl2bash-verified dataset stores it: a gzipped tar with environment/Dockerfile and the
@@ -48,21 +52,45 @@ def members(tar: bytes) -> dict[str, tuple[bytes, int, int, int, bytes | None]]:
         }
 
 
+def sha256(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 @pytest.fixture(autouse=True)
-def known_dockerfile(monkeypatch):
-    monkeypatch.setattr(s1, "TASK_DOCKERFILE_SHA256", hashlib.sha256(TASK_DOCKERFILE.encode()).hexdigest())
+def known_dockerfiles(monkeypatch):
+    monkeypatch.setattr(s1, "NL2BASH", s1.TaskFamily("nl2bash", "nl2bash-", sha256(TASK_DOCKERFILE), "/workspace", True))
+    monkeypatch.setattr(s1, "INFERREDBUGS", s1.TaskFamily("inferredbugs", "inferredbugs-", sha256(INFERREDBUGS_DOCKERFILE), "/app", False))
 
 
 def test_each_ukisai_run_has_its_harness_and_an_unknown_run_is_an_error():
     assert s1.harness_of("7d7b83d6-b00b-4144-93fe-dadc8bd061b2") is s1.TMUX_SOCKET
     assert s1.harness_of("dfaf1ac0-28bc-492e-934e-4e4d8da84430") is s1.TMUX_SOCKET
     assert s1.harness_of("95e2bd54-a539-42d8-9e49-e74eafcc2f29") is s1.ASCIINEMA
+    # Run b9f4c74f (InferredBugs, one reply per session, no output) started the same minute as 95e2bd54.
+    assert s1.harness_of("b9f4c74f-08b0-48fb-80ea-9a6ed87be689") is s1.ASCIINEMA
     with pytest.raises(ValueError, match="run 1234"):
         s1.harness_of("1234")
 
 
+def test_each_task_family_has_its_dockerfile_working_folder_and_image():
+    assert s1.family_of("nl2bash-12-0000_run2__dsv4-trial-2") is s1.NL2BASH
+    assert s1.family_of("inferredbugs-0001__dsv4-trial-2") is s1.INFERREDBUGS
+    with pytest.raises(ValueError, match="other-1"):
+        s1.family_of("other-1")
+    assert s1.image_of(s1.NL2BASH, s1.TMUX_SOCKET) == "stage1replay-nl2bash:tmux-socket"
+    assert s1.image_of(s1.INFERREDBUGS, s1.ASCIINEMA) == "stage1replay-inferredbugs:asciinema"
+
+
+def test_an_inferredbugs_image_is_its_dockerfile_plus_the_harness_setup():
+    text = s1.image_dockerfile(INFERREDBUGS_DOCKERFILE, s1.INFERREDBUGS, s1.TMUX_SOCKET)
+    assert text.startswith(INFERREDBUGS_DOCKERFILE.rstrip("\n") + "\n")
+    assert text.endswith("apt-get install -y tmux\n")
+    with pytest.raises(ValueError, match="sha256"):
+        s1.image_dockerfile(TASK_DOCKERFILE, s1.INFERREDBUGS, s1.TMUX_SOCKET)
+
+
 def test_the_image_is_the_task_dockerfile_without_its_seeds_plus_the_harness_setup():
-    text = s1.image_dockerfile(TASK_DOCKERFILE, s1.TMUX_SOCKET)
+    text = s1.image_dockerfile(TASK_DOCKERFILE, s1.NL2BASH, s1.TMUX_SOCKET)
     assert "COPY seeds/" not in text
     assert text.startswith("FROM ubuntu:24.04\n\nENV DEBIAN_FRONTEND=noninteractive\nWORKDIR /workspace\n")
     assert "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y tmux\n" in text
@@ -70,18 +98,18 @@ def test_the_image_is_the_task_dockerfile_without_its_seeds_plus_the_harness_set
     # /root/.ssh, in the sessions' listings, comes from the task Dockerfile's own packages.
     assert ".ssh" not in text
     assert "asciinema" not in text
-    recorded = s1.image_dockerfile(TASK_DOCKERFILE, s1.ASCIINEMA)
+    recorded = s1.image_dockerfile(TASK_DOCKERFILE, s1.NL2BASH, s1.ASCIINEMA)
     assert "apt-get install -y tmux asciinema\n" in recorded
     assert "COPY --chown=1000:1005 --chmod=664 get-asciinema-timestamp.sh /tmp/get-asciinema-timestamp.sh" in recorded
 
 
 def test_another_task_dockerfile_is_an_error(monkeypatch):
     with pytest.raises(ValueError, match="sha256"):
-        s1.image_dockerfile(TASK_DOCKERFILE + "RUN true\n", s1.TMUX_SOCKET)
+        s1.image_dockerfile(TASK_DOCKERFILE + "RUN true\n", s1.NL2BASH, s1.TMUX_SOCKET)
     other = TASK_DOCKERFILE.replace("COPY seeds/ /workspace/\n", "")
-    monkeypatch.setattr(s1, "TASK_DOCKERFILE_SHA256", hashlib.sha256(other.encode()).hexdigest())
+    monkeypatch.setattr(s1, "NL2BASH", s1.TaskFamily("nl2bash", "nl2bash-", sha256(other), "/workspace", True))
     with pytest.raises(ValueError, match="COPY seeds/"):
-        s1.image_dockerfile(other, s1.TMUX_SOCKET)
+        s1.image_dockerfile(other, s1.NL2BASH, s1.TMUX_SOCKET)
 
 
 def test_seeds_are_packed_for_the_workspace_with_the_modes_the_main_runs_showed():

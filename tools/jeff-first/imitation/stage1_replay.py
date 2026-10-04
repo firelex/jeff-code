@@ -1,22 +1,29 @@
-"""Stage 1 replay: the nl2bash sessions of the ukisai dataset (Qwen3.8-27B in the Terminus-2 harness) replayed in their
-task's own environment, rebuilt in a fresh container, so that every menu is built from the real disk ("replayed" rows).
+"""Stage 1 replay: the sessions of the ukisai dataset (Qwen3.8-27B in the Terminus-2 harness) replayed in their task's own
+environment, rebuilt in a fresh container, so that every menu is built from the real disk ("replayed" rows).
 
-The environment. Every nl2bash task the sessions ran (DCAgent/nl2bash-verified on Hugging Face, one gzipped task folder
-per task) has the same `environment/Dockerfile` (TASK_DOCKERFILE_SHA256: ubuntu:24.04, the listed apt packages,
-WORKDIR /workspace, `mkdir -p /output`) ending in `COPY seeds/ /workspace/`, where `environment/seeds/` holds the task's
-own fixture files (none for some tasks). Two images are built from that Dockerfile without the seed copy, plus what
+The environment. Each task family (TaskFamily) has one Dockerfile for all its tasks:
+- nl2bash (DCAgent/nl2bash-verified on Hugging Face, one gzipped task folder per task): ubuntu:24.04, the listed apt
+  packages, WORKDIR /workspace, `mkdir -p /output`, ending in `COPY seeds/ /workspace/`, where `environment/seeds/`
+  holds the task's own fixture files (none for some tasks).
+- InferredBugs (mlfoundations-dev/inferredbugs-sandboxes): ubuntu:24.04, python3 and pip, an empty WORKDIR /app; the
+  buggy code is only in the task text.
+One image is built per family and harness version (Harness): the family's Dockerfile without the seed copy, plus what
 Terminus-2's setup added (Harbor installs tmux, and asciinema for the older harness version, after `apt-get update`,
-keeping the package lists: sessions install packages without updating first); one per harness version (Harness). The
-seeds are copied into each session's container. Evidence from the sessions' own outputs, by run:
+keeping the package lists: sessions install packages without updating first). The seeds are copied into each
+session's container. Evidence from the sessions' own outputs, by run:
 
-- 7d7b83d6 (6,500 of 7,866 sessions; the harness TMUX_SOCKET): `ps` shows a tmux server on /logs/agent/tmux.sock made
-  for a session `_harbor_dummy`, then `bash --login` in a pane (TMUX_PANE %1); `ls -la` shows seed files 664 and seed
-  folders 775 whatever their mode in the dataset, dated hours before the session; /logs/verifier and /logs/artifacts
-  are 775, owned by uid 1000 (ubuntu) and gid 1005.
-- dfaf1ac0 (1,031 sessions): each holds only its first reply (no output), so there is no evidence; same days as
-  7d7b83d6, taken as TMUX_SOCKET.
-- 95e2bd54 (335 sessions; ASCIINEMA): tmux on its default socket, the shell inside `asciinema rec` (ASCIINEMA_REC=1,
-  SHLVL=2), /tmp/get-asciinema-timestamp.sh, seeds with the dataset's modes and dates, /logs folders 777.
+- 7d7b83d6 (6,500 nl2bash and 5,733 InferredBugs sessions; the harness TMUX_SOCKET): `ps` shows a tmux server on
+  /logs/agent/tmux.sock made for a session `_harbor_dummy`, then `bash --login` in a pane (TMUX_PANE %1); `ls -la`
+  shows nl2bash seed files 664 and seed folders 775 whatever their mode in the dataset, dated hours before the session;
+  /logs/verifier and /logs/artifacts are 775, owned by uid 1000 (ubuntu) and gid 1005; Harbor's episode logs are in
+  /logs/agent. Its InferredBugs sessions show the same (tmux.sock, episode logs).
+- dfaf1ac0 (1,031 nl2bash and 520 InferredBugs sessions): each holds only its first reply (no output), so there is no
+  evidence; same days as 7d7b83d6, taken as TMUX_SOCKET.
+- 95e2bd54 (335 nl2bash sessions; ASCIINEMA): tmux on its default socket, the shell inside `asciinema rec`
+  (ASCIINEMA_REC=1, SHLVL=2), /tmp/get-asciinema-timestamp.sh, seeds with the dataset's modes and dates, /logs
+  folders 777.
+- b9f4c74f (296 InferredBugs sessions): first replies only, no evidence; started the same minute as 95e2bd54, taken as
+  ASCIINEMA.
 
 Each session's container (`stage1replay-<session>`, `sh -c "sleep infinity"`, the hostname of the session's own prompt,
 CPUS cpus and MEMORY memory, the default bridge network) gets the seeds and the /logs folders, and before each turn's
@@ -71,10 +78,8 @@ from imitation.terminus import PROMPT, TerminusSession, _label_turns, _outputs, 
 SOURCE = "ukisai/Qwen3.8-27B-multi-turn-agent-sft"
 STAGE = 1
 QUALITY = "replayed"
-TASK_DOCKERFILE_SHA256 = "9c980b196ee97611adaca5ddbc584ba35258b7de912225c80a55ea1849946d0f"
 SEEDS_COPY = "COPY seeds/ /workspace/"
 SEEDS = "environment/seeds/"
-WORKDIR = "/workspace"
 SCOUT_MOUNT = "/var/lib/stage1replay-scout"
 NODE = f"{SCOUT_MOUNT}/node/bin/node"
 MENU_CLI = f"{SCOUT_MOUNT}/repo/scripts/jeff-first-menus.ts"
@@ -92,11 +97,36 @@ SESSION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
 @dataclass(frozen=True)
+class TaskFamily:
+    """A public task set whose tasks all share one Dockerfile: its task names start with `prefix`; `seeds` says
+    whether the Dockerfile ends with SEEDS_COPY (each task's own files, copied per container instead)."""
+
+    name: str
+    prefix: str
+    dockerfile_sha256: str
+    workdir: str
+    seeds: bool
+
+
+# DCAgent/nl2bash-verified: every task folder has this Dockerfile, its own files in environment/seeds/.
+NL2BASH = TaskFamily("nl2bash", "nl2bash-", "9c980b196ee97611adaca5ddbc584ba35258b7de912225c80a55ea1849946d0f", "/workspace", True)
+# mlfoundations-dev/inferredbugs-sandboxes: every task has this Dockerfile (ubuntu:24.04, python3 and pip, an empty
+# /app); the buggy code is in the task text only.
+INFERREDBUGS = TaskFamily("inferredbugs", "inferredbugs-", "345d0077de57c2288872e5ea2959d9d680542c66722caa9b05c6310f351db2fa", "/app", False)
+
+
+def family_of(task: str) -> TaskFamily:
+    for family in (NL2BASH, INFERREDBUGS):
+        if task.startswith(family.prefix):
+            return family
+    raise ValueError(f"the task {task} is in no known task family ({NL2BASH.prefix}..., {INFERREDBUGS.prefix}...)")
+
+
+@dataclass(frozen=True)
 class Harness:
     """One version of Terminus-2's harness, as the sessions' outputs show it (see the module docstring)."""
 
     name: str
-    image: str
     # The packages Harbor installed for the harness after `apt-get update`.
     tools: tuple[str, ...]
     # True: seed files and folders keep the dataset's modes and dates; False: files 664, folders 775, dated when the
@@ -109,12 +139,14 @@ class Harness:
     episode_logs: bool
 
 
-TMUX_SOCKET = Harness("tmux-socket", "stage1replay-nl2bash:tmux-socket", ("tmux",), False, 0o775, "/logs/agent/tmux.sock", True)
-ASCIINEMA = Harness("asciinema", "stage1replay-nl2bash:asciinema", ("tmux", "asciinema"), True, 0o777, None, False)
+TMUX_SOCKET = Harness("tmux-socket", ("tmux",), False, 0o775, "/logs/agent/tmux.sock", True)
+ASCIINEMA = Harness("asciinema", ("tmux", "asciinema"), True, 0o777, None, False)
 HARNESS_BY_RUN = {
     "7d7b83d6-b00b-4144-93fe-dadc8bd061b2": TMUX_SOCKET,
     "dfaf1ac0-28bc-492e-934e-4e4d8da84430": TMUX_SOCKET,
     "95e2bd54-a539-42d8-9e49-e74eafcc2f29": ASCIINEMA,
+    # InferredBugs only, one reply per session and no output: no evidence; it started the same minute as 95e2bd54.
+    "b9f4c74f-08b0-48fb-80ea-9a6ed87be689": ASCIINEMA,
 }
 ASCIINEMA_SCRIPT = "get-asciinema-timestamp.sh"
 
@@ -125,14 +157,19 @@ def harness_of(run_id: str) -> Harness:
     return HARNESS_BY_RUN[run_id]
 
 
-def image_dockerfile(task_dockerfile: str, harness: Harness) -> str:
-    """The Dockerfile of a harness's image: the nl2bash task Dockerfile without its seed copy, then Terminus-2's setup."""
+def image_of(family: TaskFamily, harness: Harness) -> str:
+    return f"stage1replay-{family.name}:{harness.name}"
+
+
+def image_dockerfile(task_dockerfile: str, family: TaskFamily, harness: Harness) -> str:
+    """The Dockerfile of a family's image for a harness: the family's task Dockerfile without its seed copy, then
+    Terminus-2's setup."""
     digest = hashlib.sha256(task_dockerfile.encode()).hexdigest()
-    if digest != TASK_DOCKERFILE_SHA256:
-        raise ValueError(f"the task Dockerfile has sha256 {digest}, not the nl2bash one {TASK_DOCKERFILE_SHA256}")
+    if digest != family.dockerfile_sha256:
+        raise ValueError(f"the task Dockerfile has sha256 {digest}, not the {family.name} one {family.dockerfile_sha256}")
     lines = task_dockerfile.split("\n")
-    if lines.count(SEEDS_COPY) != 1:
-        raise ValueError(f"the task Dockerfile must end its build with one {SEEDS_COPY!r} line")
+    if lines.count(SEEDS_COPY) != (1 if family.seeds else 0):
+        raise ValueError(f"the {family.name} Dockerfile must have {1 if family.seeds else 0} {SEEDS_COPY!r} line(s)")
     kept = "\n".join(line for line in lines if line != SEEDS_COPY).rstrip("\n")
     setup = [
         "",
@@ -361,8 +398,11 @@ def task_line(task: str, archive: bytes) -> str:
 class TerminalContainer:
     """One session's container on this machine's Docker; see the module docstring."""
 
-    def __init__(self, name: str, harness: Harness, hostname: str, seeds: bytes, scout: Path, conversation: list[dict], turns: list[int]) -> None:
+    def __init__(
+        self, name: str, family: TaskFamily, harness: Harness, hostname: str, seeds: bytes, scout: Path, conversation: list[dict], turns: list[int]
+    ) -> None:
         self.name = name
+        self.family = family
         self.harness = harness
         self.hostname = hostname
         self.seeds = seeds
@@ -393,7 +433,7 @@ class TerminalContainer:
         self._checked(
             [
                 "run", "-d", "--name", self.name, "--hostname", self.hostname, "--cpus", str(CPUS), "--memory", MEMORY,
-                "-w", WORKDIR, "-v", f"{self.scout}:{SCOUT_MOUNT}:ro", self.harness.image, "sh", "-c", "sleep infinity",
+                "-w", self.family.workdir, "-v", f"{self.scout}:{SCOUT_MOUNT}:ro", image_of(self.family, self.harness), "sh", "-c", "sleep infinity",
             ],
             600,
         )  # fmt: skip
@@ -401,7 +441,7 @@ class TerminalContainer:
         if state != "true":
             raise RuntimeError(f"the container {self.name} is not running after start (state {state})")
         if self.seeds:
-            self._checked(["cp", "-a", "-", f"{self.name}:{WORKDIR}"], 120, self.seeds)
+            self._checked(["cp", "-a", "-", f"{self.name}:{self.family.workdir}"], 120, self.seeds)
         logs = " ".join(f"/logs/{folder}" for folder in ("agent", "verifier", "artifacts"))
         self._checked(
             ["exec", self.name, "sh", "-c", f"mkdir -p {logs} && chown {LOGS_OWNER} {logs} && chmod {self.harness.logs_mode:o} {logs}"], 60
@@ -467,9 +507,10 @@ def replay_entry(entry: dict, archive: bytes, scout: Path, machine: str) -> Repl
         conversation = entry["conversation"]
         session = parse_terminus(conversation)
         harness = harness_of(entry["run_id"])
+        family = family_of(entry["task"])
         seeds = seed_archive(archive, harness, time.time())
         container = TerminalContainer(
-            f"stage1replay-{name}", harness, hostname_of(conversation), seeds, scout, conversation, command_turns(session)
+            f"stage1replay-{name}", family, harness, hostname_of(conversation), seeds, scout, conversation, command_turns(session)
         )
         try:
             container.start()
@@ -481,6 +522,7 @@ def replay_entry(entry: dict, archive: bytes, scout: Path, machine: str) -> Repl
             "session": name,
             "task": entry["task"],
             "run_id": entry["run_id"],
+            "family": family.name,
             "harness": harness.name,
             **asdict(replay.result),
             "commands_replayed": len(replay.commands),
