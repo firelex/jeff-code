@@ -311,8 +311,9 @@ def test_prompt_check_per_level():
     rl.check_prompt("t", "off", -36)
     rl.check_prompt("t", "xhigh", 0)
     rl.check_prompt("t", "off", None)  # a request cut for looping reports no count
+    rl.check_prompt("t", "off", -37)  # the effort line's token count depends on its neighbours
     with pytest.raises(rl.PromptMismatch):
-        rl.check_prompt("t", "medium", -36)
+        rl.check_prompt("t", "xhigh", 1)
 
 
 def test_recorded_turns_mismatch_raises(tmp_path):

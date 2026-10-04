@@ -387,8 +387,10 @@ class PromptMismatch(Exception):
 
 
 def check_prompt(what, level, prompt_diff):
-    """The server's prompt tokens minus pi's recorded prompt tokens must be the level's constant (PROMPT_DIFF)."""
-    if prompt_diff is not None and prompt_diff != PROMPT_DIFF[level]:
+    """At xhigh the rebuilt request is the recorded one: its prompt tokens must equal pi's record exactly. The other
+    levels change the system prompt's reasoning-effort line, whose token count depends on the text around it (most
+    sessions -36/-12/-38, some -37 or -30 at off), so their difference is only recorded (statistics), not checked."""
+    if level == "xhigh" and prompt_diff is not None and prompt_diff != PROMPT_DIFF[level]:
         raise PromptMismatch(f"{what}: prompt tokens differ from the recorded prompt by {prompt_diff}, expected "
                              f"{PROMPT_DIFF[level]} at {level}")
 
