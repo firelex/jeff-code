@@ -1,9 +1,12 @@
 import json
+import subprocess
+from pathlib import Path
 
 import pytest
 
 from imitation.pi_replay import (
     COMMAND_CAP_SECONDS,
+    PiContainer,
     PiRan,
     batch_seconds,
     command_script,
@@ -316,3 +319,17 @@ def test_a_command_runs_as_pi_runs_it_in_a_new_bash_in_the_session_folder():
     assert "export JEFF_FIRST_MODE=record" in lines and "export PI_SESSION_ID=sess-1" in lines
     assert "export PATH=/tmp/harbor-pi-agent/bin:$PATH" in lines
     assert lines[-2:] == ["cd /app", "exec bash -c 'echo $HOME && cd sub'"]
+
+
+def test_docker_output_is_read_as_pi_reads_it_with_invalid_utf8_replaced(monkeypatch):
+    # A command may print bytes that are not UTF-8 (a binary file); pi's bash tool decodes them with U+FFFD.
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, b"caf\xe9\n".decode(kwargs["encoding"], kwargs["errors"]), "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    container = PiContainer("stage3replay-x", "image", 1, "2G", Path("/scout"))
+    assert container._checked(["exec", "x"], 10) == "caf�\n"
+    assert seen["encoding"] == "utf-8" and seen["errors"] == "replace"

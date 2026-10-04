@@ -395,7 +395,10 @@ class PiContainer:
 
     def _docker(self, args: list[str], timeout: float, stdin: str | None = None) -> subprocess.CompletedProcess:
         try:
-            return subprocess.run(["docker", *args], input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
+            # A command may print bytes that are not UTF-8 (a binary file); pi's bash tool decodes them with U+FFFD.
+            return subprocess.run(
+                ["docker", *args], input=stdin, capture_output=True, encoding="utf-8", errors="replace", timeout=timeout, check=False
+            )
         except subprocess.TimeoutExpired as error:
             raise RuntimeError(f"docker {' '.join(args[:3])} did not return within {timeout:.0f} s") from error
 
