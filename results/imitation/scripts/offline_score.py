@@ -323,13 +323,21 @@ def build(args):
     rates = read_prefill_metrics(args.prefill_metrics)
     paired = paired_prefill_estimate([line for line in trim_lines if line["kind"] == "turn"])
 
+    # A trial's session totals are the denominators, so only trials the routing labeller has finished (its "trial"
+    # line: every labellable turn written) are used.
+    finished = {Path(line["trial_dir"]).name for path in args.routing_labels for line in read_jsonl(path)
+                if line["kind"] == "trial"}
     counts = collections.Counter()
     wanted = []
     for turn in routing_turns:
         split = held_out_split(turn["task"], splits, task_sets, scoring)
         counts[f"routing turns in split {split}"] += 1
-        if split in args.split:
-            wanted.append({**turn, "split": split})
+        if split not in args.split:
+            continue
+        if turn["trial"] not in finished:
+            counts["turns left out: the routing labeller has not finished their trial"] += 1
+            continue
+        wanted.append({**turn, "split": split})
     by_trial = collections.defaultdict(list)
     for turn in wanted:
         by_trial[turn["trial"]].append(turn)
