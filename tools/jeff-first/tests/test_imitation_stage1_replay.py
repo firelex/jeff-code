@@ -230,6 +230,18 @@ def test_outputs_are_compared_after_removing_what_differs_between_any_two_runs()
     assert not s1.output_order_differs("/w/a.c\n/w/b.c", "/w/a.c /w/b.c")
 
 
+def test_a_here_document_whose_screens_show_only_its_own_echo_is_the_same_output():
+    # The terminal echoes a long typed here-document as "> " lines, cut and mixed with typed-ahead keys differently
+    # in each run; the file written is the same. Only lines that echo the command count as echo.
+    text = "cat > /app/A.java << 'EOF'\npackage a;\nimport java.util.List;\npublic class A {}\nEOF"
+    transcript = "o> package a;\n > import java.util.List;\nl)> public cl"
+    replayed = "e> import java.util.List;\n> public class A {}\n > EOF"
+    assert s1.output_differs(transcript, replayed)
+    assert not s1.command_output_differs(text, transcript, replayed)
+    assert s1.command_output_differs(text, transcript, replayed + "\nbash: A.java: Permission denied")
+    assert s1.command_output_differs("ls", "a", "b")
+
+
 def command(turn: int, transcript: str | None, replayed: str) -> ReplayedCommand:
     return ReplayedCommand(turn, 0, "ls", True, transcript, replayed, -1, 0.1, False, 120.0, False, False)
 

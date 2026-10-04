@@ -42,8 +42,8 @@ be applied.
 
 Fidelity: every replayed output is compared with the transcript's after `normalised` (whitespace, digits, times, month
 and day names, long hashes and the SELinux dot after ls permissions removed: dates, sizes and process ids differ between
-any two runs; lines naming the scout's mount or the terminal helper dropped), the order of lines aside
-(`output_differs`). A session is excluded when more than EXCLUDED_SHARE of its compared outputs differ
+any two runs; lines naming the scout's mount or the terminal helper dropped), the order of lines aside, and a typed here-document's
+own echo aside (`command_output_differs`). A session is excluded when more than EXCLUDED_SHARE of its compared outputs differ
 (`select`).
 
 Usage (prepare_stage1_replay.py writes the inputs; on the Docker host):
@@ -315,6 +315,28 @@ def output_differs(transcript: str, replayed: str) -> bool:
     return lines[0] != lines[1]
 
 
+ECHO_PROMPT = re.compile(r"^.{0,3}?> ?")
+
+
+def _echo_only(output: str, command: str) -> bool:
+    """Whether every non-empty line of an output is the terminal's echo of the command's own text: a "> " continuation
+    line (after up to 3 characters of typed-ahead keys) or a piece of a wrapped line, holding a piece of the command."""
+    flat = command.replace("\n", "")
+    for line in output.replace("\r", "").split("\n"):
+        content = ECHO_PROMPT.sub("", line, count=1).strip()
+        if content and content not in flat:
+            return False
+    return True
+
+
+def command_output_differs(command: str, transcript: str, replayed: str) -> bool:
+    """`output_differs`, except that two outputs that only echo the command's own text (a typed here-document: the
+    terminal echoes its lines cut and mixed with typed-ahead keys differently in each run) are the same."""
+    if "\n" in command and _echo_only(transcript, command) and _echo_only(replayed, command):
+        return False
+    return output_differs(transcript, replayed)
+
+
 @dataclass(frozen=True)
 class Fidelity:
     """Of a session's replayed commands: how many have a transcript output to compare (`compared`), how many of those
@@ -330,7 +352,7 @@ class Fidelity:
 
 def session_fidelity(commands: list[ReplayedCommand]) -> Fidelity:
     compared = [command for command in commands if command.transcript_output is not None]
-    return Fidelity(len(compared), sum(output_differs(c.transcript_output, c.replay_output) for c in compared))
+    return Fidelity(len(compared), sum(command_output_differs(c.command, c.transcript_output, c.replay_output) for c in compared))
 
 
 def kept_session(record: dict) -> bool:
@@ -540,7 +562,8 @@ def replay_entry(entry: dict, archive: bytes, scout: Path, machine: str) -> Repl
             "session": name,
             "task": entry["task"],
             **asdict(command),
-            "differs": command.transcript_output is not None and output_differs(command.transcript_output, command.replay_output),
+            "differs": command.transcript_output is not None
+            and command_output_differs(command.command, command.transcript_output, command.replay_output),
             "differs_in_order": command.transcript_output is not None and output_order_differs(command.transcript_output, command.replay_output),
         }
         for command in replay.commands
