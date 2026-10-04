@@ -135,6 +135,7 @@ describe("createScoutStreamFn", () => {
 			taskId: "t1",
 			trace: new TraceWriter(tracePath),
 			chooser,
+			mode: "teacher",
 			isSessionTurn: (id) => id === "s1",
 			runApproval: "all",
 			driverBuild: "test-build",

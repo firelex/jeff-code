@@ -1,4 +1,4 @@
-import { readThinkingRouterSpec, type ThinkingRouterSpec } from "./thinking.ts";
+import { readThinkingRouterSpec, readThreshold, type ThinkingRouterSpec } from "./thinking.ts";
 
 /**
  * JeffFirst settings, read from the environment so the benchmark harness can set them per task.
@@ -16,6 +16,19 @@ export type JeffFirstConfig =
 			taskId: string;
 			teacherUrl: string;
 			teacherModel: string;
+			runApproval: RunApproval;
+			driverBuild: string;
+			thinkingRouter: ThinkingRouterSpec;
+	  }
+	| {
+			mode: "jeff";
+			traceFile: string;
+			taskId: string;
+			/** The Jeff service (jeff-serve) as the task containers reach it. */
+			jeffUrl: string;
+			/** The step adapter's name at the service ("jeff" asks the base model itself). */
+			stepAdapter: string;
+			stepThreshold: number;
 			runApproval: RunApproval;
 			driverBuild: string;
 			thinkingRouter: ThinkingRouterSpec;
@@ -54,11 +67,11 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 	if (mode === undefined || mode === "off") return { mode: "off" };
 	if (mode === "route") {
 		throw new Error(
-			"JeffFirst: JEFF_FIRST_MODE=route is not built yet (stage 1, phase 3). Use off, shadow, teacher or record.",
+			"JeffFirst: JEFF_FIRST_MODE=route is not built yet (stage 1, phase 3). Use off, shadow, teacher, record or jeff.",
 		);
 	}
-	if (mode !== "shadow" && mode !== "teacher" && mode !== "record") {
-		throw new Error(`JeffFirst: JEFF_FIRST_MODE must be off, shadow or teacher, or record, got "${mode}"`);
+	if (mode !== "shadow" && mode !== "teacher" && mode !== "record" && mode !== "jeff") {
+		throw new Error(`JeffFirst: JEFF_FIRST_MODE must be off, shadow, teacher, record or jeff, got "${mode}"`);
 	}
 	const traceFile = required(env, mode, "JEFF_FIRST_TRACE_FILE", "the JSON Lines file for the trace");
 	const taskId = required(env, mode, "JEFF_FIRST_TASK_ID", "the benchmark task id for the trace");
@@ -72,6 +85,44 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 			"the exact build of the large model, for example qwen3.8-27b-nvfp4@spark-head",
 		);
 		return { mode, traceFile, taskId, runApproval, driverBuild, thinkingRouter: readThinkingRouterSpec(env, mode) };
+	}
+	if (mode === "jeff") {
+		const jeffUrl = required(
+			env,
+			mode,
+			"JEFF_FIRST_JEFF_URL",
+			"the Jeff service's address as the task containers reach it, for example http://192.168.2.10:8920",
+		);
+		const stepAdapter = required(
+			env,
+			mode,
+			"JEFF_FIRST_JEFF_STEP_ADAPTER",
+			'the name of the step adapter at the Jeff service ("jeff" asks the base model without an adapter)',
+		);
+		const stepThreshold = readThreshold(
+			env,
+			"JEFF_FIRST_JEFF_STEP_THRESHOLD",
+			"the probability from 0 to 1 Jeff's most likely option needs before the scout takes it rather than handing over (from the step adapter's calibration)",
+			mode,
+		);
+		const runApproval = requireRunApproval(env, mode);
+		const driverBuild = required(
+			env,
+			mode,
+			"JEFF_FIRST_DRIVER_BUILD",
+			"the exact build of the large model, for example qwen3.8-27b-nvfp4@spark-head",
+		);
+		return {
+			mode,
+			traceFile,
+			taskId,
+			jeffUrl,
+			stepAdapter,
+			stepThreshold,
+			runApproval,
+			driverBuild,
+			thinkingRouter: readThinkingRouterSpec(env, mode),
+		};
 	}
 	const teacherUrl = required(
 		env,

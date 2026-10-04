@@ -15,8 +15,9 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import { CacheWarmer } from "./cache-warmer.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
-import { GlmTeacher, TEACHER_RETRY_POLICY } from "./jeff-first/chooser.ts";
+import { GlmTeacher, JeffChooser, TEACHER_RETRY_POLICY } from "./jeff-first/chooser.ts";
 import { readJeffFirstConfig } from "./jeff-first/config.ts";
+import { JEFF_SERVICE_POLICY, JeffService } from "./jeff-first/jeff-service.ts";
 import { createRecorder, type Recorder } from "./jeff-first/record.ts";
 import { createScoutStreamFn } from "./jeff-first/scout.ts";
 import { createShadowStreamFn } from "./jeff-first/stream.ts";
@@ -412,7 +413,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		return modelRuntime.streamSimple(model, context, requestOptions);
 	};
 	// JeffFirst fork: shadow mode logs the menu at every model turn; record mode logs the scout's full option lists
-	// at every model turn without acting on them; teacher mode lets the teacher model scout first.
+	// at every model turn without acting on them; teacher mode lets the teacher model scout first; jeff mode lets the
+	// trained Jeff scout first, through its service.
 	const isSessionTurn = (sessionId: string | undefined) => sessionId === sessionManager.getSessionId();
 	// Teacher and record modes: the thinking router sets each Qwen request's thinking level, with the loop guard and
 	// the runaway cut-off around it.
@@ -453,7 +455,15 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			cwd,
 			taskId: jeffFirst.taskId,
 			trace: new TraceWriter(jeffFirst.traceFile),
-			chooser: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel, TEACHER_RETRY_POLICY),
+			chooser:
+				jeffFirst.mode === "jeff"
+					? new JeffChooser(
+							new JeffService(jeffFirst.jeffUrl, JEFF_SERVICE_POLICY),
+							jeffFirst.stepAdapter,
+							jeffFirst.stepThreshold,
+						)
+					: new GlmTeacher(jeffFirst.teacherUrl, jeffFirst.teacherModel, TEACHER_RETRY_POLICY),
+			mode: jeffFirst.mode,
 			isSessionTurn,
 			runApproval: jeffFirst.runApproval,
 			driverBuild: jeffFirst.driverBuild,

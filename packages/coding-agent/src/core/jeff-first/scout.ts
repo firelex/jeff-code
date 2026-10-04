@@ -41,6 +41,8 @@ export interface ScoutOptions {
 	taskId: string;
 	trace: TraceWriter;
 	chooser: Chooser;
+	/** How the trace names who chooses: "teacher" (the teacher model) or "jeff" (the trained Jeff). */
+	mode: "teacher" | "jeff";
 	isSessionTurn: (sessionId: string | undefined) => boolean;
 	runApproval: RunApproval;
 	driverBuild: string;
@@ -136,7 +138,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 				session_id: sessionId as string,
 				decision: thisDecision,
 				step_in_stint: stint,
-				mode: "teacher",
+				mode: options.mode,
 				driver: model.id,
 				driver_build: options.driverBuild,
 				run_approval: options.runApproval,
@@ -244,7 +246,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 					task_id: options.taskId,
 					session_id: sessionId as string,
 					turn: thisTurn,
-					mode: "teacher",
+					mode: options.mode,
 					driver: model.id,
 					driver_build: options.driverBuild,
 					time: new Date().toISOString(),

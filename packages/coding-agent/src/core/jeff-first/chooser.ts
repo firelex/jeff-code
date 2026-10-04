@@ -1,6 +1,15 @@
 import { setTimeout as sleep } from "node:timers/promises";
+import type { JeffService } from "./jeff-service.ts";
+import { NONE_OF_THESE } from "./pages.ts";
 import type { JeffState } from "./state.ts";
-import { ANSWER_CODES, answerSchema, type Level, teacherMessages } from "./teacher-prompt.ts";
+import {
+	ANSWER_CODES,
+	answerSchema,
+	type Level,
+	questionText,
+	renderState,
+	teacherMessages,
+} from "./teacher-prompt.ts";
 
 export const TEACHER_SAMPLES = 5;
 const TEACHER_TEMPERATURE = 1;
@@ -185,5 +194,58 @@ export class GlmTeacher implements Chooser {
 			);
 		}
 		return { optionId: options[index].id, reason };
+	}
+}
+
+/**
+ * The trained small model Jeff, asked through its service (jeff-service.ts) with the step adapter: the same state,
+ * question and options the training rows hold (renderState, questionText, the page's options with their ids). Jeff
+ * returns a probability per option; the most likely option is taken when its probability is at least `threshold`
+ * (calibrated per adapter), otherwise the scout hands over: "hand_over" on a tool page, "None of these" on an argument
+ * page.
+ */
+export class JeffChooser implements Chooser {
+	readonly name: string;
+	private readonly service: JeffService;
+	private readonly adapter: string;
+	private readonly threshold: number;
+
+	constructor(service: JeffService, adapter: string, threshold: number) {
+		if (!(threshold >= 0 && threshold <= 1))
+			throw new Error(`the step threshold must be from 0 to 1, got ${threshold}`);
+		this.service = service;
+		this.adapter = adapter;
+		this.threshold = threshold;
+		this.name = `jeff:${adapter}`;
+	}
+
+	async choose(state: JeffState, level: Level): Promise<Choice> {
+		const options: Array<{ id: string; description: string }> = level.options;
+		const handOver = level.level === "tool" ? "hand_over" : NONE_OF_THESE.id;
+		if (!options.some((option) => option.id === handOver)) {
+			throw new Error(`the ${level.level} page ${level.page} has no ${handOver} option`);
+		}
+		const answer = await this.service.ask(this.adapter, {
+			state: renderState(state),
+			instructions: questionText(level),
+			criteria: Object.fromEntries(options.map((option) => [option.id, option.description])),
+		});
+		let best = options[0].id;
+		for (const option of options) {
+			if (answer.probabilities[option.id] > answer.probabilities[best]) best = option.id;
+		}
+		const probability = answer.probabilities[best];
+		const taken = probability >= this.threshold;
+		const optionId = taken ? best : handOver;
+		const busy = answer.busyWaits > 0 ? `; the service was busy ${answer.busyWaits} times` : "";
+		const reason =
+			`${answer.servedBy} gave ${best} the highest probability, ${probability.toFixed(3)}, ` +
+			`${taken ? "at least" : "below"} the threshold ${this.threshold}${taken ? "" : `: hand over (${handOver})`}` +
+			` (${Math.round(answer.ms)} ms${busy})`;
+		return {
+			optionId,
+			shares: answer.probabilities,
+			picks: [{ optionId, reason, failedAttempts: answer.failedAttempts }],
+		};
 	}
 }

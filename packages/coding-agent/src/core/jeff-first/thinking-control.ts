@@ -161,6 +161,8 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 		turn++;
 		const thisTurn = turn;
 
+		// The router's probabilities and time apply to the first request only; a re-ask always runs at REASK_LEVEL.
+		let routed: { probabilities: QwenRequestRecord["router_probabilities"]; ms: number } | undefined;
 		const writeLine = (
 			attempt: Attempt,
 			number: 1 | 2,
@@ -177,6 +179,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 				attempt: number,
 				driver: model.id,
 				router: options.router.name,
+				router_probabilities: number === 1 && routed ? routed.probabilities : null,
 				thinking_level: attempt.level,
 				sent: attempt.sent,
 				outcome,
@@ -194,13 +197,16 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 					cache_read: final.usage.cacheRead,
 					cache_write: final.usage.cacheWrite,
 				},
-				timings_ms: { model: attempt.ms },
+				timings_ms: { model: attempt.ms, router: number === 1 && routed ? routed.ms : null },
 			});
 		};
 
 		try {
 			task ??= taskText(context.messages);
-			const level = options.router.levelFor(trimState(task, collectSteps(context.messages)));
+			const routerStarted = performance.now();
+			const choice = await options.router.levelFor(trimState(task, collectSteps(context.messages)));
+			routed = { probabilities: choice.probabilities, ms: performance.now() - routerStarted };
+			const level = choice.level;
 			if (level !== "off" && !model.reasoning) {
 				throw new Error(
 					`the router ${options.router.name} chose thinking "${level}", but the model ${model.id} is not marked as able to think (model.reasoning), so pi would send no thinking`,

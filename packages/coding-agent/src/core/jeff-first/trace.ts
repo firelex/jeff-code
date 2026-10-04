@@ -55,7 +55,8 @@ export interface DecisionRecord {
 	decision: number;
 	/** Scout steps already taken since the large model's last turn. */
 	step_in_stint: number;
-	mode: "teacher";
+	/** teacher: the teacher model chose; jeff: the trained Jeff chose. */
+	mode: "teacher" | "jeff";
 	/** The large model driving the session (its model id). */
 	driver: string;
 	driver_build: string;
@@ -76,7 +77,7 @@ export interface ModelTurnRecord {
 	task_id: string;
 	session_id: string;
 	turn: number;
-	mode: "teacher";
+	mode: "teacher" | "jeff";
 	driver: string;
 	driver_build: string;
 	time: string;
@@ -204,8 +205,10 @@ export interface QwenRequestRecord {
 	turn: number;
 	attempt: 1 | 2;
 	driver: string;
-	/** The router's name, for example "fixed:medium". */
+	/** The router's name, for example "fixed:medium" or "jeff:jeff-router". */
 	router: string;
+	/** The trained router's probability per level on attempt 1; null for a fixed router and on attempt 2. */
+	router_probabilities: Record<QwenThinkingLevel, number> | null;
 	thinking_level: QwenThinkingLevel;
 	/** chat_template_kwargs as sent (format qwen-chat-template); null where the request had no such field. */
 	sent: { enable_thinking: boolean | null; reasoning_effort: string | null };
@@ -218,5 +221,6 @@ export interface QwenRequestRecord {
 	thinking_chars: number;
 	/** thinking_tokens is null when the server reported no separate reasoning count; output includes them. */
 	usage: { input: number; output: number; thinking_tokens: number | null; cache_read: number; cache_write: number };
-	timings_ms: { model: number };
+	/** router: the time the router took to choose (attempt 1 only; null on attempt 2). */
+	timings_ms: { model: number; router: number | null };
 }

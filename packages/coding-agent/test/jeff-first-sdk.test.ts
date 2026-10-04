@@ -8,6 +8,7 @@ import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { answer as jeffAnswer, startFakeJeff } from "./jeff-first-fake-jeff.ts";
 import { answerFor, type FakeTeacher, startFakeTeacher } from "./jeff-first-fake-teacher.ts";
 import { createModelRegistry, getModelRuntime } from "./model-runtime-test-utils.ts";
 
@@ -201,7 +202,7 @@ describe("JeffFirst through createAgentSession", () => {
 
 	it("refuses to create a session with an unknown mode", async () => {
 		vi.stubEnv("JEFF_FIRST_MODE", "routing");
-		await expect(startSession()).rejects.toThrow(/must be off, shadow or teacher/);
+		await expect(startSession()).rejects.toThrow(/must be off, shadow, teacher, record or jeff/);
 	});
 
 	it("in teacher mode runs the teacher's steps, then hands over, and logs both kinds of line", async () => {
@@ -240,6 +241,68 @@ describe("JeffFirst through createAgentSession", () => {
 		expect(lines[1].state.recentSteps[0].output).toContain("The bug is in main.py.");
 		expect(provider.calls).toBe(2);
 		expect(teacher.requests).toHaveLength(4 * 5);
+	});
+
+	it("in jeff mode asks the Jeff service for the steps and the thinking level, and logs Jeff's probabilities", async () => {
+		// Jeff reads README.md first, then hands over; the router answers "off" (the fake model cannot think).
+		const jeff = await startFakeJeff((sent) => {
+			const ids = Object.keys(sent.questions.q.criteria);
+			const instructions = sent.questions.q.instructions;
+			const wanted = instructions.includes("how much should it think")
+				? "off"
+				: instructions.includes("Which one exactly?")
+					? ids[0]
+					: sent.state.includes("No steps have been taken yet.")
+						? "read"
+						: "hand_over";
+			return jeffAnswer(
+				sent.model,
+				Object.fromEntries(ids.map((id) => [id, id === wanted ? 0.9 : 0.1 / ids.length])),
+			);
+		});
+		vi.stubEnv("JEFF_FIRST_MODE", "jeff");
+		vi.stubEnv("JEFF_FIRST_TRACE_FILE", join(traceDir, "trace.jsonl"));
+		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
+		vi.stubEnv("JEFF_FIRST_JEFF_URL", jeff.url);
+		vi.stubEnv("JEFF_FIRST_JEFF_STEP_ADAPTER", "jeff-step");
+		vi.stubEnv("JEFF_FIRST_JEFF_STEP_THRESHOLD", "0.5");
+		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
+		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
+		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "jeff:jeff-router");
+		vi.stubEnv("JEFF_FIRST_JEFF_ROUTER_THRESHOLD", "0.5");
+		const { session, provider } = await startSession();
+		await session.prompt("Read README.md and fix the bug.");
+		session.dispose();
+		await jeff.close();
+		const lines = readFileSync(join(traceDir, "trace.jsonl"), "utf8")
+			.trimEnd()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(lines.map((l) => `${l.kind}:${l.action?.kind ?? l.action?.stop_reason ?? l.thinking_level}`)).toEqual([
+			"decision:step",
+			"decision:hand_over",
+			"qwen_request:off",
+			"model_turn:toolUse",
+			"decision:hand_over",
+			"qwen_request:off",
+			"model_turn:stop",
+		]);
+		expect(lines[0]).toMatchObject({ mode: "jeff", levels: [{ chooser: "jeff:jeff-step", chosen: "read" }, {}] });
+		expect(lines[0].levels[0].shares.read).toBe(0.9);
+		expect(lines[2]).toMatchObject({
+			router: "jeff:jeff-router",
+			router_probabilities: { off: 0.9, low: 0.025, medium: 0.025, xhigh: 0.025 },
+		});
+		expect(lines[2].timings_ms.router).toBeGreaterThanOrEqual(0);
+		expect(provider.calls).toBe(2);
+		expect(jeff.requests.map((request) => request.model)).toEqual([
+			"jeff-step",
+			"jeff-step",
+			"jeff-step",
+			"jeff-router",
+			"jeff-step",
+			"jeff-router",
+		]);
 	});
 
 	it("does not retry a JeffFirst failure even when its text looks transient", async () => {

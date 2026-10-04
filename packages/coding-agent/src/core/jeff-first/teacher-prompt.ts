@@ -64,19 +64,23 @@ export function answerSchema(codes: string[]): JsonObject {
 	};
 }
 
+/** The question asked on one page, the same for the teacher and for Jeff (the training rows' "instructions"). */
+export function questionText(level: Level): string {
+	const later =
+		level.page > 1
+			? `You asked to see more options. This is page ${level.page}; the options on earlier pages are not repeated here.\n`
+			: "";
+	return level.level === "tool"
+		? `${later}What should the next step be? Choose one option.`
+		: `${later}You have decided that the next step is: ${level.tool.description}. Which one exactly? Choose one option.`;
+}
+
 export function teacherMessages(state: JeffState, level: Level): ChatMessage[] {
 	const options: ShownOption[] = level.options;
 	if (options.length > ANSWER_CODES.length) {
 		throw new Error(`the teacher can be shown at most ${ANSWER_CODES.length} options, not ${options.length} options`);
 	}
-	const later =
-		level.page > 1
-			? `You asked to see more options. This is page ${level.page}; the options on earlier pages are not repeated here.\n`
-			: "";
-	const question =
-		level.level === "tool"
-			? `${later}What should the next step be? Choose one option.`
-			: `${later}You have decided that the next step is: ${level.tool.description}. Which one exactly? Choose one option.`;
+	const question = questionText(level);
 	const lines = options.map((option, index) => `${ANSWER_CODES[index]}: ${option.description}`);
 	const instruction =
 		'Answer with a JSON object with two fields: "reason", one short sentence explaining your choice, and "choice", the letter of the option you choose.';

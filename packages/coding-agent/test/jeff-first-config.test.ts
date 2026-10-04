@@ -37,7 +37,9 @@ describe("readJeffFirstConfig", () => {
 	});
 
 	it("rejects unknown modes", () => {
-		expect(() => readJeffFirstConfig({ JEFF_FIRST_MODE: "Shadow" })).toThrow(/must be off, shadow or teacher/);
+		expect(() => readJeffFirstConfig({ JEFF_FIRST_MODE: "Shadow" })).toThrow(
+			/must be off, shadow, teacher, record or jeff/,
+		);
 	});
 
 	it("reads teacher mode with the teacher's address and model", () => {
@@ -156,10 +158,13 @@ describe("readJeffFirstConfig", () => {
 		for (const value of ["medium", "fixed:", "fixed:high", "fixed:medium:x", "Fixed:low", "jeff"]) {
 			expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_THINKING_ROUTER: value })).toThrow(
 				new RegExp(
-					`JEFF_FIRST_THINKING_ROUTER must be fixed:off, fixed:low, fixed:medium or fixed:xhigh, got "${value}"`,
+					`JEFF_FIRST_THINKING_ROUTER must be fixed:off, fixed:low, fixed:medium, fixed:xhigh or jeff:<router adapter>, got "${value}"`,
 				),
 			);
 		}
+		expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_THINKING_ROUTER: "jeff:" })).toThrow(
+			/needs the router adapter's name/,
+		);
 	});
 
 	it("leaves shadow mode without a thinking router", () => {
@@ -181,5 +186,72 @@ describe("readJeffFirstConfig", () => {
 	it("rejects record mode without the driver's build", () => {
 		const { JEFF_FIRST_DRIVER_BUILD: _, ...env } = recordEnv;
 		expect(() => readJeffFirstConfig(env)).toThrow(/JEFF_FIRST_DRIVER_BUILD/);
+	});
+
+	const jeffEnv = {
+		JEFF_FIRST_MODE: "jeff",
+		JEFF_FIRST_TRACE_FILE: "/logs/agent/jeff-first-trace.jsonl",
+		JEFF_FIRST_TASK_ID: "fix-git",
+		JEFF_FIRST_JEFF_URL: "http://192.168.2.10:8920",
+		JEFF_FIRST_JEFF_STEP_ADAPTER: "jeff-step",
+		JEFF_FIRST_JEFF_STEP_THRESHOLD: "0.55",
+		JEFF_FIRST_RUN_APPROVAL: "all",
+		JEFF_FIRST_DRIVER_BUILD: "qwen3.8-27b-fp8@casdgx01-gpu0",
+		JEFF_FIRST_THINKING_ROUTER: "jeff:jeff-router",
+		JEFF_FIRST_JEFF_ROUTER_THRESHOLD: "0.4",
+	};
+
+	it("reads jeff mode with the service, the step adapter and threshold, and the Jeff router", () => {
+		expect(readJeffFirstConfig(jeffEnv)).toEqual({
+			mode: "jeff",
+			traceFile: "/logs/agent/jeff-first-trace.jsonl",
+			taskId: "fix-git",
+			jeffUrl: "http://192.168.2.10:8920",
+			stepAdapter: "jeff-step",
+			stepThreshold: 0.55,
+			runApproval: "all",
+			driverBuild: "qwen3.8-27b-fp8@casdgx01-gpu0",
+			thinkingRouter: { kind: "jeff", url: "http://192.168.2.10:8920", adapter: "jeff-router", threshold: 0.4 },
+		});
+	});
+
+	it("reads jeff mode with a fixed router", () => {
+		const { JEFF_FIRST_JEFF_ROUTER_THRESHOLD: _, ...env } = jeffEnv;
+		expect(readJeffFirstConfig({ ...env, JEFF_FIRST_THINKING_ROUTER: "fixed:xhigh" })).toMatchObject({
+			thinkingRouter: { kind: "fixed", level: "xhigh" },
+		});
+	});
+
+	it.each([
+		"JEFF_FIRST_JEFF_URL",
+		"JEFF_FIRST_JEFF_STEP_ADAPTER",
+		"JEFF_FIRST_JEFF_STEP_THRESHOLD",
+		"JEFF_FIRST_RUN_APPROVAL",
+		"JEFF_FIRST_DRIVER_BUILD",
+		"JEFF_FIRST_THINKING_ROUTER",
+		"JEFF_FIRST_JEFF_ROUTER_THRESHOLD",
+	])("rejects jeff mode without %s", (name) => {
+		const env: Record<string, string> = { ...jeffEnv };
+		delete env[name];
+		expect(() => readJeffFirstConfig(env)).toThrow(new RegExp(name));
+	});
+
+	it("requires the service address for the Jeff router in any mode", () => {
+		expect(() =>
+			readJeffFirstConfig({
+				...recordEnv,
+				JEFF_FIRST_THINKING_ROUTER: "jeff:r",
+				JEFF_FIRST_JEFF_ROUTER_THRESHOLD: "0.5",
+			}),
+		).toThrow(/JEFF_FIRST_THINKING_ROUTER=jeff:r needs JEFF_FIRST_JEFF_URL/);
+	});
+
+	it.each(["1.5", "-0.1", "0,5", "half", "1e-1", " 0.5"])("rejects the threshold %j", (value) => {
+		expect(() => readJeffFirstConfig({ ...jeffEnv, JEFF_FIRST_JEFF_STEP_THRESHOLD: value })).toThrow(
+			/JEFF_FIRST_JEFF_STEP_THRESHOLD must be a number from 0 to 1/,
+		);
+		expect(() => readJeffFirstConfig({ ...jeffEnv, JEFF_FIRST_JEFF_ROUTER_THRESHOLD: value })).toThrow(
+			/JEFF_FIRST_JEFF_ROUTER_THRESHOLD must be a number from 0 to 1/,
+		);
 	});
 });

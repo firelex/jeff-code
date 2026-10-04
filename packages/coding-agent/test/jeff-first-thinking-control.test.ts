@@ -266,6 +266,42 @@ describe("createThinkingControlStreamFn", () => {
 		expect(lines[1].guard).toBeNull();
 	});
 
+	it("logs the trained router's probabilities and time on the first request only", async () => {
+		const probabilities = { off: 0.8, low: 0.1, medium: 0.05, xhigh: 0.05 };
+		const router: ThinkingRouter = { name: "jeff:r", levelFor: async () => ({ level: "off", probabilities }) };
+		const fake = fakeModel([
+			{ answer: reply([bash("make test", "q1")]) },
+			{ answer: reply([bash("cat Makefile", "q2")]) },
+		]);
+		await drain(
+			await control(fake.inner, router)(model, normalizeContext({ messages: afterMakeTest }), { sessionId: "s1" }),
+		);
+		const lines = traceLines();
+		expect(lines.map((line) => [line.attempt, line.router, line.router_probabilities])).toEqual([
+			[1, "jeff:r", probabilities],
+			[2, "jeff:r", null],
+		]);
+		expect(lines[0].timings_ms.router).toBeGreaterThanOrEqual(0);
+		expect(lines[1].timings_ms.router).toBeNull();
+	});
+
+	it("ends the turn with a JeffFirst error when the router fails", async () => {
+		const router: ThinkingRouter = {
+			name: "jeff:r",
+			levelFor: async () => {
+				throw new Error("the Jeff service at http://x answered 422: unknown model");
+			},
+		};
+		const fake = fakeModel([]);
+		const { final } = await drain(
+			await control(fake.inner, router)(model, normalizeContext({ messages: [system, task] }), { sessionId: "s1" }),
+		);
+		expect(fake.requests).toHaveLength(0);
+		expect(final.errorMessage).toBe(
+			"JeffFirst: the thinking control failed on turn 1: the Jeff service at http://x answered 422: unknown model",
+		);
+	});
+
 	it("keeps a repeated reply from the re-ask: one re-ask only", async () => {
 		const fake = fakeModel([
 			{ answer: reply([bash("make test", "q1")]) },
@@ -387,9 +423,9 @@ describe("createThinkingControlStreamFn", () => {
 		const seen: string[] = [];
 		const router: ThinkingRouter = {
 			name: "test",
-			levelFor: (state) => {
+			levelFor: async (state) => {
 				seen.push(state.task);
-				return levels[seen.length - 1];
+				return { level: levels[seen.length - 1], probabilities: null };
 			},
 		};
 		const fake = fakeModel([{ answer: reply([bash("ls", "q1")]) }, { answer: reply([bash("ls src", "q2")]) }]);
