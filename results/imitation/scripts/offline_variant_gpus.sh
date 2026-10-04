@@ -4,6 +4,9 @@
 # shards at once (one process per GPU), and the shards are joined back in question order; then offline_variant.sh
 # scores the joined files. Usage:
 #   GPUS="0 1 2 3 4 5 6 7" DECISION_MS=178 JEFF_DEV=... offline_variant_gpus.sh BUNDLE OUT_DIR NAME STEP_CKPT ROUTER_CKPT TRIM_CKPT
+# A decision given as oracle:... or file:... instead of a checkpoint is passed to offline_variant.sh unchanged (for
+# example oracle:fixed to score one adapter alone; read that decision's own table then, since the combined numbers
+# also charge Jeff's time for the fixed decisions).
 # The bundle must already be cut (BUNDLE/cut/fit-report.json; offline_variant.sh makes it on its first run).
 set -euo pipefail
 : "${GPUS:?set GPUS to the GPU indices to use, e.g. \"0 1 2 3\"}" "${JEFF_DEV:?set JEFF_DEV (jeff-dev checkout with .venv)}"
@@ -20,8 +23,16 @@ OUT=$(cd "$2/$NAME" && pwd)
 read -r -a gpus <<< "$GPUS"
 n=${#gpus[@]}
 
-predict() {  # decision checkpoint
+source_of() {  # decision argument: what offline_variant.sh gets for it
+  case "$2" in
+    oracle:*|file:*) echo "$2" ;;
+    *) echo "file:$OUT/shards/$1.joined.jsonl" ;;
+  esac
+}
+
+predict() {  # decision checkpoint (an oracle: or file: source is passed to offline_variant.sh as it is)
   local decision=$1 checkpoint=$2 target="$OUT/shards/$1.joined.jsonl"
+  case "$checkpoint" in oracle:*|file:*) return 0 ;; esac
   [ -f "$target" ] && return 0
   local questions="$BUNDLE/cut/questions-$decision.jsonl" pids=() i
   for ((i = 0; i < n; i++)); do
@@ -51,5 +62,5 @@ predict step "$4"
 predict router "$5"
 predict trim "$6"
 echo "predictions: $(( $(date +%s) - started )) s on GPUs $GPUS"
-bash "$HERE/offline_variant.sh" "$BUNDLE" "$2" "$NAME" "file:$OUT/shards/step.joined.jsonl" \
-  "file:$OUT/shards/router.joined.jsonl" "file:$OUT/shards/trim.joined.jsonl"
+bash "$HERE/offline_variant.sh" "$BUNDLE" "$2" "$NAME" "$(source_of step "$4")" "$(source_of router "$5")" \
+  "$(source_of trim "$6")"
