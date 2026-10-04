@@ -1414,6 +1414,36 @@ describe("agentLoop with AgentMessage", () => {
 		expect(prepareCalls).toBe(1);
 	});
 
+	it("records the requested thinking level on the response unless the stream function recorded its own", async () => {
+		const levels: Array<string | undefined> = [];
+		const run = (streamLevel: "off" | "xhigh" | undefined) =>
+			runAgentLoop(
+				[createUserMessage("prompt")],
+				{ messages: [], tools: [] },
+				{ model: createModel(), convertToLlm: identityConverter, reasoning: "medium" },
+				(event) => {
+					if (event.type === "message_end" && event.message.role === "assistant") {
+						levels.push(event.message.thinkingLevel);
+					}
+				},
+				undefined,
+				() => {
+					const response = new MockAssistantStream();
+					const message = createAssistantMessage([{ type: "text", text: "done" }]);
+					// A stream function that asked the provider for another level than the loop requested says so.
+					if (streamLevel !== undefined) message.thinkingLevel = streamLevel;
+					queueMicrotask(() => response.push({ type: "done", reason: "stop", message }));
+					return response;
+				},
+			);
+
+		await run(undefined);
+		await run("xhigh");
+		await run("off");
+
+		expect(levels).toEqual(["medium", "xhigh", "off"]);
+	});
+
 	it("does not poll steering after prepareRequest", async () => {
 		const queued: AgentMessage[] = [];
 		const lateSteering = createUserMessage("late steering");

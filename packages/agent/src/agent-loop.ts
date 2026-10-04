@@ -405,8 +405,12 @@ async function streamAssistantResponse(
 		apiKey: resolvedApiKey,
 		signal,
 	});
-	// Record the requested level, whichever stream function answered.
-	const result = async () => Object.assign(await response.result(), { thinkingLevel: config.reasoning ?? "off" });
+	// Record the requested level, whichever stream function answered, unless the stream function recorded the level it
+	// asked the provider for (a wrapper can choose another level for one request).
+	const result = async () => {
+		const final = await response.result();
+		return Object.assign(final, { thinkingLevel: final.thinkingLevel ?? config.reasoning ?? "off" });
+	};
 
 	let partialMessage: AssistantMessage | null = null;
 	let addedPartial = false;
