@@ -247,6 +247,34 @@ restart_qwen() {
   done
 }
 
+# --- owner's plan 20:15: multi-GPU runs (tonight_dist.sh) ----------------------------------------------------------
+CAS_TRAIN_W=/home/mstrasser/$NAME-train-cas  # casdgx01 training folder (data, runs, checkpoints)
+host_ssh() { if [ "$1" = b200 ]; then echo ssh "$B200"; else echo "${CAS[*]}"; fi; }
+host_w() { if [ "$1" = b200 ]; then echo "$TRAIN_W"; else echo "$CAS_TRAIN_W"; fi; }
+host_tmux() { if [ "$1" = b200 ]; then echo tmux; else echo "tmux -L jeffcollect"; fi; }
+
+dist() {  # HOST RUN... : the runs one after another on all 8 GPUs of HOST (tmux session tonight-dist); tonight_dist.sh
+  # refuses to start a run while any GPU holds more than 5 GB.
+  local host=$1; shift
+  local ssh; read -r -a ssh <<< "$(host_ssh "$host")"
+  local w; w=$(host_w "$host")
+  if [ "$host" = casdgx01 ]; then
+    "${ssh[@]}" "test -e $w/data" || { "${ssh[@]}" "mkdir -p $w/data"; rsync -az -e "ssh -o ControlPath=none" "$T/train/" "mstrasser@casdgx01:$w/data/"; }
+  fi
+  "${ssh[@]}" "test -e $w/data/manifest.json" || die "$host: $w/data has no training files (run build first)"
+  "${ssh[@]}" "cat > $w/tonight_dist.sh" < "$REPO/results/imitation/scripts/tonight_dist.sh"
+  "${ssh[@]}" "test ! -e $w/dist.status || { echo '$w/dist.status exists: a dist run was started already' >&2; exit 1; }
+    $(host_tmux "$host") new-session -d -s tonight-dist 'W=$w bash $w/tonight_dist.sh $host $* 2> $w/dist.err; echo \$? > $w/dist.exit'"
+  echo "$host: started $* (tmux tonight-dist; $w/dist.status, $w/runs/RUN/train.log)"
+}
+
+dist_speed() {  # HOST
+  local ssh; read -r -a ssh <<< "$(host_ssh "$1")"
+  local w; w=$(host_w "$1")
+  "${ssh[@]}" "cat $w/dist.status; test ! -s $w/dist.err || tail -5 $w/dist.err; python3 - $w/runs" \
+    < "$REPO/results/imitation/scripts/tonight_speed.py"
+}
+
 case "${1:-}" in
   convert) convert ;;
   export) export_all ;;
@@ -257,5 +285,7 @@ case "${1:-}" in
   train-all) train_all ;;
   speed) speed ;;
   restart-qwen) restart_qwen ;;
+  dist) dist "${2:?host}" "${@:3}" ;;
+  dist-speed) dist_speed "${2:?host}" ;;
   *) die "usage: tonight.sh convert|export|cut|build|train RUN GPU|check RUN GPU|train-all|speed|restart-qwen" ;;
 esac
