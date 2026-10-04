@@ -225,6 +225,11 @@ Rules (in `task_sets_split.py`, seed 20261004):
    gives the model only a bash tool: 5 gaia2 tasks in harbor-index, medical-claims-processing in terminal-bench (66));
    training-side tasks that need a GPU are excluded (fp8-rmsnorm-gemm, jax-speedrun-gpu, math-eval-grader; all want an
    H100).
+7. (Added 2026-10-04, for collection.) Training-side tasks whose instruction asks the model to look at an image are
+   excluded, since pi gives the model only bash: harbor-index hle-dirac-fermion-tunneling, hle-identify-city-from-photo,
+   hle-identify-ingvar-runestone, hle-name-alkaloid-compound, hle-vowel-marking-system; terminal-bench (66) cad-model.
+   Training: harbor-index 30, terminal-bench (66) 27, so 182 new training tasks. Every dataset's hub version is pinned
+   (`hub` in task-sets.json: name, revision, content digest; the `latest` version on 2026-10-04).
 
 Held-out benchmark sizes: Pro 100, terminal-bench (66) 33, Science 35, Harbor Index 41, TBLite 99, SWE-bench Verified
 500, Aider Polyglot 225, Terminal-Bench 2.0 40.

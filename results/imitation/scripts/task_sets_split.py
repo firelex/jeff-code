@@ -146,6 +146,31 @@ TRAIN_NEAR = {
     ("terminal-bench-pro", "recover-git-history-secrets"): "git-leak-recovery",
 }
 
+# Training-side tasks a bash-only model cannot do (read by hand on 2026-10-04 from the pinned hub versions): the
+# instruction asks the model to look at an image. pi gives the model only a bash tool, which cannot show it one.
+BASH_ONLY_UNABLE = {
+    ("harbor-index-1.0", "hle-dirac-fermion-tunneling"): "needs to see an image (/app/image.png); pi gives the model only bash",
+    ("harbor-index-1.0", "hle-identify-city-from-photo"): "needs to see an image (/app/image.png); pi gives the model only bash",
+    ("harbor-index-1.0", "hle-identify-ingvar-runestone"): "needs to see an image (/app/image.png); pi gives the model only bash",
+    ("harbor-index-1.0", "hle-name-alkaloid-compound"): "needs to see an image (/app/image.gif); pi gives the model only bash",
+    ("harbor-index-1.0", "hle-vowel-marking-system"): "needs to see an image (/app/image.jpg); pi gives the model only bash",
+    ("terminal-bench", "cad-model"): "needs to see an image (the 2D schematic /app/schematic.png); pi gives the model only bash",
+}
+
+# Harbor hub package of each dataset folder, pinned to the version the folders were downloaded from on 2026-10-04
+# (the "latest" tag then; `harbor version list <org>/<name> --json`): (hub name, revision, content digest).
+HUB = {
+    "aider-polyglot": ("aider/aider-polyglot", 1, "sha256:01e28d85e46beae5b7e29a29f57cb49d882b5486583d52cec4ee5bf3540a1c84"),
+    "harbor-index-1.0": ("harbor-index/harbor-index-1.0", 1, "sha256:9d4514cb93f6fafd9cf8ff352c784495ab675176c7f09671db523bd19b663584"),
+    "openthoughts-tblite": ("openthoughts/openthoughts-tblite", 1, "sha256:4eb34ffc5540dff4f8a0ea00f12d46db88def7c99ec2b5ac79564625df7ecddb"),
+    "swe-bench-verified": ("swe-bench/swe-bench-verified", 2, "sha256:b934b0cc3dc800fe945eaf9f1623329db97ee3133c706d20644524c7759fb341"),
+    "terminal-bench": ("terminal-bench/terminal-bench", 4, "sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732"),
+    "terminal-bench-2": ("terminal-bench/terminal-bench-2", 1, "sha256:c6fc2e2382c1dbae99b2d5ecd2f4f4a60c3c01e0d84642d69b4afd92e99d078b"),
+    "terminal-bench-2-1": ("terminal-bench/terminal-bench-2-1", 6, "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a"),
+    "terminal-bench-pro": ("terminal-bench-pro/terminal-bench-pro", 1, "sha256:1e0df73902c63a708b75e5a4b633eaa21524583904fdadaf937203280f037461"),
+    "terminal-bench-science": ("terminal-bench-science/terminal-bench-science", 10, "sha256:91531bf50016a7c64f6cc60794a17c64c6b2c14858a8ae0de39ca16f2abd611a"),
+}
+
 # The Terminal-Bench 2.0 hub copy names this folder with '-' instead of '.'.
 TB2_HUB_NAME = {"install-windows-3.11": "install-windows-3-11"}
 
@@ -322,6 +347,8 @@ def main() -> None:
                 excluded[k] = why
             elif r["gpus"]:
                 excluded[k] = f"needs {r['gpus']} GPU ({', '.join(r['gpu_types'] or ['any'])})"
+            elif k in BASH_ONLY_UNABLE:
+                excluded[k] = BASH_ONLY_UNABLE[k]
 
     out: dict = {
         "seed": SEED,
@@ -334,6 +361,7 @@ def main() -> None:
         keys = sorted(k for k in by_key if k[0] == ds)
         entry: dict = {
             "source": f"harbor download (hub dataset folder {ds})",
+            "hub": {"name": HUB[ds][0], "ref": HUB[ds][2], "revision": HUB[ds][1]},
             "policy": WHOLE_HELD_OUT.get(ds)
             or ("frozen Terminal-Bench 2.0 split" if ds in TB2_SETS else f"seeded group split, held-out target {target.get(ds)}"),
             "training": [],

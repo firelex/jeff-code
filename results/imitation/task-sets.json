@@ -6,6 +6,11 @@
  "datasets": {
   "aider-polyglot": {
    "source": "harbor download (hub dataset folder aider-polyglot)",
+   "hub": {
+    "name": "aider/aider-polyglot",
+    "ref": "sha256:01e28d85e46beae5b7e29a29f57cb49d882b5486583d52cec4ee5bf3540a1c84",
+    "revision": 1
+   },
    "policy": "Aider Polyglot is a leaderboard benchmark without a training split; reported whole",
    "training": [],
    "held_out": [
@@ -240,6 +245,11 @@
   },
   "harbor-index-1.0": {
    "source": "harbor download (hub dataset folder harbor-index-1.0)",
+   "hub": {
+    "name": "harbor-index/harbor-index-1.0",
+    "ref": "sha256:9d4514cb93f6fafd9cf8ff352c784495ab675176c7f09671db523bd19b663584",
+    "revision": 1
+   },
    "policy": "seeded group split, held-out target 41",
    "training": [
     "codepde-solve-navier-stokes-1d",
@@ -258,14 +268,9 @@
     "gso-speedup-pandas-seq-to-range",
     "gso-speedup-pillow-filter",
     "gso-speedup-pydantic-enum",
-    "hle-dirac-fermion-tunneling",
     "hle-fibered-category-schemes",
-    "hle-identify-city-from-photo",
-    "hle-identify-ingvar-runestone",
     "hle-interval-coverage-bound",
-    "hle-name-alkaloid-compound",
     "hle-shock-wave-density-profile",
-    "hle-vowel-marking-system",
     "omnimath-find-perfect-square-functions",
     "omnimath-maximize-gf-sum",
     "qcircuitbench-design-ternary-simon-circuit-n3",
@@ -327,6 +332,11 @@
     "gaia2-ambiguous": "needs MCP tools (pi gives the model only bash)",
     "gaia2-timed-1": "needs MCP tools (pi gives the model only bash)",
     "gaia2-timed-2": "needs MCP tools (pi gives the model only bash)",
+    "hle-dirac-fermion-tunneling": "needs to see an image (/app/image.png); pi gives the model only bash",
+    "hle-identify-city-from-photo": "needs to see an image (/app/image.png); pi gives the model only bash",
+    "hle-identify-ingvar-runestone": "needs to see an image (/app/image.png); pi gives the model only bash",
+    "hle-name-alkaloid-compound": "needs to see an image (/app/image.gif); pi gives the model only bash",
+    "hle-vowel-marking-system": "needs to see an image (/app/image.jpg); pi gives the model only bash",
     "tb-train-fasttext": "near evaluation task train-fasttext: copy of the evaluation task (Jaccard 0.58)"
    },
    "forced_side": {
@@ -341,6 +351,11 @@
   },
   "openthoughts-tblite": {
    "source": "harbor download (hub dataset folder openthoughts-tblite)",
+   "hub": {
+    "name": "openthoughts/openthoughts-tblite",
+    "ref": "sha256:4eb34ffc5540dff4f8a0ea00f12d46db88def7c99ec2b5ac79564625df7ecddb",
+    "revision": 1
+   },
    "policy": "OpenThoughts-TBLite is the evaluation set of OpenThoughts-Agent, whose training task pool is the source of the stage 1 data (ukisai); kept whole so it stays a clean held-out set",
    "training": [],
    "held_out": [
@@ -454,6 +469,11 @@
   },
   "swe-bench-verified": {
    "source": "harbor download (hub dataset folder swe-bench-verified)",
+   "hub": {
+    "name": "swe-bench/swe-bench-verified",
+    "ref": "sha256:b934b0cc3dc800fe945eaf9f1623329db97ee3133c706d20644524c7759fb341",
+    "revision": 2
+   },
    "policy": "SWE-bench Verified is the curated test subset of SWE-bench; reported whole by everyone",
    "training": [],
    "held_out": [
@@ -971,9 +991,13 @@
   },
   "terminal-bench": {
    "source": "harbor download (hub dataset folder terminal-bench)",
+   "hub": {
+    "name": "terminal-bench/terminal-bench",
+    "ref": "sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732",
+    "revision": 4
+   },
    "policy": "seeded group split, held-out target 33",
    "training": [
-    "cad-model",
     "ctr-optimization",
     "cumulative-layout-shift",
     "fin-saccr-rwa",
@@ -1038,6 +1062,7 @@
     "wal-recovery-ordering"
    ],
    "excluded": {
+    "cad-model": "needs to see an image (the 2D schematic /app/schematic.png); pi gives the model only bash",
     "fp8-rmsnorm-gemm": "needs 1 GPU (H100)",
     "html-js-filter": "near evaluation task filter-js-from-html: text near-duplicate (Jaccard 0.63)",
     "jax-speedrun-gpu": "needs 1 GPU (H100)",
@@ -1048,6 +1073,11 @@
   },
   "terminal-bench-2": {
    "source": "harbor download (hub dataset folder terminal-bench-2)",
+   "hub": {
+    "name": "terminal-bench/terminal-bench-2",
+    "ref": "sha256:c6fc2e2382c1dbae99b2d5ecd2f4f4a60c3c01e0d84642d69b4afd92e99d078b",
+    "revision": 1
+   },
    "policy": "frozen Terminal-Bench 2.0 split",
    "training": [
     "adaptive-rejection-sampler",
@@ -1148,6 +1178,11 @@
   },
   "terminal-bench-2-1": {
    "source": "harbor download (hub dataset folder terminal-bench-2-1)",
+   "hub": {
+    "name": "terminal-bench/terminal-bench-2-1",
+    "ref": "sha256:7d7bdc1cbedad549fc1140404bd4dc45e5fd0ea7c4186773687d177ad3a0699a",
+    "revision": 6
+   },
    "policy": "frozen Terminal-Bench 2.0 split",
    "training": [
     "adaptive-rejection-sampler",
@@ -1248,6 +1283,11 @@
   },
   "terminal-bench-pro": {
    "source": "harbor download (hub dataset folder terminal-bench-pro)",
+   "hub": {
+    "name": "terminal-bench-pro/terminal-bench-pro",
+    "ref": "sha256:1e0df73902c63a708b75e5a4b633eaa21524583904fdadaf937203280f037461",
+    "revision": 1
+   },
    "policy": "seeded group split, held-out target 100",
    "training": [
     "advanced-poker-hand-classifier",
@@ -1467,6 +1507,11 @@
   },
   "terminal-bench-science": {
    "source": "harbor download (hub dataset folder terminal-bench-science)",
+   "hub": {
+    "name": "terminal-bench-science/terminal-bench-science",
+    "ref": "sha256:91531bf50016a7c64f6cc60794a17c64c6b2c14858a8ae0de39ca16f2abd611a",
+    "revision": 10
+   },
    "policy": "seeded group split, held-out target 35",
    "training": [
     "ambient-rna-correction",
