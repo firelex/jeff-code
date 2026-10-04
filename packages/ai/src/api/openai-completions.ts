@@ -30,6 +30,7 @@ import type {
 	TextContent,
 	ThinkingBudgets,
 	ThinkingContent,
+	ThinkingLevel,
 	ThinkingTokenBudgetField,
 	Tool,
 	ToolCall,
@@ -794,6 +795,37 @@ function createClient(
 	});
 }
 
+/**
+ * The effort a Qwen3.x chat template (thinkingFormat "qwen-chat-template") gets in
+ * `chat_template_kwargs.reasoning_effort`. The template accepts only "low", "medium" and "xhigh", and uses "xhigh"
+ * when thinking is on and no effort is passed, so pi always passes one:
+ *
+ * - off (no effort requested) and "minimal": thinking off (`enable_thinking: false`, no effort)
+ * - "low": "low"
+ * - "medium": "medium"
+ * - "high", "xhigh" and "max": "xhigh"
+ *
+ * Any other value is a caller bug and throws.
+ */
+const QWEN_CHAT_TEMPLATE_EFFORTS: Record<ThinkingLevel, "low" | "medium" | "xhigh" | undefined> = {
+	minimal: undefined,
+	low: "low",
+	medium: "medium",
+	high: "xhigh",
+	xhigh: "xhigh",
+	max: "xhigh",
+};
+
+function qwenChatTemplateEffort(level: ThinkingLevel | undefined): "low" | "medium" | "xhigh" | undefined {
+	if (level === undefined) return undefined;
+	if (!Object.hasOwn(QWEN_CHAT_TEMPLATE_EFFORTS, level)) {
+		throw new Error(
+			`The qwen-chat-template thinking format has no reasoning effort for the thinking level "${level}"; it maps minimal, low, medium, high, xhigh and max`,
+		);
+	}
+	return QWEN_CHAT_TEMPLATE_EFFORTS[level];
+}
+
 function buildParams(
 	model: Model<"openai-completions">,
 	context: TranscriptContext,
@@ -894,9 +926,11 @@ function buildParams(
 			}
 		}
 	} else if (compat.thinkingFormat === "qwen-chat-template" && model.reasoning) {
+		const effort = qwenChatTemplateEffort(options?.reasoningEffort);
 		(params as any).chat_template_kwargs = {
-			enable_thinking: !!options?.reasoningEffort,
+			enable_thinking: effort !== undefined,
 			preserve_thinking: true,
+			...(effort === undefined ? {} : { reasoning_effort: effort }),
 		};
 	} else if (compat.thinkingFormat === "chat-template" && model.reasoning) {
 		const chatTemplateKwargs = buildChatTemplateValues(model, options, compat.chatTemplateKwargs, thinkingBudget);

@@ -1827,18 +1827,66 @@ describe("openai-completions tool_choice", () => {
 			},
 		} satisfies Model<"openai-completions">;
 
+		// The template accepts only "low", "medium" and "xhigh", and defaults to "xhigh" when thinking is on without one.
 		for (const testCase of [
-			{ reasoning: "high" as const, expected: true },
-			{ reasoning: undefined, expected: false },
+			{ reasoning: undefined, expected: { enable_thinking: false, preserve_thinking: true } },
+			{ reasoning: "minimal" as const, expected: { enable_thinking: false, preserve_thinking: true } },
+			{
+				reasoning: "low" as const,
+				expected: { enable_thinking: true, preserve_thinking: true, reasoning_effort: "low" },
+			},
+			{
+				reasoning: "medium" as const,
+				expected: { enable_thinking: true, preserve_thinking: true, reasoning_effort: "medium" },
+			},
+			{
+				reasoning: "high" as const,
+				expected: { enable_thinking: true, preserve_thinking: true, reasoning_effort: "xhigh" },
+			},
 		]) {
 			const params = await captureSimpleParams(model, testCase.reasoning);
 
-			expect(params.chat_template_kwargs).toEqual({
-				enable_thinking: testCase.expected,
-				preserve_thinking: true,
-			});
+			expect(params.chat_template_kwargs).toEqual(testCase.expected);
 			expect(params.reasoning_effort).toBeUndefined();
 		}
+	});
+
+	it("maps xhigh and max to the qwen chat template's xhigh effort", async () => {
+		const model = {
+			...localOpenAICompletionsModel,
+			id: "Qwen/Qwen3.8-27B",
+			name: "Qwen3.8 via vLLM",
+			thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+			compat: { thinkingFormat: "qwen-chat-template", supportsReasoningEffort: false },
+		} satisfies Model<"openai-completions">;
+
+		for (const reasoning of ["xhigh", "max"] as const) {
+			const params = await captureSimpleParams(model, reasoning);
+			expect(params.chat_template_kwargs).toEqual({
+				enable_thinking: true,
+				preserve_thinking: true,
+				reasoning_effort: "xhigh",
+			});
+		}
+	});
+
+	it("ends the request with an error for a thinking level the qwen chat template cannot express", async () => {
+		const model = {
+			...localOpenAICompletionsModel,
+			id: "Qwen/Qwen3.8-27B",
+			name: "Qwen3.8 via vLLM",
+			compat: { thinkingFormat: "qwen-chat-template", supportsReasoningEffort: false },
+		} satisfies Model<"openai-completions">;
+
+		const result = await stream(
+			model,
+			{ messages: [{ role: "user", content: "Hi", timestamp: Date.now() }] },
+			// A value outside pi's levels, as a caller without type checks could pass it.
+			{ apiKey: "test", reasoningEffort: "huge" },
+		).result();
+
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain('thinking level "huge"');
 	});
 
 	it("uses configurable chat template effort kwargs with static kwargs", async () => {
