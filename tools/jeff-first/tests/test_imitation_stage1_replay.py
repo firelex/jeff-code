@@ -23,7 +23,7 @@ def task_archive(dockerfile: str = TASK_DOCKERFILE, seeds: dict[str, bytes | Non
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
         def add(name: str, data: bytes | None, mode: int) -> None:
             info = tarfile.TarInfo(name)
-            info.uid, info.gid, info.mode = 501, 20, mode
+            info.uid, info.gid, info.mode, info.mtime = 501, 20, mode, 1_700_000_000
             if data is None:
                 info.type = tarfile.DIRTYPE
                 archive.addfile(info)
@@ -98,11 +98,14 @@ def test_seeds_are_packed_for_the_workspace_with_the_modes_the_main_runs_showed(
     assert kept["run.sh"][1] == 0o755 and kept["data/videos/a.mpg"][1] == 0o644 and kept["data"][1] == 0o755
 
 
-def test_seeds_are_dated_when_the_container_starts():
-    # The sessions' listings show the seeds a few hours old (time of day, not the year, as for old files).
+def test_seeds_are_dated_as_the_harness_showed_them():
+    # The main runs' listings show the seeds a few hours old (time of day, not the year, as for old files); run
+    # 95e2bd54's show the dataset's own dates, as its modes.
     archive = task_archive(seeds={"notes.txt": b"a\n"})
     with tarfile.open(fileobj=io.BytesIO(s1.seed_archive(archive, s1.TMUX_SOCKET, 1_759_000_000))) as packed:
         assert [m.mtime for m in packed.getmembers()] == [1_759_000_000]
+    with tarfile.open(fileobj=io.BytesIO(s1.seed_archive(archive, s1.ASCIINEMA, 1_759_000_000))) as packed:
+        assert [m.mtime for m in packed.getmembers()] == [1_700_000_000]
 
 
 def test_a_task_without_seeds_packs_nothing():

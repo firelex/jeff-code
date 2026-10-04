@@ -11,12 +11,12 @@ seeds are copied into each session's container. Evidence from the sessions' own 
 
 - 7d7b83d6 (6,500 of 7,866 sessions; the harness TMUX_SOCKET): `ps` shows a tmux server on /logs/agent/tmux.sock made
   for a session `_harbor_dummy`, then `bash --login` in a pane (TMUX_PANE %1); `ls -la` shows seed files 664 and seed
-  folders 775 whatever their mode in the dataset; /logs/verifier and /logs/artifacts are 775, owned by uid 1000 (ubuntu)
-  and gid 1005.
+  folders 775 whatever their mode in the dataset, dated hours before the session; /logs/verifier and /logs/artifacts
+  are 775, owned by uid 1000 (ubuntu) and gid 1005.
 - dfaf1ac0 (1,031 sessions): each holds only its first reply (no output), so there is no evidence; same days as
   7d7b83d6, taken as TMUX_SOCKET.
 - 95e2bd54 (335 sessions; ASCIINEMA): tmux on its default socket, the shell inside `asciinema rec` (ASCIINEMA_REC=1,
-  SHLVL=2), /tmp/get-asciinema-timestamp.sh, seeds with the dataset's modes, /logs folders 777.
+  SHLVL=2), /tmp/get-asciinema-timestamp.sh, seeds with the dataset's modes and dates, /logs folders 777.
 
 Each session's container (`stage1replay-<session>`, `sh -c "sleep infinity"`, the hostname of the session's own prompt,
 CPUS cpus and MEMORY memory, the default bridge network) gets the seeds and the /logs folders; terminal_helper.py
@@ -96,8 +96,9 @@ class Harness:
     image: str
     # The packages Harbor installed for the harness after `apt-get update`.
     tools: tuple[str, ...]
-    # True: seed files and folders keep the dataset's modes; False: files 664, folders 775.
-    keep_seed_modes: bool
+    # True: seed files and folders keep the dataset's modes and dates; False: files 664, folders 775, dated when the
+    # container starts.
+    seeds_as_archived: bool
     logs_mode: int
     # The tmux socket commands are typed through (None: tmux's default socket).
     socket: str | None
@@ -143,8 +144,8 @@ def image_dockerfile(task_dockerfile: str, harness: Harness) -> str:
 
 def seed_archive(task_archive: bytes, harness: Harness, mtime: float) -> bytes:
     """The task's seed files as an uncompressed tar to unpack in the working folder: names relative to it, owned by
-    root, modes as the harness showed them (see Harness.keep_seed_modes), dated `mtime` (the sessions' listings show
-    the seeds copied a few hours before the session, so `ls -l` shows a time of day, not a year)."""
+    root, modes and dates as the harness showed them (Harness.seeds_as_archived; otherwise dated `mtime`: the main
+    runs' listings show the seeds copied a few hours before the session, so `ls -l` shows a time of day, not a year)."""
     buffer = io.BytesIO()
     with tarfile.open(fileobj=io.BytesIO(task_archive)) as task, tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as out:
         for member in task.getmembers():
@@ -153,11 +154,11 @@ def seed_archive(task_archive: bytes, harness: Harness, mtime: float) -> bytes:
             if not (member.isfile() or member.isdir()):
                 raise ValueError(f"the seed {member.name} is neither a file nor a folder (type {member.type!r}); its copy is not known")
             info = tarfile.TarInfo(member.name[len(SEEDS) :])
-            info.type, info.mtime, info.uid, info.gid, info.uname, info.gname = member.type, mtime, 0, 0, "root", "root"
-            if harness.keep_seed_modes:
-                info.mode = member.mode
+            info.type, info.uid, info.gid, info.uname, info.gname = member.type, 0, 0, "root", "root"
+            if harness.seeds_as_archived:
+                info.mode, info.mtime = member.mode, member.mtime
             else:
-                info.mode = 0o775 if member.isdir() else 0o664
+                info.mode, info.mtime = (0o775 if member.isdir() else 0o664), mtime
             if member.isfile():
                 info.size = member.size
                 out.addfile(info, task.extractfile(member))
