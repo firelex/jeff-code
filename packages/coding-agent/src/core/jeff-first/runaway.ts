@@ -8,7 +8,12 @@
  *    lines, with other lines in between. Lines are compared without surrounding white space; blank lines and lines
  *    shorter than RUNAWAY_MIN_LINE_CHARS are not counted, because code legitimately repeats short lines such as "}"
  *    or "return None" (a pure loop of short lines is still caught by rule 1).
+ *
+ * Neither rule applies before the text reaches RUNAWAY_MIN_TEXT_CHARS: thinking that draws something as text (a chess
+ * board, a bitmap) legitimately repeats lines for a few thousand characters, while a real runaway runs on toward the
+ * output cap (32,768 tokens, roughly 100,000 characters). Seen on chess-best-move, 2026-10-04.
  */
+export const RUNAWAY_MIN_TEXT_CHARS = 20_000;
 export const RUNAWAY_TAIL_CHARS = 400;
 export const RUNAWAY_MIN_PIECE_CHARS = 20;
 export const RUNAWAY_MIN_REPEATS = 5;
@@ -58,5 +63,6 @@ function repeatedLine(text: string): Runaway | null {
 }
 
 export function findRunaway(text: string): Runaway | null {
+	if (text.length < RUNAWAY_MIN_TEXT_CHARS) return null;
 	return repeatedPiece(text) ?? repeatedLine(text);
 }

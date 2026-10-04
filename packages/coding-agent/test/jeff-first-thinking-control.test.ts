@@ -83,7 +83,7 @@ function fakeModel(scripts: Script[]) {
 			if ("loopThinking" in script) {
 				const partial = reply([{ type: "thinking", thinking: "" }], "aborted");
 				stream.push({ type: "start", partial });
-				for (let index = 0; index < 500 && !signal?.aborted; index++) {
+				for (let index = 0; index < 2000 && !signal?.aborted; index++) {
 					(partial.content[0] as { thinking: string }).thinking += script.loopThinking;
 					stream.push({ type: "thinking_delta", contentIndex: 0, delta: script.loopThinking, partial });
 					await new Promise((resolve) => setImmediate(resolve));
@@ -340,8 +340,9 @@ describe("createThinkingControlStreamFn", () => {
 				repeated: "Wait, let me re-check the indices. ",
 			},
 		});
-		// Stopped soon after the repetition filled the last 400 characters, not at the fake's 500-step limit.
-		expect(first.thinking_chars).toBeLessThan(1000);
+		// Stopped soon after the thinking passed RUNAWAY_MIN_TEXT_CHARS (20,000), not at the fake's 2,000-step limit.
+		expect(first.thinking_chars).toBeGreaterThanOrEqual(20_000);
+		expect(first.thinking_chars).toBeLessThan(21_000);
 		expect(second).toMatchObject({ attempt: 2, thinking_level: "xhigh", outcome: "kept" });
 	});
 

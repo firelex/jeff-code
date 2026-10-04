@@ -7,10 +7,35 @@ const prose =
 	"first blank line, the checksum field is never read, and the later assertion compares against a missing value. " +
 	"A minimal fix is to skip blank lines before the header starts, but I need to confirm the format allows that. ";
 
+// More than RUNAWAY_MIN_TEXT_CHARS of varied thinking: the rules only apply once a generation is this long.
+const before = Array.from(
+	{ length: 320 },
+	(_, index) => `Line ${index}: offset ${index * 13} of table ${index % 17} still needs a bounds check.`,
+).join("\n");
+
 describe("findRunaway", () => {
+	// chess-best-move (2026-10-04): thinking that draws a board as text repeats rows like "........######........."
+	// many times; a few thousand characters of drawing is not a runaway.
+	it("leaves a board drawn as text alone in a thinking of ordinary length", () => {
+		const board = Array.from({ length: 10 }, () =>
+			[
+				"................................",
+				"........######..........######..",
+				"......##########......##########",
+			].join("\n"),
+		).join("\n");
+		expect(board.length).toBeLessThan(2000);
+		expect(findRunaway(`${prose}\n${board}\n`)).toBeNull();
+	});
+
+	it("still finds a runaway once the thinking passes 20,000 characters", () => {
+		const piece = "Wait, let me re-check the indices. ";
+		expect(findRunaway(`${before}\n${piece.repeat(20)}`)).toMatchObject({ rule: "repeated_piece" });
+	});
+
 	it("finds a piece of 20+ characters repeated to fill the last 400 characters", () => {
 		const piece = "Wait, let me re-check the indices. ";
-		const found = findRunaway(`${prose}${piece.repeat(20)}`);
+		const found = findRunaway(`${before}${piece.repeat(20)}`);
 		expect(found).toMatchObject({ rule: "repeated_piece" });
 		if (found?.rule !== "repeated_piece") throw new Error("expected a repeated piece");
 		expect(found.piece.length).toBe(piece.length);
@@ -18,7 +43,7 @@ describe("findRunaway", () => {
 	});
 
 	it("finds a loop of short lines through the repeated piece rule", () => {
-		expect(findRunaway(`${prose}${"ok\n".repeat(200)}`)).toMatchObject({ rule: "repeated_piece" });
+		expect(findRunaway(`${before}\n${"ok\n".repeat(200)}`)).toMatchObject({ rule: "repeated_piece" });
 	});
 
 	it("finds a line that occurs 8 times within the last 60 lines, with other lines in between", () => {
@@ -27,7 +52,7 @@ describe("findRunaway", () => {
 			lines.push(`Step ${index}: compute the offset for block number ${index * 7}`);
 			lines.push("So the answer must be the value stored in register r12.");
 		}
-		const found = findRunaway(`${prose}\n${lines.join("\n")}\n`);
+		const found = findRunaway(`${before}\n${lines.join("\n")}\n`);
 		expect(found).toEqual({
 			rule: "repeated_line",
 			line: "So the answer must be the value stored in register r12.",
