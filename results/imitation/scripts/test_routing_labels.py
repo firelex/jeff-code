@@ -325,8 +325,9 @@ def _stage3_row(session, turn, decision, level, page, state):
 
 
 def test_join_puts_the_routing_label_on_the_turns_first_state():
-    stage3 = [_stage3_row("sess-1", 1, 4, "argument", 0, "S-arg"), _stage3_row("sess-1", 1, 4, "tool", 0, "S1"),
-              _stage3_row("sess-1", 1, 5, "tool", 0, "S1-stint"), _stage3_row("sess-1", 2, 6, "tool", 0, "S2")]
+    stage3 = [_stage3_row("sess-1", 1, 4, "argument", 1, "S-arg"), _stage3_row("sess-1", 1, 4, "tool", 2, "S1-p2"),
+              _stage3_row("sess-1", 1, 4, "tool", 1, "S1"), _stage3_row("sess-1", 1, 5, "tool", 1, "S1-stint"),
+              _stage3_row("sess-1", 2, 6, "tool", 1, "S2")]
     rows, counts = rl.join_rows([_label(turn=1, label="medium"), _label(turn=3)], stage3)
     assert counts == {"labelled turns": 2, "joined": 1, "no stage-3 row": 1}
     (row,) = rows
@@ -337,17 +338,27 @@ def test_join_puts_the_routing_label_on_the_turns_first_state():
 
 
 def test_join_of_a_calibration_turn_carries_all_three_xhigh_actions():
-    rows, _ = rl.join_rows([_label(calibration=True)], [_stage3_row("sess-1", 1, 0, "tool", 0, "S")])
+    rows, _ = rl.join_rows([_label(calibration=True)], [_stage3_row("sess-1", 1, 0, "tool", 1, "S")])
     assert len(rows[0]["routing"]["xhigh_actions"]) == 3
     assert rows[0]["routing"]["any_xhigh"] == {"off": True, "low": True, "medium": True}
 
 
 def test_stats_report_counts_labels_classes_and_calibration():
     labels = [_label(turn=1), _label(turn=2, label="xhigh", cls="write/edit"), _label(turn=3, calibration=True)]
-    text = rl.stats_markdown(labels)
+    excluded = [{"kind": "excluded", "id": "t:x", "reason": rl.JUDGE_REFUSED}]
+    text = rl.stats_markdown(labels, excluded)
+    assert f"Turns left out: 1 ({rl.JUDGE_REFUSED}: 1)" in text
     assert "# Routing labels" in text
     assert "| all turns | 3 |" in text
     assert "write/edit" in text and "## Calibration" in text
+
+
+def test_read_labels_separates_excluded_turns(tmp_path):
+    path = tmp_path / "labels.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in [_label(turn=1), {"kind": "trial", "trial_dir": "x"},
+                                                         {"kind": "excluded", "id": "t:y", "reason": "r"}]) + "\n")
+    turns, excluded = rl.read_rows([path])
+    assert [t["turn"] for t in turns] == [1] and [e["id"] for e in excluded] == ["t:y"]
 
 
 def test_judge_check_sample_is_fixed():

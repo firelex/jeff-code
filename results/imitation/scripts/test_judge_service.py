@@ -2,6 +2,7 @@
 
 import json
 import threading
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -68,5 +69,32 @@ def test_service_forwards_and_answers():
     reply = json.load(urllib.request.urlopen(request))
     assert reply["content"] == "YES\nSame file." and reply["model"] == "flash" and reply["backend"] == "openai"
     assert seen[0]["chat_template_kwargs"] == {"enable_thinking": False}
+    upstream.shutdown()
+    service.shutdown()
+
+
+def test_a_content_inspection_refusal_is_answered_with_422():
+    class Upstream(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            self.rfile.read(int(self.headers["Content-Length"]))
+            data = json.dumps({"error": {"message": "<400> InternalError.Algo.DataInspectionFailed: Input text data "
+                                                    "may contain inappropriate content."}}).encode()
+            self.send_response(400)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            return
+
+    upstream = _serve(Upstream)
+    judge = js.Judge("dashscope", f"http://127.0.0.1:{upstream.server_port}/v1", "qwen3.8-max", 2, 200, "k")
+    service = _serve(js.make_handler(judge))
+    request = urllib.request.Request(f"http://127.0.0.1:{service.server_port}/judge",
+                                     json.dumps({"messages": MESSAGES}).encode(), {"Content-Type": "application/json"})
+    with pytest.raises(urllib.error.HTTPError) as error:
+        urllib.request.urlopen(request)
+    assert error.value.code == 422
+    assert "DataInspectionFailed" in json.load(error.value)["refused"]
     upstream.shutdown()
     service.shutdown()

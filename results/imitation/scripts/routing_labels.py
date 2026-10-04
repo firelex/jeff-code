@@ -72,6 +72,7 @@ SKIP_REASONS = {"length": "reply hit the output cap (length)", "error": "the req
 JUDGE_CHECK_RATE = 0.2  # share of judge calls whose full input is stored (for the 300-pair hand check)
 CALIBRATION_SEED = "routing-calibration-20261004"
 # Qwen (NVFP4) sometimes calls a tool that does not exist; ceiling.py's turn classifier raises on such a session.
+JUDGE_REFUSED = "the judge refused the input (DashScope content inspection)"
 OTHER_TOOL = "a reply calls a tool other than bash (the trial is left out: ceiling.py cannot classify it)"
 
 # ------------------------------------------------------------------------------------------------ judge prompt
@@ -565,6 +566,10 @@ class TurnAsker:
         return result
 
 
+class JudgeRefused(Exception):
+    """The judge service's backend refused to judge this input (HTTP 422): the turn is left out, with its reason."""
+
+
 class JudgeClient:
     """The judge service (judge_service.py on datigator): POST /judge {"messages"} -> {"model", "backend", "content",
     "usage", "finish_reason", "seconds"}. The service's model must be the expected one (--judge-model)."""
@@ -588,6 +593,8 @@ class JudgeClient:
         try:
             async with self.http.post(f"{self.url}/judge", json={"messages": messages},
                                       timeout=aiohttp.ClientTimeout(total=900)) as response:
+                if response.status == 422:
+                    raise JudgeRefused(f"{what}: {(await response.json())['refused'][:300]}")
                 if response.status != 200:
                     raise RuntimeError(f"{what}: judge service HTTP {response.status}: {(await response.text())[:500]}")
                 reply = await response.json()
@@ -627,7 +634,7 @@ class Labeller:
             if path.exists():
                 for line in path.read_text().splitlines():
                     row = json.loads(line)
-                    if row["kind"] == "turn":
+                    if row["kind"] in ("turn", "excluded"):
                         self.done_turns.add(row["id"])
                     else:
                         self.done_trials.add(row["trial_dir"])
@@ -714,7 +721,15 @@ class Labeller:
                 server.queued_turns -= 1
                 queue.task_done()
                 continue
-            row = await self.label(turn, server)
+            try:
+                row = await self.label(turn, server)
+            except JudgeRefused as refusal:
+                # Not a fallback: the turn cannot be labelled by the owner's rule; it is left out with its reason
+                # (counted in the statistics), never given a substitute label.
+                print(f"LEFT OUT {turn['id']}: {refusal}", flush=True)
+                row = {"kind": "excluded", "id": turn["id"], "trial_dir": turn["trial_dir"],
+                       "source_host": turn["source_host"], "class": turn["class"], "reason": JUDGE_REFUSED,
+                       "detail": str(refusal)}
             server.queued_turns -= 1
             self.write(turn["source_host"], row)
             self.written += 1
@@ -760,15 +775,21 @@ class Labeller:
 
 
 def read_labels(paths):
+    return read_rows(paths)[0]
+
+
+def read_rows(paths):
+    """The labelled turns and the left-out turns of label files."""
     rows = []
     for path in paths:
         rows.extend(json.loads(line) for line in Path(path).read_text().splitlines() if line.strip())
+    excluded = [row for row in rows if row["kind"] == "excluded"]
     turns = [row for row in rows if row["kind"] == "turn"]
     seen = collections.Counter(row["id"] for row in turns)
     duplicates = [turn_id for turn_id, count in seen.items() if count > 1]
     if duplicates:
         raise ValueError(f"{len(duplicates)} turns are labelled twice, e.g. {duplicates[0]}")
-    return turns
+    return turns, excluded
 
 
 def routing_fields(turn):
@@ -791,11 +812,11 @@ def routing_fields(turn):
 
 def join_rows(labels, stage3_rows):
     """One row per labelled turn that has stage-3 rows: the state of the turn's first decision (its tool-level row on
-    page 0: what Jeff sees before the coding model's turn) plus the routing fields. Stage-3 rows are keyed by (session,
+    page 1: what Jeff sees before the coding model's turn) plus the routing fields. Stage-3 rows are keyed by (session,
     turn); turns without a stage-3 row are counted."""
     first = {}
     for row in stage3_rows:
-        if row["level"] != "tool" or row["page"] != 0:
+        if row["level"] != "tool" or row["page"] != 1:
             continue
         key = (row["session"], row["turn"])
         if key not in first or row["decision"] < first[key]["decision"]:
@@ -821,7 +842,7 @@ def _tokens(ask):
     return ask["completion_tokens"] if ask["completion_tokens"] is not None else ask["chunks"]
 
 
-def stats_markdown(labels):
+def stats_markdown(labels, excluded=()):
     out = []
     w = out.append
     classes = sorted({t["class"] for t in labels}, key=lambda c: ceiling.ALL_CLASSES.index(c))
@@ -839,6 +860,9 @@ def stats_markdown(labels):
       f"({', '.join(f'{h} {n}' for h, n in sorted(hosts.items()))}); recording machines: "
       f"{', '.join(f'{m} {n}' for m, n in sorted(machines.items()))}. Judge models: "
       f"{dict(collections.Counter(j['model'] for t in labels for j in t['judges']))}.\n")
+    reasons = collections.Counter(row["reason"] for row in excluded)
+    w(f"Turns left out: {len(excluded)}"
+      + (f" ({', '.join(f'{r}: {n}' for r, n in sorted(reasons.items()))})" if reasons else "") + ".\n")
 
     w("## Labels by turn class\n")
     w("Share of turns per label; off/low/medium ok = share of the turns where that level was asked whose action was "
@@ -1021,7 +1045,7 @@ def main():
         Path(options.out).write_text("".join(json.dumps(row) + "\n" for row in rows))
         print(counts)
     elif options.step == "stats":
-        Path(options.out).write_text(stats_markdown(read_labels(options.labels)))
+        Path(options.out).write_text(stats_markdown(*read_rows(options.labels)))
     else:
         pairs = judge_check_pairs(read_labels(options.labels), options.count)
         if options.rejudge_url:

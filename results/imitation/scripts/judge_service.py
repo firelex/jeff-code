@@ -11,7 +11,8 @@ Every judge call is made with thinking off and temperature 0. Two backends:
 HTTP interface:
   GET  /info   -> {"backend", "model", "url"}
   POST /judge  {"messages": [system, user]} -> {"backend", "model", "content", "usage", "finish_reason", "seconds"}
-A failed upstream request answers HTTP 502 with the error; a 429 or 5xx answer from upstream is retried up to
+An input the backend refuses after its content inspection (DashScope "DataInspectionFailed") answers HTTP 422
+{"refused": detail}; any other failed upstream request answers HTTP 502 with the error; a 429 or 5xx answer from upstream is retried up to
 RETRIES times with growing waits (the same request again), each retry logged.
 
 Usage (stdlib only):
@@ -31,6 +32,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 RETRIES = 4
+# DashScope refuses some inputs after its content inspection (HTTP 400 with this code); answered with HTTP 422.
+REFUSAL_CODE = "DataInspectionFailed"
+
+
+class Refused(Exception):
+    """The backend refused to judge this input (content inspection)."""
 RETRY_WAIT_S = 5
 
 
@@ -80,7 +87,10 @@ class Judge:
                         print(f"upstream HTTP {error.code}; retry {attempt + 1}/{RETRIES} in {wait} s", flush=True)
                         time.sleep(wait)
                         continue
-                    raise RuntimeError(f"upstream HTTP {error.code}: {error.read()[:300]!r}") from error
+                    detail = error.read()
+                    if error.code == 400 and REFUSAL_CODE.encode() in detail:
+                        raise Refused(detail[:500].decode(errors="replace")) from error
+                    raise RuntimeError(f"upstream HTTP {error.code}: {detail[:300]!r}") from error
         choice = reply["choices"][0]
         return {"backend": self.backend, "model": self.model, "content": choice["message"]["content"] or "",
                 "usage": reply["usage"], "finish_reason": choice["finish_reason"],
@@ -115,6 +125,9 @@ def make_handler(judge):
                 return
             try:
                 self._send(200, judge.ask(messages))
+            except Refused as refusal:
+                print(f"judge refused the input: {str(refusal)[:200]}", flush=True)
+                self._send(422, {"refused": str(refusal)})
             except (RuntimeError, urllib.error.URLError, OSError, KeyError) as error:
                 print(f"judge call failed: {error!r}", flush=True)
                 self._send(502, {"error": repr(error)})
