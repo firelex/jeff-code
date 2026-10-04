@@ -18,7 +18,8 @@ their per_hour values under the account's limit (read it with the rate-limit hea
     python3 image_pull.py prefetch HUB_DIR QUEUE_DIR LOCK_DIR AHEAD MIN_FREE_GB
         Runs until stopped: every 30 s, the images of the next AHEAD tasks streams will claim (queue order, least-run
         first, not running) that are rotated are pulled if missing, while Docker's disk keeps MIN_FREE_GB free.
-        A rate-limit error pauses prefetching for 15 minutes; any other pull error stops the prefetcher (fail loud).
+        A rate-limit or other passing error pauses prefetching for 15 minutes; an image the registry says does not exist
+        is logged (MISSING IMAGE) and skipped.
 """
 
 import fcntl
@@ -129,6 +130,7 @@ def prefetch(hub: Path, queue_dir: Path, lock_dir: Path, ahead: int, min_free_gb
     root = subprocess.run(["docker", "info", "-f", "{{.DockerRootDir}}"], capture_output=True, text=True, check=True).stdout.strip()
     in_flight: dict[str, threading.Thread] = {}
     results: dict[str, int] = {}
+    missing: set[str] = set()
     paused_until = 0.0
     while True:
         for image, code in list(results.items()):
@@ -137,7 +139,10 @@ def prefetch(hub: Path, queue_dir: Path, lock_dir: Path, ahead: int, min_free_gb
                 print(f"{time.strftime('%FT%T')} rate limit: prefetching paused for 15 minutes", flush=True)
                 paused_until = time.time() + 900
             elif code != 0:
-                raise SystemExit(f"prefetch of {image} failed (exit {code}); stopping (see the error above)")
+                # The registry says the image does not exist: the stream that claims the task gets the same answer
+                # and counts the run; prefetching goes on with the other tasks.
+                print(f"{time.strftime('%FT%T')} MISSING IMAGE {image}: not prefetched again", flush=True)
+                missing.add(image)
         if time.time() >= paused_until:
             images = []
             for task in upcoming(queue_dir):
@@ -147,7 +152,7 @@ def prefetch(hub: Path, queue_dir: Path, lock_dir: Path, ahead: int, min_free_gb
                 if len(images) >= ahead:
                     break
             for image in images:
-                if image in in_flight or present(image):
+                if image in in_flight or image in missing or present(image):
                     continue
                 free_gb = shutil.disk_usage(root).free / 1e9
                 if free_gb < min_free_gb:
