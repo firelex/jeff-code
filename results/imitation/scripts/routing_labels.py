@@ -22,14 +22,19 @@ xhigh actions are also judged against the recorded one (how often xhigh agrees w
 cascade, computed from the full set.
 
 Requests go to servers of the same model format as the session (FP8 sessions to the FP8 servers, NVFP4 to NVFP4), all
-turns of one trial to one server (shared prompt prefixes stay cached). Load control: at most --per-server requests in
+turns of one trial to one server (shared prompt prefixes stay cached). With --allow-cross-format the labeller also
+re-asks sessions recorded in the other format (owner, 2026-10-04 17:25: FP8 and NVFP4 answer near-identically; the
+sampling noise is larger than the quantisation difference). Every label line records `recording_format` (the session's)
+and `reask_format` (the servers'), so the statistics compare same-format and cross-format labels. Load control: at most --per-server requests in
 flight per server, and no new request while the server's vLLM queue (`vllm:num_requests_waiting` in /metrics) is above
 --max-waiting. Every request is streamed with the generation-loop cut-off of the thinking-off comparison
 (thinking_off_run.looping).
 
-Output: one JSONL per source host (--source NAME=DIR, file routing-labels-NAME.jsonl in --out-dir): a "turn" line per
-labelled turn (all asked actions, tokens, times, judge verdicts and reasons, label) and a "trial" line when all turns
-of a trial are written. A rerun skips written turns and trials (resumable).
+Output: one JSONL per source host (--source NAME=DIR, file routing-labels-NAME.jsonl in --out-dir, or
+routing-labels-NAME-TAG.jsonl with --file-tag TAG when a second labeller works on part of the same host's sessions): a
+"turn" line per labelled turn (all asked actions, tokens, times, judge verdicts and reasons, label) and a "trial" line
+when all turns of a trial are written. A rerun skips written turns and trials (resumable); --done-from FILE also skips
+the turns another labeller has written to FILE (read only).
 
 Usage (needs aiohttp and tokenizers; node runs the request builder):
     uv run --with aiohttp==3.12.15 --with tokenizers python routing_labels.py run --source casdgx01=RUNS \\
@@ -283,6 +288,25 @@ async def cascade(asker, recorded, calibration):
 # ------------------------------------------------------------------------------------------------ recorded turns
 
 
+def check_format(trial, recording_format, reask_format, allow_cross_format):
+    """A session recorded in another model format than the labeller's servers is re-asked only with
+    --allow-cross-format; otherwise ValueError."""
+    if recording_format != reask_format and not allow_cross_format:
+        raise ValueError(f"{trial}: a {recording_format} session; this labeller answers {reask_format} sessions only "
+                         "(--allow-cross-format re-asks the other format)")
+
+
+def label_file(out_dir, source, tag):
+    """The label file of one source host: routing-labels-NAME.jsonl, or routing-labels-NAME-TAG.jsonl."""
+    return Path(out_dir) / (f"routing-labels-{source}.jsonl" if tag is None else f"routing-labels-{source}-{tag}.jsonl")
+
+
+def done_ids(path):
+    """The ids of the turns written (labelled or left out) to a label file."""
+    return {row["id"] for row in map(json.loads, Path(path).read_text().splitlines())
+            if row["kind"] in ("turn", "excluded")}
+
+
 def finished_trials(root):
     """Trial folders (<task>__<id>/, at any depth: <stream>/roundN/<job>/ in the collection, <stream>/<arm>/run1/<job>/
     in the end-to-end test) under a collection folder that have their result.json. Trial folders are not searched."""
@@ -372,6 +396,7 @@ def recorded_turns(trial):
             "trial_dir": str(trial),
             "task": task_id(trial, config),
             "recording_machine": build,
+            "recording_format": family(build),
             "session_id": session_id,
             "session_file": str(sessions[0]),
             "entry_id": entry["id"],
@@ -710,8 +735,12 @@ class Labeller:
         self.limit = options.max_turns
 
     def load_done(self):
+        for path in self.options.done_from:
+            if not Path(path).is_file():
+                raise ValueError(f"--done-from {path}: no such file")
+            self.done_turns |= done_ids(path)
         for name in dict(self.sources):
-            path = self.out_dir / f"routing-labels-{name}.jsonl"
+            path = label_file(self.out_dir, name, self.options.file_tag)
             if path.exists():
                 for line in path.read_text().splitlines():
                     row = json.loads(line)
@@ -740,9 +769,8 @@ class Labeller:
                     self.done_trials.add(key)
                     continue
                 turns, skipped = recorded_turns(trial)
-                if turns and family(turns[0]["recording_machine"]) != self.family:
-                    raise ValueError(f"{trial}: a {family(turns[0]['recording_machine'])} session; this labeller "
-                                     f"answers {self.family} sessions only")
+                if turns:
+                    check_format(trial, turns[0]["recording_format"], self.family, self.options.allow_cross_format)
                 class_of = {}
                 if turns:  # a trial left out by recorded_turns may be one ceiling.py cannot classify
                     classes = turn_classes(trial, self.tokenizer)
@@ -786,7 +814,8 @@ class Labeller:
         result = await cascade(asker, {"commands": turn["commands"], "final_text": turn["final_text"]}, calibration)
         checks = {level: {k: v for k, v in check.items() if k != "judge"} for level, check in result["checks"].items()}
         row = {"kind": "turn", **{k: v for k, v in turn.items() if k not in ("session_file",)},
-               "replay_machine": server.machine, "server": server.url, "calibration": calibration,
+               "replay_machine": server.machine, "reask_format": self.family, "server": server.url,
+               "calibration": calibration,
                "label": result["label"], "checks": checks, "asks": asker.asks, "judges": asker.judges,
                "labelled_s": time.monotonic() - started, "labelled_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
         if calibration:
@@ -811,6 +840,7 @@ class Labeller:
                 print(f"LEFT OUT {turn['id']}: {problem}", flush=True)
                 row = {"kind": "excluded", "id": turn["id"], "trial_dir": turn["trial_dir"],
                        "source_host": turn["source_host"], "class": turn["class"],
+                       "recording_format": turn["recording_format"], "reask_format": self.family,
                        "reason": JUDGE_REFUSED if isinstance(problem, JudgeRefused) else PROMPT_MISMATCH,
                        "detail": str(problem)}
             server.queued_turns -= 1
@@ -872,16 +902,24 @@ def read_labels(paths):
 
 
 def read_rows(paths):
-    """The labelled turns and the left-out turns of label files."""
+    """The labelled turns and the left-out turns of label files. A turn written twice (labelled or left out, in one
+    file or in two, e.g. by two labellers of the same source host) is an error."""
     rows = []
+    where = collections.defaultdict(list)
     for path in paths:
-        rows.extend(json.loads(line) for line in Path(path).read_text().splitlines() if line.strip())
+        for line in Path(path).read_text().splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            rows.append(row)
+            if row["kind"] in ("turn", "excluded"):
+                where[row["id"]].append(f"{path} ({row['kind']})")
+    duplicates = {turn_id: places for turn_id, places in where.items() if len(places) > 1}
+    if duplicates:
+        turn_id, places = next(iter(duplicates.items()))
+        raise ValueError(f"{len(duplicates)} turns are written twice, e.g. {turn_id} in {', '.join(places)}")
     excluded = [row for row in rows if row["kind"] == "excluded"]
     turns = [row for row in rows if row["kind"] == "turn"]
-    seen = collections.Counter(row["id"] for row in turns)
-    duplicates = [turn_id for turn_id, count in seen.items() if count > 1]
-    if duplicates:
-        raise ValueError(f"{len(duplicates)} turns are labelled twice, e.g. {duplicates[0]}")
     return turns, excluded
 
 
@@ -925,6 +963,21 @@ def join_rows(labels, stage3_rows):
                      "turn": turn["turn"], "machine": turn["recording_machine"], "source_host": turn["source_host"],
                      "class": turn["class"], "state": stage3["state"], "routing": routing_fields(turn)})
     return rows, {"labelled turns": len(labels), "joined": len(rows), "no stage-3 row": missing}
+
+
+def formats(turn):
+    """(recording format, re-ask format) of a label line. Lines written before --allow-cross-format existed carry
+    neither field: that labeller refused sessions of the other format, so they were re-asked in the recording format
+    (read from the recording machine's driver build)."""
+    recording = family(turn["recording_machine"])
+    if "recording_format" in turn and turn["recording_format"] != recording:
+        raise ValueError(f"{turn['id']}: recording_format {turn['recording_format']} but recording machine "
+                         f"{turn['recording_machine']}")
+    if "reask_format" in turn:
+        return recording, turn["reask_format"]
+    if "recording_format" in turn:  # the two fields are written together
+        raise ValueError(f"{turn['id']}: a label line with recording_format but no reask_format")
+    return recording, recording
 
 
 def _pct(a, b):
@@ -972,6 +1025,28 @@ def stats_markdown(labels, excluded=()):
             good = sum(t["checks"][level]["good"] for t in asked)
             cells.append(f"{_pct(good, len(asked))} ({len(asked)})" if level != "off" else _pct(good, len(asked)))
         w(f"| {name} | {n} | " + " | ".join(cells) + " |")
+    w("")
+
+    w("## Labels by re-ask format\n")
+    w("Same format = re-asked on servers of the model format the session was recorded in; cross format = recorded in "
+      "one format (FP8 or NVFP4) and re-asked in the other (allowed since 2026-10-04 17:25: the formats answer "
+      "near-identically, sampling noise is larger).\n")
+    w("| recorded | re-asked | kind | turns | off | low | medium | xhigh |")
+    w("|---|---|---|---:|---:|---:|---:|---:|")
+    by_format = collections.defaultdict(list)
+    for t in labels:
+        by_format[formats(t)].append(t)
+    for kind, same in (("same format", True), ("cross format", False)):
+        pairs = sorted(pair for pair in by_format if (pair[0] == pair[1]) == same)
+        for recording, reask in pairs:
+            group = by_format[(recording, reask)]
+            count = collections.Counter(t["label"] for t in group)
+            w(f"| {recording} | {reask} | {kind} | {len(group)} | "
+              + " | ".join(_pct(count[level], len(group)) for level in ("off", "low", "medium", "xhigh")) + " |")
+        group = [t for pair in pairs for t in by_format[pair]]
+        count = collections.Counter(t["label"] for t in group)
+        w(f"| all | | {kind} | {len(group)} | "
+          + " | ".join(_pct(count[level], len(group)) for level in ("off", "low", "medium", "xhigh")) + " |")
     w("")
 
     w("## How the checks decided\n")
@@ -1109,6 +1184,11 @@ def main():
     r.add_argument("--max-turns", type=int, help="stop after this many labelled turns (smoke)")
     r.add_argument("--all-levels", action="store_true", help="ask every turn like a calibration turn (smoke)")
     r.add_argument("--exit-when-idle", action="store_true")
+    r.add_argument("--allow-cross-format", action="store_true",
+                   help="also re-ask sessions recorded in the other model format (FP8 on NVFP4 servers or back)")
+    r.add_argument("--file-tag", help="write routing-labels-HOST-TAG.jsonl (a second labeller of the same host)")
+    r.add_argument("--done-from", action="append", default=[],
+                   help="label file of another labeller whose written turns are skipped (read only; repeatable)")
     j = sub.add_parser("join", help="routing rows: the routing labels joined onto the stage-3 rows (one per turn)")
     j.add_argument("--labels", nargs="+", required=True)
     j.add_argument("--stage3-rows", required=True)

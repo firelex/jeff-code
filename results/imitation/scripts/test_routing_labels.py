@@ -489,3 +489,74 @@ def test_task_id_of_a_hub_trial(tmp_path):
     assert turns[0]["task"] == "terminal-bench-science/terminal-bench-science:onsager-ising-lean"
     tokenizer = rl.Tokenizer.from_file("/private/tmp/claude-501/stage3/tokenizer/Qwen3.5-0.8B/tokenizer.json")
     assert rl.ceiling.read_trial(trial, tokenizer)["task"] == "terminal-bench-science/onsager-ising-lean"
+
+
+# ------------------------------------------------------------------------------------------------ cross-format re-asks
+
+
+def test_recorded_turns_carry_the_recording_format(tmp_path):
+    trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 100)])
+    turns, _ = rl.recorded_turns(trial)
+    assert turns[0]["recording_format"] == "fp8"
+
+
+def test_a_session_of_the_other_format_needs_allow_cross_format():
+    rl.check_format("t", "fp8", "fp8", False)
+    rl.check_format("t", "fp8", "nvfp4", True)
+    with pytest.raises(ValueError, match="answers nvfp4 sessions only"):
+        rl.check_format("t", "fp8", "nvfp4", False)
+
+
+def test_label_file_names_and_done_ids(tmp_path):
+    assert rl.label_file(tmp_path, "casdgx01", None).name == "routing-labels-casdgx01.jsonl"
+    assert rl.label_file(tmp_path, "casdgx01", "b200").name == "routing-labels-casdgx01-b200.jsonl"
+    path = tmp_path / "seed.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in [_label(turn=1), {"kind": "trial", "trial_dir": "x"},
+                                                         {"kind": "excluded", "id": "t:y", "reason": "r"}]) + "\n")
+    assert rl.done_ids(path) == {"t:sess-1:1", "t:y"}
+
+
+def _cross(turn, label, reask):
+    row = _label(turn=turn, label=label)
+    row.update({"recording_machine": "qwen3.8-27b-fp8@casdgx01-gpu1", "recording_format": "fp8",
+                "reask_format": reask})
+    return row
+
+
+def test_formats_of_old_and_new_label_lines():
+    assert rl.formats(_label()) == ("nvfp4", "nvfp4")  # written before the fields existed: same format
+    assert rl.formats(_cross(1, "off", "nvfp4")) == ("fp8", "nvfp4")
+    wrong = _cross(1, "off", "nvfp4")
+    wrong["recording_format"] = "nvfp4"
+    with pytest.raises(ValueError, match="recording_format nvfp4 but recording machine"):
+        rl.formats(wrong)
+    half = _cross(1, "off", "nvfp4")
+    del half["reask_format"]
+    with pytest.raises(ValueError, match="no reask_format"):
+        rl.formats(half)
+
+
+def test_stats_split_labels_by_same_and_cross_format():
+    labels = [_label(turn=1), _label(turn=2, label="xhigh"), _cross(3, "off", "fp8"), _cross(4, "low", "nvfp4"),
+              _cross(5, "xhigh", "nvfp4")]
+    text = rl.stats_markdown(labels)
+    assert "## Labels by re-ask format" in text
+    assert "| nvfp4 | nvfp4 | same format | 2 | 50.0% | 0.0% | 0.0% | 50.0% |" in text
+    assert "| fp8 | fp8 | same format | 1 | 100.0% |" in text
+    assert "| all | | same format | 3 |" in text
+    assert "| fp8 | nvfp4 | cross format | 2 | 0.0% | 50.0% | 0.0% | 50.0% |" in text
+    assert "| all | | cross format | 2 |" in text
+
+
+def test_a_turn_written_by_two_labellers_is_an_error(tmp_path):
+    first, second = tmp_path / "routing-labels-casdgx01.jsonl", tmp_path / "routing-labels-casdgx01-b200.jsonl"
+    first.write_text(json.dumps(_label(turn=1)) + "\n" + json.dumps(_label(turn=2)) + "\n")
+    second.write_text(json.dumps(_cross(3, "off", "nvfp4")) + "\n")
+    turns, _ = rl.read_rows([first, second])
+    assert len(turns) == 3
+    second.write_text(json.dumps({"kind": "excluded", "id": "t:sess-1:2", "reason": "r"}) + "\n")
+    with pytest.raises(ValueError, match="1 turns are written twice, e.g. t:sess-1:2"):
+        rl.read_rows([first, second])
+    second.write_text(json.dumps(_label(turn=1)) + "\n")
+    with pytest.raises(ValueError, match="written twice"):
+        rl.read_rows([first, second])
