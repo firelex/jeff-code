@@ -142,6 +142,7 @@ describe("TraceWriter with schema 3", () => {
 					picks: [{ optionId: "hand_over", reason: "nothing to look at", failedAttempts: [] }],
 					chosen: "hand_over",
 					jeff_cut: null,
+					jeff_abstained: null,
 				},
 			],
 			action: { kind: "hand_over", why: "chosen" },

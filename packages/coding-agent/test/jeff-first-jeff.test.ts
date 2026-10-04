@@ -111,7 +111,48 @@ describe("JeffChooser", () => {
 		expect(choice.picks[0].reason).toMatch(/the service was busy 2 times/);
 	});
 
-	it("fails without asking when the question cannot be cut to fit", async () => {
+	it("abstains and hands over, without asking, when the service says the question cannot fit", async () => {
+		const cannotFit = { tokens_before: 23150, tokens_least: 11268, limit: 8192 };
+		jeff = await startFakeJeff(
+			(sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }),
+			() => ({ status: 200, body: JSON.stringify({ cannot_fit: { ...cannotFit, reason: "options too long" } }) }),
+		);
+		const tool = await new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5).choose(state, {
+			level: "tool",
+			page: 1,
+			options: tools,
+		});
+		expect(jeff.requests).toHaveLength(0);
+		expect(tool.optionId).toBe("hand_over");
+		expect(tool.jeffAbstained).toEqual(cannotFit);
+		expect(tool.jeffCut).toBeNull();
+		expect(tool.picks[0].reason).toMatch(
+			/^Jeff abstained: the question cannot be cut to fit its 8192-token limit \(23150 tokens, at least 11268 with the state cut\): hand over \(hand_over\)/,
+		);
+		const argument = await new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5).choose(state, {
+			level: "argument",
+			page: 1,
+			tool: readTool,
+			options: readOptions,
+		});
+		expect(argument.optionId).toBe("none_of_these");
+	});
+
+	it("fails on a malformed cannot_fit answer", async () => {
+		jeff = await startFakeJeff(
+			(sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }),
+			() => ({ status: 200, body: JSON.stringify({ cannot_fit: { tokens_before: 9000, limit: 8192 } }) }),
+		);
+		await expect(
+			new JeffChooser(new JeffService(jeff.url, FAST), "jeff-step", 0.5).choose(state, {
+				level: "tool",
+				page: 1,
+				options: tools,
+			}),
+		).rejects.toThrow(/malformed cannot_fit/);
+	});
+
+	it("fails without asking when the service refuses the fit question", async () => {
 		jeff = await startFakeJeff(
 			(sent) => answer(sent.model, { read: 0.7, hand_over: 0.3 }),
 			() => ({ status: 422, body: '{"detail":"the question and its options alone are too long"}' }),
@@ -143,7 +184,7 @@ describe("JeffChooser", () => {
 				}),
 			),
 		).rejects.toThrow(/a cut that does not fit/);
-		await expect(ask("{}")).rejects.toThrow(/without a cut or null/);
+		await expect(ask("{}")).rejects.toThrow(/without a cut, null or cannot_fit/);
 		jeff = undefined;
 	});
 
@@ -352,6 +393,7 @@ describe("jeffRouter", () => {
 			level: "off",
 			probabilities: { off: 0.7, low: 0.1, medium: 0.1, xhigh: 0.1 },
 			cut: null,
+			abstained: null,
 		});
 	});
 
@@ -364,5 +406,15 @@ describe("jeffRouter", () => {
 		jeff = await startFakeJeff((sent) => answer(sent.model, probabilities));
 		const choice = await jeffRouter(new JeffService(jeff.url, FAST), "jeff-router", threshold).levelFor(state);
 		expect(choice.level).toBe(level);
+	});
+	it("uses xhigh when Jeff abstains because the router question cannot fit", async () => {
+		const cannotFit = { tokens_before: 12000, tokens_least: 9000, limit: 8192 };
+		jeff = await startFakeJeff(
+			(sent) => answer(sent.model, { off: 1, low: 0, medium: 0, xhigh: 0 }),
+			() => ({ status: 200, body: JSON.stringify({ cannot_fit: { ...cannotFit, reason: "too long" } }) }),
+		);
+		const choice = await jeffRouter(new JeffService(jeff.url, FAST), "jeff-router", 0).levelFor(state);
+		expect(choice).toEqual({ level: "xhigh", probabilities: null, cut: null, abstained: cannotFit });
+		expect(jeff.requests).toHaveLength(0);
 	});
 });

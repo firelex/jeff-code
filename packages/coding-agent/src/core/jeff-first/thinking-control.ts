@@ -166,6 +166,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 			| {
 					probabilities: QwenRequestRecord["router_probabilities"];
 					cut: QwenRequestRecord["router_cut"];
+					abstained: QwenRequestRecord["router_abstained"];
 					ms: number;
 			  }
 			| undefined;
@@ -187,6 +188,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 				router: options.router.name,
 				router_probabilities: number === 1 && routed ? routed.probabilities : null,
 				router_cut: number === 1 && routed ? routed.cut : null,
+				router_abstained: number === 1 && routed ? routed.abstained : null,
 				thinking_level: attempt.level,
 				sent: attempt.sent,
 				outcome,
@@ -212,7 +214,12 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 			task ??= taskText(context.messages);
 			const routerStarted = performance.now();
 			const choice = await options.router.levelFor(trimState(task, collectSteps(context.messages)));
-			routed = { probabilities: choice.probabilities, cut: choice.cut, ms: performance.now() - routerStarted };
+			routed = {
+				probabilities: choice.probabilities,
+				cut: choice.cut,
+				abstained: choice.abstained,
+				ms: performance.now() - routerStarted,
+			};
 			const level = choice.level;
 			if (level !== "off" && !model.reasoning) {
 				throw new Error(

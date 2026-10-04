@@ -105,6 +105,7 @@ function levelRecord(level: Level, choice: Choice, chooser: string): LevelRecord
 		picks: choice.picks,
 		chosen: choice.optionId,
 		jeff_cut: choice.jeffCut,
+		jeff_abstained: choice.jeffAbstained,
 	};
 }
 

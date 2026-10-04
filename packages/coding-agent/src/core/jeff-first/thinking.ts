@@ -1,4 +1,4 @@
-import { JEFF_SERVICE_POLICY, type JeffCut, JeffService } from "./jeff-service.ts";
+import { JEFF_SERVICE_POLICY, type JeffCannotFit, type JeffCut, JeffService } from "./jeff-service.ts";
 import { ROUTER_OPTIONS, ROUTER_QUESTION } from "./router-question.ts";
 import type { JeffState } from "./state.ts";
 import { renderState } from "./teacher-prompt.ts";
@@ -17,6 +17,8 @@ export interface RouterChoice {
 	probabilities: Record<QwenThinkingLevel, number> | null;
 	/** How the trained router's question was cut to fit Jeff's token limit; null when it fit, and for a fixed level. */
 	cut: JeffCut | null;
+	/** Set when the trained router abstained because its question cannot be cut to fit (the level is then xhigh). */
+	abstained: JeffCannotFit | null;
 }
 
 /**
@@ -35,7 +37,10 @@ export type ThinkingRouterSpec =
 	| { kind: "jeff"; url: string; adapter: string; threshold: number };
 
 export function fixedRouter(level: QwenThinkingLevel): ThinkingRouter {
-	return { name: `fixed:${level}`, levelFor: async () => ({ level, probabilities: null, cut: null }) };
+	return {
+		name: `fixed:${level}`,
+		levelFor: async () => ({ level, probabilities: null, cut: null, abstained: null }),
+	};
 }
 
 /**
@@ -54,13 +59,16 @@ export function jeffRouter(service: JeffService, adapter: string, threshold: num
 				instructions: ROUTER_QUESTION,
 				criteria: { ...ROUTER_OPTIONS },
 			});
+			if (answer.kind === "abstain") {
+				return { level: "xhigh", probabilities: null, cut: null, abstained: answer.cannotFit };
+			}
 			const probabilities = Object.fromEntries(
 				QWEN_THINKING_LEVELS.map((level) => [level, answer.probabilities[level]]),
 			) as Record<QwenThinkingLevel, number>;
 			let best: QwenThinkingLevel = "off";
 			for (const level of QWEN_THINKING_LEVELS) if (probabilities[level] > probabilities[best]) best = level;
 			const level = best === "xhigh" || probabilities[best] >= threshold ? best : "xhigh";
-			return { level, probabilities, cut: answer.cut };
+			return { level, probabilities, cut: answer.cut, abstained: null };
 		},
 	};
 }

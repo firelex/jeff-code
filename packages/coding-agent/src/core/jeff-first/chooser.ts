@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import type { JeffCut, JeffService } from "./jeff-service.ts";
+import type { JeffCannotFit, JeffCut, JeffService } from "./jeff-service.ts";
 import { NONE_OF_THESE } from "./pages.ts";
 import type { JeffState } from "./state.ts";
 import {
@@ -47,6 +47,8 @@ export interface Choice {
 	picks: Pick[];
 	/** How Jeff's question was cut to fit its token limit; null when it fit, and always for the teacher. */
 	jeffCut: JeffCut | null;
+	/** Set when Jeff abstained because the question cannot be cut to fit (the scout then handed over); else null. */
+	jeffAbstained: JeffCannotFit | null;
 }
 
 /** A teacher failure worth retrying: no answer in time, no connection, rate limited, or a server error. */
@@ -70,7 +72,7 @@ export function tally(optionIds: string[], picks: Pick[]): Choice {
 		if ((counts.get(pick.optionId) ?? 0) > (counts.get(optionId) ?? 0)) optionId = pick.optionId;
 	}
 	const shares = Object.fromEntries(optionIds.map((id) => [id, (counts.get(id) ?? 0) / picks.length]));
-	return { optionId, shares, picks, jeffCut: null };
+	return { optionId, shares, picks, jeffCut: null, jeffAbstained: null };
 }
 
 function excerpt(text: string): string {
@@ -232,6 +234,19 @@ export class JeffChooser implements Chooser {
 			instructions: questionText(level),
 			criteria: Object.fromEntries(options.map((option) => [option.id, option.description])),
 		});
+		if (answer.kind === "abstain") {
+			const { tokens_before, tokens_least, limit } = answer.cannotFit;
+			const reason =
+				`Jeff abstained: the question cannot be cut to fit its ${limit}-token limit (${tokens_before} tokens, ` +
+				`at least ${tokens_least} with the state cut): hand over (${handOver}) (${Math.round(answer.ms)} ms)`;
+			return {
+				optionId: handOver,
+				shares: {},
+				picks: [{ optionId: handOver, reason, failedAttempts: answer.failedAttempts }],
+				jeffCut: null,
+				jeffAbstained: answer.cannotFit,
+			};
+		}
 		let best = options[0].id;
 		for (const option of options) {
 			if (answer.probabilities[option.id] > answer.probabilities[best]) best = option.id;
@@ -253,6 +268,7 @@ export class JeffChooser implements Chooser {
 			shares: answer.probabilities,
 			picks: [{ optionId, reason, failedAttempts: answer.failedAttempts }],
 			jeffCut: answer.cut,
+			jeffAbstained: null,
 		};
 	}
 }

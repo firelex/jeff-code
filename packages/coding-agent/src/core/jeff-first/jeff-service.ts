@@ -39,7 +39,19 @@ export interface JeffCut {
 	limit: number;
 }
 
+/**
+ * The service's explicit "cannot fit" answer from POST /v1/fit: the question and its options alone are too long for
+ * any cut of the state (jeff_fit.py QuestionTooLong; the options are never cut). The prompt as asked, the shortest
+ * prompt the rule could make, and the limit.
+ */
+export interface JeffCannotFit {
+	tokens_before: number;
+	tokens_least: number;
+	limit: number;
+}
+
 export interface JeffAnswer {
+	kind: "answer";
 	/** Each option's probability, by option id. */
 	probabilities: Record<string, number>;
 	/** The model or adapter that answered, as the service names it. */
@@ -52,6 +64,27 @@ export interface JeffAnswer {
 	/** null when the question fit Jeff's token limit as it was; otherwise how its state was cut to fit. */
 	cut: JeffCut | null;
 }
+
+/**
+ * Jeff abstains on a question that cannot be cut to fit (owner ruling 2026-10-04): the caller does what Jeff-pi does
+ * without Jeff (the scout hands over, the router uses xhigh, the trimmer keeps the whole output).
+ */
+export interface JeffAbstention {
+	kind: "abstain";
+	cannotFit: JeffCannotFit;
+	/** The service's explanation. */
+	reason: string;
+	ms: number;
+	busyWaits: number;
+	failedAttempts: FailedAttempt[];
+}
+
+export type JeffReply = JeffAnswer | JeffAbstention;
+
+type Fit =
+	| { kind: "fits" }
+	| { kind: "cut"; state: string; cut: JeffCut }
+	| { kind: "cannot_fit"; cannotFit: JeffCannotFit; reason: string };
 
 /** jeff-serve's names for the base model itself (no adapter): an untrained-adapter test run asks for "jeff". */
 export const BASE_ALIASES = ["jeff", "jeff-latest"];
@@ -83,7 +116,8 @@ function describeFetchError(error: unknown): string {
  * answers whether the prompt fits and, when it does not, the state cut to fit by the rule the training rows were cut
  * with (tools/jeff-first/jeff_fit.py: the start and the end of the state are kept, the middle is replaced by one line
  * saying how many lines were left out; the question and options are never cut). The question is then asked with that
- * state.
+ * state. When even that cannot fit (the options alone are too long), /v1/fit says "cannot_fit" and Jeff abstains on
+ * that question: ask returns an abstention instead of an answer. Every other failure is thrown.
  */
 export class JeffService {
 	readonly url: string;
@@ -94,33 +128,36 @@ export class JeffService {
 		this.policy = policy;
 	}
 
-	async ask(model: string, question: JeffQuestion): Promise<JeffAnswer> {
+	async ask(model: string, question: JeffQuestion): Promise<JeffReply> {
 		const started = performance.now();
 		const asked = { type: "choice", instructions: question.instructions, criteria: question.criteria };
 		const fitted = await this.call("/v1/fit", JSON.stringify({ state: question.state, question: asked }), (text) =>
 			this.readFit(text),
 		);
-		const state = fitted.value === null ? question.state : fitted.value.state;
+		const fit = fitted.value;
+		if (fit.kind === "cannot_fit") {
+			return {
+				kind: "abstain",
+				cannotFit: fit.cannotFit,
+				reason: fit.reason,
+				ms: performance.now() - started,
+				busyWaits: fitted.busyWaits,
+				failedAttempts: fitted.failedAttempts,
+			};
+		}
+		const state = fit.kind === "cut" ? fit.state : question.state;
 		const answered = await this.call(
 			"/v1/systemone",
 			JSON.stringify({ model, state, questions: { q: asked } }),
 			(text) => this.readAnswer(text, model, question),
 		);
-		const cut =
-			fitted.value === null
-				? null
-				: {
-						tokens_before: fitted.value.tokens_before,
-						tokens_after: fitted.value.tokens_after,
-						lines_left_out: fitted.value.lines_left_out,
-						limit: fitted.value.limit,
-					};
 		return {
+			kind: "answer",
 			...answered.value,
 			ms: performance.now() - started,
 			busyWaits: fitted.busyWaits + answered.busyWaits,
 			failedAttempts: [...fitted.failedAttempts, ...answered.failedAttempts],
-			cut,
+			cut: fit.kind === "cut" ? fit.cut : null,
 		};
 	}
 
@@ -204,10 +241,32 @@ export class JeffService {
 		}
 	}
 
-	/** POST /v1/fit's answer: null when the question fits as it is, else the cut state and its lengths. */
-	private readFit(text: string): (JeffCut & { state: string }) | null {
-		const reply = this.parse(text, "/v1/fit") as { cut?: unknown };
-		if (reply.cut === null) return null;
+	/** POST /v1/fit's answer: the question fits as it is, or its state cut to fit, or it cannot fit. */
+	private readFit(text: string): Fit {
+		const reply = this.parse(text, "/v1/fit") as { cut?: unknown; cannot_fit?: unknown };
+		const whole = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value);
+		if (Object.keys(reply).length === 1 && reply.cannot_fit !== undefined) {
+			const cannot = reply.cannot_fit as Record<string, unknown> | null;
+			if (
+				typeof cannot !== "object" ||
+				cannot === null ||
+				!whole(cannot.tokens_before) ||
+				!whole(cannot.tokens_least) ||
+				!whole(cannot.limit) ||
+				typeof cannot.reason !== "string" ||
+				!(cannot.tokens_least > cannot.limit)
+			) {
+				throw new Error(
+					`the Jeff service at ${this.url} answered /v1/fit with a malformed cannot_fit: ${excerpt(text)}`,
+				);
+			}
+			return {
+				kind: "cannot_fit",
+				cannotFit: { tokens_before: cannot.tokens_before, tokens_least: cannot.tokens_least, limit: cannot.limit },
+				reason: cannot.reason,
+			};
+		}
+		if (reply.cut === null) return { kind: "fits" };
 		const cut = reply.cut as Record<string, unknown> | undefined;
 		const counts = ["tokens_before", "tokens_after", "lines_left_out", "limit"] as const;
 		if (
@@ -215,7 +274,9 @@ export class JeffService {
 			typeof cut.state !== "string" ||
 			counts.some((key) => typeof cut[key] !== "number" || !Number.isInteger(cut[key]))
 		) {
-			throw new Error(`the Jeff service at ${this.url} answered /v1/fit without a cut or null: ${excerpt(text)}`);
+			throw new Error(
+				`the Jeff service at ${this.url} answered /v1/fit without a cut, null or cannot_fit: ${excerpt(text)}`,
+			);
 		}
 		const value = cut as unknown as JeffCut & { state: string };
 		if (!(value.tokens_after <= value.limit && value.tokens_before > value.limit)) {
@@ -223,7 +284,8 @@ export class JeffService {
 				`the Jeff service at ${this.url} answered /v1/fit with a cut that does not fit: ${excerpt(text)}`,
 			);
 		}
-		return value;
+		const { tokens_before, tokens_after, lines_left_out, limit } = value;
+		return { kind: "cut", state: value.state, cut: { tokens_before, tokens_after, lines_left_out, limit } };
 	}
 
 	private readAnswer(

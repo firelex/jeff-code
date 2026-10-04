@@ -115,11 +115,44 @@ describe("JeffFirst output trimming", () => {
 			jeff: {
 				ask: async (model: string) => {
 					asked.push(model);
-					return { probabilities, ms: 3, cut };
+					return {
+						kind: "answer" as const,
+						probabilities,
+						servedBy: model,
+						ms: 3,
+						busyWaits: 0,
+						failedAttempts: [],
+						cut,
+					};
 				},
 			},
 		};
 	}
+
+	it("keeps the whole output when Jeff abstains because its question cannot fit", async () => {
+		const cannotFit = { tokens_before: 12000, tokens_least: 9000, limit: 8192 };
+		const decider = jeffTrimDecider(
+			{
+				ask: async () => ({
+					kind: "abstain" as const,
+					cannotFit,
+					reason: "too long",
+					ms: 4,
+					busyWaits: 0,
+					failedAttempts: [],
+				}),
+			},
+			"trim",
+			0,
+		);
+		expect(await decider.choose(state, 100)).toEqual({
+			choice: "all",
+			probabilities: null,
+			jeffMs: 4,
+			jeffCut: null,
+			jeffAbstained: cannotFit,
+		});
+	});
 
 	it("passes on how Jeff's question was cut to fit", async () => {
 		const cut: JeffCut = { tokens_before: 9000, tokens_after: 8100, lines_left_out: 50, limit: 8192 };
@@ -171,7 +204,7 @@ describe("JeffFirst output trimming", () => {
 					name: "test",
 					choose: async (seen) => {
 						states.push(seen);
-						return { choice: "first40", probabilities: null, jeffMs: null, jeffCut: null };
+						return { choice: "first40", probabilities: null, jeffMs: null, jeffCut: null, jeffAbstained: null };
 					},
 				},
 				taskId: "t",
@@ -209,6 +242,7 @@ describe("JeffFirst output trimming", () => {
 			probabilities: null,
 			jeffMs: null,
 			jeffCut: null,
+			jeffAbstained: null,
 		});
 	});
 });

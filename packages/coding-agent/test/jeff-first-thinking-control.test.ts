@@ -269,7 +269,10 @@ describe("createThinkingControlStreamFn", () => {
 	it("logs the trained router's probabilities, cut and time on the first request only", async () => {
 		const probabilities = { off: 0.8, low: 0.1, medium: 0.05, xhigh: 0.05 };
 		const cut = { tokens_before: 9000, tokens_after: 8100, lines_left_out: 50, limit: 8192 };
-		const router: ThinkingRouter = { name: "jeff:r", levelFor: async () => ({ level: "off", probabilities, cut }) };
+		const router: ThinkingRouter = {
+			name: "jeff:r",
+			levelFor: async () => ({ level: "off", probabilities, cut, abstained: null }),
+		};
 		const fake = fakeModel([
 			{ answer: reply([bash("make test", "q1")]) },
 			{ answer: reply([bash("cat Makefile", "q2")]) },
@@ -278,9 +281,17 @@ describe("createThinkingControlStreamFn", () => {
 			await control(fake.inner, router)(model, normalizeContext({ messages: afterMakeTest }), { sessionId: "s1" }),
 		);
 		const lines = traceLines();
-		expect(lines.map((line) => [line.attempt, line.router, line.router_probabilities, line.router_cut])).toEqual([
-			[1, "jeff:r", probabilities, cut],
-			[2, "jeff:r", null, null],
+		expect(
+			lines.map((line) => [
+				line.attempt,
+				line.router,
+				line.router_probabilities,
+				line.router_cut,
+				line.router_abstained,
+			]),
+		).toEqual([
+			[1, "jeff:r", probabilities, cut, null],
+			[2, "jeff:r", null, null, null],
 		]);
 		expect(lines[0].timings_ms.router).toBeGreaterThanOrEqual(0);
 		expect(lines[1].timings_ms.router).toBeNull();
@@ -426,7 +437,7 @@ describe("createThinkingControlStreamFn", () => {
 			name: "test",
 			levelFor: async (state) => {
 				seen.push(state.task);
-				return { level: levels[seen.length - 1], probabilities: null, cut: null };
+				return { level: levels[seen.length - 1], probabilities: null, cut: null, abstained: null };
 			},
 		};
 		const fake = fakeModel([{ answer: reply([bash("ls", "q1")]) }, { answer: reply([bash("ls src", "q2")]) }]);

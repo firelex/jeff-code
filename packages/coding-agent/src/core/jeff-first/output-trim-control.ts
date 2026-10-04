@@ -2,7 +2,14 @@ import { appendFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
-import { JEFF_SERVICE_POLICY, type JeffAnswer, type JeffCut, type JeffQuestion, JeffService } from "./jeff-service.ts";
+import {
+	JEFF_SERVICE_POLICY,
+	type JeffCannotFit,
+	type JeffCut,
+	type JeffQuestion,
+	type JeffReply,
+	JeffService,
+} from "./jeff-service.ts";
 import {
 	availableCuts,
 	parseToolOutput,
@@ -79,7 +86,7 @@ export function trimJeffQuestion(state: JeffState, totalLines: number): JeffQues
 
 /** The part of the Jeff service the trimmer uses (jeff-service.ts JeffService). */
 export interface TrimJeff {
-	ask(model: string, question: JeffQuestion): Promise<Pick<JeffAnswer, "probabilities" | "ms" | "cut">>;
+	ask(model: string, question: JeffQuestion): Promise<JeffReply>;
 }
 
 export interface TrimDecision {
@@ -88,6 +95,8 @@ export interface TrimDecision {
 	jeffMs: number | null;
 	/** How Jeff's question was cut to fit its token limit; null when it fit, and for a fixed choice. */
 	jeffCut: JeffCut | null;
+	/** Set when Jeff abstained because its question cannot be cut to fit (the whole output is then kept). */
+	jeffAbstained: JeffCannotFit | null;
 }
 
 export interface OutputTrimDecider {
@@ -99,7 +108,7 @@ export interface OutputTrimDecider {
 export function fixedTrimDecider(choice: TrimChoice): OutputTrimDecider {
 	return {
 		name: `fixed:${choice}`,
-		choose: async () => ({ choice, probabilities: null, jeffMs: null, jeffCut: null }),
+		choose: async () => ({ choice, probabilities: null, jeffMs: null, jeffCut: null, jeffAbstained: null }),
 	};
 }
 
@@ -110,13 +119,22 @@ export function jeffTrimDecider(jeff: TrimJeff, adapter: string, threshold: numb
 		name: `jeff:${adapter}`,
 		choose: async (state, totalLines) => {
 			const answer = await jeff.ask(adapter, trimJeffQuestion(state, totalLines));
+			if (answer.kind === "abstain") {
+				return {
+					choice: "all",
+					probabilities: null,
+					jeffMs: answer.ms,
+					jeffCut: null,
+					jeffAbstained: answer.cannotFit,
+				};
+			}
 			const probabilities = Object.fromEntries(
 				TRIM_CHOICES.map((choice) => [choice, answer.probabilities[choice]]),
 			) as Record<TrimChoice, number>;
 			let best: TrimChoice = "all";
 			for (const choice of TRIM_CHOICES) if (probabilities[choice] > probabilities[best]) best = choice;
 			const choice = best === "all" || probabilities[best] >= threshold ? best : "all";
-			return { choice, probabilities, jeffMs: answer.ms, jeffCut: answer.cut };
+			return { choice, probabilities, jeffMs: answer.ms, jeffCut: answer.cut, jeffAbstained: null };
 		},
 	};
 }
@@ -155,6 +173,8 @@ export interface OutputTrimRecord {
 	full_output: string | null;
 	/** How Jeff's question was cut to fit its token limit (jeff-service.ts); null when it fit, and for a fixed choice. */
 	jeff_cut: JeffCut | null;
+	/** Set when Jeff abstained because its question cannot be cut to fit (the whole output was kept); else null. */
+	jeff_abstained: JeffCannotFit | null;
 	timings_ms: { jeff: number | null };
 }
 
@@ -237,6 +257,7 @@ export function createOutputTrimmer(options: {
 			chars: { before: text.length, after: (shortened ?? text).length },
 			full_output: shortened === undefined ? null : text,
 			jeff_cut: decision.jeffCut,
+			jeff_abstained: decision.jeffAbstained,
 			timings_ms: { jeff: decision.jeffMs },
 		};
 		appendFileSync(options.traceFile, `${JSON.stringify(record)}\n`);
