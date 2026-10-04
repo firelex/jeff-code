@@ -15,6 +15,8 @@ checked 2026-10-04: confluence-markdown-exporter-92's reference solution passes 
 """
 
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import override
 
 from harbor.environments.base import BaseEnvironment
@@ -34,7 +36,12 @@ class EgressDocker(DockerEnvironment):
         """Harbor's kernel probe (a container reading /proc/config.gz) with up to 3 tries of 120 s each, instead of
         one try of 30 s: on a busy host (80 streams) the probe container timed out and Harbor then turned egress
         control off, so the session failed at the network switch (2 of about 200 SWE-rebench sessions on B200).
-        Raises when the kernel lacks the support, so the failure names its cause."""
+        Raises when the kernel lacks the support, so the failure names its cause. A success is remembered per
+        Docker kernel version in a file under the system temp folder (the probe takes about a minute on casdgx01)."""
+        kernel = subprocess.run([*cls._engine_cmd("info", "-f", "{{.KernelVersion}}")], capture_output=True, text=True, check=True).stdout.strip()
+        known = Path(tempfile.gettempdir()) / f"jeff-egress-kernel-ok-{kernel}"
+        if known.exists():
+            return True
         for attempt in range(3):
             try:
                 result = subprocess.run(
@@ -46,6 +53,7 @@ class EgressDocker(DockerEnvironment):
             except subprocess.TimeoutExpired:
                 continue
             if result.returncode == 0:
+                known.touch()
                 return True
             raise RuntimeError(
                 "the Docker host's kernel lacks CONFIG_NFT_FIB_INET, so Harbor cannot cut the container off from the "

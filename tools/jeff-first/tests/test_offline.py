@@ -66,14 +66,17 @@ def test_egress_docker_always_starts_the_egress_control_sidecar():
     assert EgressDocker._requires_egress_control(startup_network_policy=public, phase_network_policies=[public])
 
 
-def test_the_kernel_probe_retries_timeouts_and_names_a_missing_kernel_feature(monkeypatch):
+def test_the_kernel_probe_retries_timeouts_and_names_a_missing_kernel_feature(monkeypatch, tmp_path):
     import subprocess
 
     import pytest
 
     calls = []
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
 
     def run(cmd, **kwargs):
+        if "info" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "6.8.0-test\n", "")
         calls.append(kwargs["timeout"])
         if len(calls) < 3:
             raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
@@ -82,6 +85,8 @@ def test_the_kernel_probe_retries_timeouts_and_names_a_missing_kernel_feature(mo
     monkeypatch.setattr(subprocess, "run", run)
     assert EgressDocker._egress_control_kernel_support() is True
     assert calls == [120, 120, 120]
-    monkeypatch.setattr(subprocess, "run", lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 1, "", ""))
+    assert EgressDocker._egress_control_kernel_support() is True and len(calls) == 3  # remembered: no new probe
+    (tmp_path / "jeff-egress-kernel-ok-6.8.0-test").unlink()
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kwargs: subprocess.CompletedProcess(cmd, 0, "6.8.0-test\n", "") if "info" in cmd else subprocess.CompletedProcess(cmd, 1, "", ""))
     with pytest.raises(RuntimeError, match="CONFIG_NFT_FIB_INET"):
         EgressDocker._egress_control_kernel_support()
