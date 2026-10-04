@@ -130,7 +130,13 @@ def test_the_cli_plans_claims_and_releases(tmp_path):
     subprocess.run([*cli, "plan", str(sets), str(inventory), str(state), "b200", "--host", "b200:2", "--host", "rtx:1:small", "--counts", str(counts), "--seed", "1", "--dataset", PRO], check=True)
     order = json.loads((state / "queue.json").read_text())["order"]
     assert order[-1] == tid("t00") or tid("t00") not in order
-    first = subprocess.run([*cli, "claim", str(state), "s1", str(os.getpid())], capture_output=True, text=True, check=True).stdout.split()
+    # A stand-in docker whose root folder is tmp_path (plenty of free space on the test machine).
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(f"#!/bin/sh\necho {tmp_path}\n")
+    (bin_dir / "docker").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    first = subprocess.run([*cli, "claim", str(state), "s1", str(os.getpid())], capture_output=True, text=True, check=True, env=env).stdout.split()
     assert first == [order[0], "1"]
     subprocess.run([*cli, "release", str(state), "s1", order[0]], check=True)
     # Planning again over an existing queue would forget its claims: refused.
@@ -208,3 +214,21 @@ def test_appended_tasks_come_after_unrun_tasks_and_before_repeats(tmp_path):
     append(sets, inventory, state, "b200", {}, [("b200", 1, False)], ["benchflow/skillsbench"], seed=1)
     me = os.getpid()
     assert [claim(state, f"s{i}", me)[0] for i in range(3)] == ["b", "benchflow/skillsbench:k0", "a"]
+
+
+def test_no_claims_while_the_disk_is_below_the_floor(tmp_path):
+    from collect_queue import LOW_DISK, MIN_FREE_GB
+
+    state = make_queue(tmp_path, ["a"])
+    assert MIN_FREE_GB == 150
+    assert claim(state, "s1", os.getpid(), free_gb=149.9) is LOW_DISK
+    assert not (state / "claims.json").exists()
+    assert claim(state, "s1", os.getpid(), free_gb=151) == ("a", 1)
+
+
+def test_a_session_that_never_started_is_released_without_counting_as_a_run(tmp_path):
+    state = make_queue(tmp_path, ["a", "b"])
+    me = os.getpid()
+    assert claim(state, "s1", me) == ("a", 1)
+    release(state, "s1", "a", ran=False)  # e.g. Docker Hub's pull limit was hit before the session
+    assert claim(state, "s1", me) == ("a", 1)

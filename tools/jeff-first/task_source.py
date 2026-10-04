@@ -19,7 +19,8 @@ A task with a shorter limit keeps limit x run multiplier, as Terminal-Bench 2.0 
 Usage (run_phase0.sh calls these):
     python3 task_source.py check TASK_SETS INVENTORY TASK...        exits non-zero naming the first bad task id
     python3 task_source.py harbor-args TASK_SETS INVENTORY MULTIPLIER TASK
-        prints: <dataset@ref> <task package name for -i> <agent timeout multiplier> <file-safe name>
+        prints: <dataset@ref> <task package name for -i> <agent timeout multiplier> <file-safe name> <offline|online>
+    python3 task_source.py image TASK_SETS INVENTORY TASK     the image to pull before the session, or "-"
 """
 
 import json
@@ -34,6 +35,12 @@ TB2_DEFAULT_AGENT_SEC = 900
 TB2_FOLDERS = {"terminal-bench-2", "terminal-bench-2-1"}
 HUB_TASK = re.compile(r"^([a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*):([A-Za-z0-9][A-Za-z0-9._-]*)$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+# Run without internet (harbor_agent/offline.py; only the model's host stays reachable): a SWE task's agent could
+# otherwise fetch the upstream fix from GitHub. SWE-rebench's tests pass offline (checked 2026-10-04, see the report).
+OFFLINE_DATASETS = {"swe-rebench/swe-rebench-leaderboard"}
+# One large Docker Hub image per task (SWE-rebench: 671 images, ~1.3 TB): pulled before the session and removed after
+# it (hub_stream.sh), so the disk holds only the running tasks' images.
+ROTATED_DATASETS = {"swe-rebench/swe-rebench-leaderboard"}
 
 
 def is_hub_task(task_id: str) -> bool:
@@ -52,6 +59,8 @@ class HubTask:
     include: str  # the task's package name "<org>/<task>" for harbor run -i
     side: str
     agent_timeout_sec: float
+    offline: bool
+    image: str | None  # the Docker Hub image pulled before and removed after the session (ROTATED_DATASETS)
 
 
 @dataclass(frozen=True)
@@ -93,7 +102,12 @@ class TaskSets:
             raise ValueError(f"{task_id} needs a GPU ({row['gpus']}); collection runs without GPUs")
         if row["mcp_servers"]:
             raise ValueError(f"{task_id} needs MCP tools; pi gives the model only bash")
-        return HubTask(task_id, f"{hub}@{entry['hub']['ref']}", row["task_name"], side, float(row["agent_timeout_sec"]))
+        image = None
+        if hub in ROTATED_DATASETS:
+            image = row["dockerfile_base"]
+            if not image:
+                raise ValueError(f"{task_id}: its dataset's images are rotated, but the inventory names no base image")
+        return HubTask(task_id, f"{hub}@{entry['hub']['ref']}", row["task_name"], side, float(row["agent_timeout_sec"]), hub in OFFLINE_DATASETS, image)
 
     def training_ids(self) -> list[str]:
         """Every hub training task id (Terminal-Bench 2.0 / 2.1 left out: those run by bare name)."""
@@ -133,7 +147,7 @@ def safe_name(task_id: str) -> str:
 def hub_harbor_args(sets: TaskSets, task_id: str, run_multiplier: float) -> list[str]:
     task = sets.resolve(task_id)
     multiplier = agent_timeout_multiplier(task.agent_timeout_sec, run_multiplier)
-    return [task.dataset_spec, task.include, format(multiplier, ".17g"), safe_name(task_id)]
+    return [task.dataset_spec, task.include, format(multiplier, ".17g"), safe_name(task_id), "offline" if task.offline else "online"]
 
 
 def main(argv: list[str]) -> None:
@@ -146,6 +160,10 @@ def main(argv: list[str]) -> None:
     if len(argv) == 5 and argv[0] == "harbor-args":
         sets = load_task_sets(Path(argv[1]), Path(argv[2]))
         print(" ".join(hub_harbor_args(sets, argv[4], float(argv[3]))))
+        return
+    if len(argv) == 4 and argv[0] == "image":
+        image = load_task_sets(Path(argv[1]), Path(argv[2])).resolve(argv[3]).image if is_hub_task(argv[3]) else None
+        print(image or "-")
         return
     raise SystemExit(__doc__)
 

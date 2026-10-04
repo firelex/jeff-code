@@ -108,12 +108,12 @@ jobs=$(cd "$jobs" && pwd)
 run_one() {
   local task=$1
   # Terminal-Bench 2.0 by bare name; a hub task from its pinned dataset, with its agent time capped (task_source.py).
-  local dataset="terminal-bench@2.0" include=$task multiplier=$timeout_multiplier name=$task
+  local dataset="terminal-bench@2.0" include=$task multiplier=$timeout_multiplier name=$task network=online
   case "$task" in
     *:*)
       local spec
       spec=$(python3 "$here/task_source.py" harbor-args "$JEFF_RUN_TASK_SETS" "$JEFF_RUN_TASK_INVENTORY" "$timeout_multiplier" "$task") || return 1
-      read -r dataset include multiplier name <<< "$spec"
+      read -r dataset include multiplier name network <<< "$spec"
       ;;
   esac
   local job_name
@@ -127,6 +127,12 @@ run_one() {
     --agent-timeout-multiplier "$multiplier"
   )
   if [ "$tools" != default ]; then command+=(--ak "tools=$tools"); fi
+  if [ "$network" = offline ]; then
+    # No internet once pi runs (harbor_agent/offline.py); only the model's host (BASE_URL's) stays reachable.
+    local model_host=${base_url#*://}
+    model_host=${model_host%%[:/]*}
+    command+=(--env harbor_agent.offline:EgressDocker --ak "allowed_hosts=$model_host")
+  fi
   if [ "$thinking" != off ]; then
     command+=(--ak "thinking_format=$JEFF_RUN_THINKING_FORMAT" --ak "max_output_tokens=$JEFF_RUN_MAX_OUTPUT_TOKENS")
   fi

@@ -123,6 +123,7 @@ def test_harbor_args_and_safe_names(tmp_path):
         "terminal-bench-pro/slow-b",
         "0.1875",
         "terminal-bench-pro.terminal-bench-pro.slow-b",
+        "online",
     ]
     assert safe_name("terminal-bench-pro/terminal-bench-pro:slow-b") == "terminal-bench-pro.terminal-bench-pro.slow-b"
 
@@ -131,7 +132,7 @@ def test_the_cli_prints_the_harbor_args_and_fails_loudly(tmp_path):
     sets_path, inventory_path = write_task_sets(tmp_path)
     run = [sys.executable, str(HERE / "task_source.py"), "harbor-args", str(sets_path), str(inventory_path), "6"]
     out = subprocess.run([*run, "terminal-bench-pro/terminal-bench-pro:fix-a"], capture_output=True, text=True, check=True)
-    assert out.stdout.split() == [f"terminal-bench-pro/terminal-bench-pro@{PRO_REF}", "terminal-bench-pro/fix-a", "6", "terminal-bench-pro.terminal-bench-pro.fix-a"]
+    assert out.stdout.split() == [f"terminal-bench-pro/terminal-bench-pro@{PRO_REF}", "terminal-bench-pro/fix-a", "6", "terminal-bench-pro.terminal-bench-pro.fix-a", "online"]
     bad = subprocess.run([*run, "terminal-bench-pro/terminal-bench-pro:held-x"], capture_output=True, text=True)
     assert bad.returncode != 0 and "no task held-x" in bad.stderr
     check = [sys.executable, str(HERE / "task_source.py"), "check", str(sets_path), str(inventory_path)]
@@ -157,3 +158,31 @@ def test_the_real_task_sets_pin_every_training_dataset_and_resolve_all_training_
         task = sets.resolve(task_id)
         assert task.side == "training"
         assert task.agent_timeout_sec * float(agent_timeout_multiplier(task.agent_timeout_sec, 6)) <= 5400
+
+
+def add_swe_rebench(sets_path: Path, inventory_path: Path) -> str:
+    data = json.loads(sets_path.read_text())
+    data["datasets"]["swe-rebench-leaderboard"] = {
+        "hub": {"name": "swe-rebench/swe-rebench-leaderboard", "ref": "sha256:" + "e" * 64, "revision": 2},
+        "training": ["ASPP__pelita-863"],
+        "held_out": [],
+        "excluded": {},
+    }
+    sets_path.write_text(json.dumps(data))
+    rows = json.loads(inventory_path.read_text())
+    rows.append({"dataset": "swe-rebench-leaderboard", "task": "ASPP__pelita-863", "task_name": "swe-rebench/ASPP__pelita-863", "agent_timeout_sec": 3000, "gpus": 0, "mcp_servers": 0, "dockerfile_base": "swerebench/sweb.eval.x86_64.aspp_1776_pelita-863:latest"})
+    inventory_path.write_text(json.dumps(rows))
+    return "swe-rebench/swe-rebench-leaderboard:ASPP__pelita-863"
+
+
+def test_swe_rebench_runs_offline_from_a_rotated_image(tmp_path):
+    sets_path, inventory_path = write_task_sets(tmp_path)
+    task_id = add_swe_rebench(sets_path, inventory_path)
+    sets = load_task_sets(sets_path, inventory_path)
+    assert hub_harbor_args(sets, task_id, 6)[-1] == "offline"
+    assert sets.resolve(task_id).image == "swerebench/sweb.eval.x86_64.aspp_1776_pelita-863:latest"
+    assert sets.resolve("terminal-bench-pro/terminal-bench-pro:fix-a").image is None
+    run = [sys.executable, str(HERE / "task_source.py"), "image", str(sets_path), str(inventory_path)]
+    assert subprocess.run([*run, task_id], capture_output=True, text=True, check=True).stdout.strip() == "swerebench/sweb.eval.x86_64.aspp_1776_pelita-863:latest"
+    assert subprocess.run([*run, "terminal-bench-pro/terminal-bench-pro:fix-a"], capture_output=True, text=True, check=True).stdout.strip() == "-"
+    assert subprocess.run([*run, "adaptive-rejection-sampler"], capture_output=True, text=True, check=True).stdout.strip() == "-"

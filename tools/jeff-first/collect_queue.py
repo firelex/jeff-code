@@ -29,6 +29,8 @@ import fcntl
 import json
 import os
 import random
+import shutil
+import subprocess
 import sys
 from collections import Counter
 from contextlib import contextmanager
@@ -38,6 +40,10 @@ from task_source import load_task_sets
 
 SEED = 20261004
 ALL_RUNNING = None
+LOW_DISK = "low disk"
+# Free space Docker's disk must keep; below it no task is claimed (streams wait), so pulled images and builds never
+# fill the disk.
+MIN_FREE_GB = 150
 SMALL_CPUS, SMALL_MEMORY_MB = 4, 8192
 
 
@@ -133,7 +139,10 @@ def append(task_sets: Path, inventory: Path, state: Path, host: str, counts: dic
     return mine
 
 
-def claim(state: Path, stream: str, pid: int) -> tuple[str, int] | None:
+def claim(state: Path, stream: str, pid: int, free_gb: float | None = None) -> tuple[str, int] | None | str:
+    """`free_gb`: free space on Docker's disk; below MIN_FREE_GB nothing is claimed (LOW_DISK)."""
+    if free_gb is not None and free_gb < MIN_FREE_GB:
+        return LOW_DISK
     with _locked(state) as claims:
         queue = json.loads((state / "queue.json").read_text())
         running = claims["running"]
@@ -152,12 +161,15 @@ def claim(state: Path, stream: str, pid: int) -> tuple[str, int] | None:
         return task, runs[task] + 1
 
 
-def release(state: Path, stream: str, task: str) -> None:
+def release(state: Path, stream: str, task: str, ran: bool = True) -> None:
+    """`ran=False`: the session never started (e.g. Docker Hub's pull limit), so the claim does not count as a run."""
     with _locked(state) as claims:
         held = claims["running"].get(stream)
         if held is None or held["task"] != task:
             raise ValueError(f"stream {stream} does not run {task} (it holds {held})")
         del claims["running"][stream]
+        if not ran:
+            claims["claims"][task] -= 1
 
 
 def _task_id(config: dict) -> str:
@@ -210,6 +222,7 @@ def main(argv: list[str]) -> None:
     r.add_argument("state", type=Path)
     r.add_argument("stream")
     r.add_argument("task")
+    r.add_argument("--not-run", action="store_true", help="the session never started: do not count the claim as a run")
     args = parser.parse_args(argv)
     if args.command == "count":
         args.out.write_text(json.dumps(count_finished(args.folders), indent=1) + "\n")
@@ -237,12 +250,16 @@ def main(argv: list[str]) -> None:
         (args.state / "queue.json").write_text(json.dumps({"host": args.this_host, "hosts": args.host, "seed": args.seed, "order": order, "finished_before": {t: counts[t] for t in order if counts.get(t)}}, indent=1) + "\n")
         print(f"{args.this_host}: {len(order)} tasks of {sum(len(q) for q in queues.values())}; " + ", ".join(f"{h} {len(q)}" for h, q in queues.items()))
     elif args.command == "claim":
-        got = claim(args.state, args.stream, args.pid)
+        root = subprocess.run(["docker", "info", "-f", "{{.DockerRootDir}}"], capture_output=True, text=True, check=True).stdout.strip()
+        got = claim(args.state, args.stream, args.pid, free_gb=shutil.disk_usage(root).free / 1e9)
         if got is ALL_RUNNING:
+            sys.exit(3)
+        if got == LOW_DISK:
+            print(f"{root} has less than {MIN_FREE_GB} GB free: not claiming", file=sys.stderr)
             sys.exit(3)
         print(f"{got[0]} {got[1]}")
     else:
-        release(args.state, args.stream, args.task)
+        release(args.state, args.stream, args.task, ran=not args.not_run)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,10 @@ from harbor.agents.installed.node_install import nvm_node_install_snippet
 from harbor.agents.installed.pi import Pi, PiOptions
 from harbor.agents.options import Cli
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 from pydantic import Field
+
+from harbor_agent.offline import cut_off
 
 REMOTE_TARBALL = "/tmp/jeff-pi.tgz"
 # Prints "present" when curl is on PATH, "bullseye" for Debian 11 without curl, "other" otherwise (also when the image
@@ -43,6 +46,13 @@ class JeffPiOptions(PiOptions):
         description=(
             "How pi switches the model's thinking on (pi's compat.thinkingFormat), e.g. qwen-chat-template. Required "
             "when thinking is on: Harbor's model entry does not say the model can reason, so pi would send no switch."
+        ),
+    )
+    allowed_hosts: str | None = Field(
+        default=None,
+        description=(
+            "Comma-separated hosts (the model's) that stay reachable when the container is cut off from the internet "
+            "just before pi runs; needs --env harbor_agent.offline:EgressDocker (see offline.py). Unset: no change."
         ),
     )
     max_output_tokens: int | None = Field(
@@ -93,6 +103,15 @@ class JeffPi(Pi):
                 model["compat"] = {"thinkingFormat": self.options.thinking_format}
                 model["maxTokens"] = self.options.max_output_tokens
         return models_json
+
+    @override
+    async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
+        if self.options.allowed_hosts is not None:
+            hosts = [host.strip() for host in self.options.allowed_hosts.split(",")]
+            if not all(hosts):
+                raise ValueError(f"allowed_hosts {self.options.allowed_hosts!r} has an empty entry")
+            await cut_off(environment, hosts)
+        await super().run(instruction, environment, context)
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:

@@ -92,3 +92,18 @@ def test_unknown_or_excluded_tasks_stop_the_run_before_anything_starts(tmp_path,
     result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler", task], env)
     assert result.returncode != 0 and message in result.stderr
     assert result.stdout == ""
+
+
+def test_an_offline_task_runs_in_the_egress_controlled_environment_with_only_the_model_host_allowed(tmp_path):
+    from tests.test_task_source import add_swe_rebench
+
+    sets, inventory = write_task_sets(tmp_path)
+    task_id = add_swe_rebench(sets, inventory)
+    env = {"JEFF_RUN_TASK_SETS": str(sets), "JEFF_RUN_TASK_INVENTORY": str(inventory)}
+    result = run(tmp_path, SCRIPT, [task_id, "terminal-bench-pro/terminal-bench-pro:fix-a"], env)
+    assert result.returncode == 0, result.stderr
+    offline = next(line for line in result.stdout.splitlines() if "pelita" in line)
+    assert "--env harbor_agent.offline:EgressDocker" in offline and "--ak allowed_hosts=192.168.3.12" in offline
+    assert "--agent-timeout-multiplier 1.8 " in offline  # 50 minutes x 1.8 = 90 minutes
+    online = next(line for line in result.stdout.splitlines() if "fix-a" in line)
+    assert "EgressDocker" not in online and "allowed_hosts" not in online

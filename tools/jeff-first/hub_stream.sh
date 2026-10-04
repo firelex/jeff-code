@@ -3,7 +3,11 @@
 # with the xhigh collection's settings (record mode, scout build 8db5381f3, router fixed:xhigh, output cap 32,768,
 # bash only, multiplier 6, run approval all), releases it, and repeats until stopped (tmux kill-session). The session
 # lands in OUT/round<k>/, k = the task's run number (1 = its first session). When every task of the queue is running,
-# it waits a minute and asks again.
+# or Docker's disk has less than 150 GB free (collect_queue.py), it waits a minute and asks again.
+# Rotated datasets (task_source.py ROTATED_DATASETS, SWE-rebench): the task's Docker Hub image is pulled before the
+# session (image_pull.py: one pull at a time per host, at least PULL_INTERVAL seconds apart, default 40, so the two
+# hosts sharing one Docker Hub account stay under its 200 pulls per hour) and removed after it. On Docker Hub's
+# rate-limit error the claim is released without counting as a run and the stream waits 15 minutes.
 # Usage: hub_stream.sh COLLECT_DIR QUEUE_DIR URL OUT_FOLDER DRIVER_BUILD STREAM
 #   COLLECT_DIR holds jeff-pi-scout-8db5381f3.tgz and hub/ (tools/jeff-first, task-sets.json, task-sets-inventory.json)
 set -euo pipefail
@@ -25,9 +29,29 @@ while true; do
 	if [ "$status" = 3 ]; then sleep 60; continue; fi
 	[ "$status" = 0 ] || { echo "$(date -Is) claim failed (exit $status)" >> "$OUT/run.log"; exit "$status"; }
 	read -r task run <<< "$got"
-	mkdir -p "$OUT/round$run"
 	echo "$(date -Is) claimed $task (run $run)" >> "$OUT/run.log"
+	image=$(python3 "$HUB/tools/jeff-first/task_source.py" image "$HUB/task-sets.json" "$HUB/task-sets-inventory.json" "$task")
+	if [ "$image" != - ]; then
+		status=0
+		python3 "$HUB/tools/jeff-first/image_pull.py" pull "$image" "$HUB/pull-lock" "${PULL_INTERVAL:-40}" >> "$OUT/run.log" 2>&1 || status=$?
+		if [ "$status" = 75 ]; then
+			echo "$(date -Is) RATE LIMITED pulling $image: $task released without counting a run; waiting 15 minutes" >> "$OUT/run.log"
+			python3 "$HUB/tools/jeff-first/collect_queue.py" release "$QUEUE" "$STREAM" "$task" --not-run
+			sleep 900
+			continue
+		fi
+		if [ "$status" != 0 ]; then
+			echo "$(date -Is) PULL FAILED for $image (exit $status): $task counts as run $run without a session" >> "$OUT/run.log"
+			python3 "$HUB/tools/jeff-first/collect_queue.py" release "$QUEUE" "$STREAM" "$task"
+			continue
+		fi
+	fi
+	mkdir -p "$OUT/round$run"
 	bash "$HUB/tools/jeff-first/run_phase0.sh" "$HUB/task-sets.json" "$TGZ" "$URL" "$OUT/round$run" 1 high bash qwen3.8-27b record 6 "$task" \
 		>> "$OUT/run.log" 2>&1 || echo "$(date -Is) session on $task exited $?" >> "$OUT/run.log"
 	python3 "$HUB/tools/jeff-first/collect_queue.py" release "$QUEUE" "$STREAM" "$task"
+	if [ "$image" != - ]; then
+		python3 "$HUB/tools/jeff-first/image_pull.py" remove "$image" >> "$OUT/run.log" 2>&1 \
+			|| echo "$(date -Is) REMOVAL FAILED for $image (see above)" >> "$OUT/run.log"
+	fi
 done
