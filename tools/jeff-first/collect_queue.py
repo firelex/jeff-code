@@ -48,12 +48,24 @@ def _small(row: dict) -> bool:
     return row["cpus"] <= SMALL_CPUS and row["memory_mb"] <= SMALL_MEMORY_MB and not row["compose_services"]
 
 
-def plan(task_sets: Path, inventory: Path, counts: dict[str, int], hosts: list[tuple[str, int, bool]], seed: int = SEED) -> dict[str, list[str]]:
-    """Each host's queue (see the module docstring). hosts: (name, streams, small only)."""
+def _training_tasks(sets, datasets: list[str]) -> list[str]:
+    """The training task ids of the named hub datasets (e.g. benchflow/skillsbench); unknown names raise."""
+    unknown = sorted(set(datasets) - set(sets.datasets))
+    if unknown or not datasets:
+        raise ValueError(f"datasets {unknown or datasets} are not pinned hub datasets of task-sets.json ({', '.join(sorted(sets.datasets))})")
+    return [task for task in sets.training_ids() if task.split(":")[0] in datasets]
+
+
+def plan(task_sets: Path, inventory: Path, counts: dict[str, int], hosts: list[tuple[str, int, bool]], datasets: list[str], seed: int = SEED) -> dict[str, list[str]]:
+    """Each host's queue of the training tasks of `datasets` (see the module docstring). hosts: (name, streams, small
+    only)."""
+    sets = load_task_sets(task_sets, inventory)
+    return _split(sets, _training_tasks(sets, datasets), counts, hosts, seed)
+
+
+def _split(sets, tasks: list[str], counts: dict[str, int], hosts: list[tuple[str, int, bool]], seed: int) -> dict[str, list[str]]:
     if len({name for name, _, _ in hosts}) != len(hosts) or any(streams <= 0 for _, streams, _ in hosts):
         raise ValueError(f"hosts need distinct names and a positive number of streams: {hosts}")
-    sets = load_task_sets(task_sets, inventory)
-    tasks = sets.training_ids()
     rows = {}
     for task in tasks:
         resolved = sets.resolve(task)
@@ -96,9 +108,34 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def append(task_sets: Path, inventory: Path, state: Path, host: str, counts: dict[str, int], hosts: list[tuple[str, int, bool]], datasets: list[str], seed: int = SEED) -> list[str]:
+    """Adds the training tasks of `datasets` (read from task-sets.json now) to this host's running queue, after every
+    task already in it, without touching claims. The new tasks are split between hosts as `plan` splits (by stream
+    share, from the new tasks alone), so every host given the same arguments appends a disjoint share. A dataset with
+    a task already in the queue raises (appending twice would split differently)."""
+    sets = load_task_sets(task_sets, inventory)
+    new = _training_tasks(sets, datasets)
+    mine = _split(sets, new, counts, hosts, seed)[host] if host in {h for h, _, _ in hosts} else None
+    if mine is None:
+        raise ValueError(f"host {host} is not among {hosts}")
+    with _locked(state):
+        queue_path = state / "queue.json"
+        queue = json.loads(queue_path.read_text())
+        already = sorted(set(new) & set(queue["order"]))
+        if already:
+            raise ValueError(f"{state}: {len(already)} of the tasks are already queued (e.g. {already[0]}); not appending")
+        queue["order"] += mine
+        queue["finished_before"].update({t: counts[t] for t in mine if counts.get(t)})
+        queue.setdefault("appended", []).append({"datasets": datasets, "hosts": [f"{h}:{n}{':small' if s else ''}" for h, n, s in hosts], "seed": seed, "tasks": len(mine), "of": len(new)})
+        tmp = state / "queue.json.tmp"
+        tmp.write_text(json.dumps(queue, indent=1) + "\n")
+        os.replace(tmp, queue_path)
+    return mine
+
+
 def claim(state: Path, stream: str, pid: int) -> tuple[str, int] | None:
-    queue = json.loads((state / "queue.json").read_text())
     with _locked(state) as claims:
+        queue = json.loads((state / "queue.json").read_text())
         running = claims["running"]
         for name in [name for name, held in running.items() if not _alive(held["pid"])]:
             del running[name]
@@ -155,6 +192,16 @@ def main(argv: list[str]) -> None:
     p.add_argument("--host", action="append", required=True, help="NAME:STREAMS or NAME:STREAMS:small")
     p.add_argument("--counts", type=Path, action="append", default=[])
     p.add_argument("--seed", type=int, default=SEED)
+    p.add_argument("--dataset", action="append", required=True, help="hub dataset name, e.g. terminal-bench-pro/terminal-bench-pro")
+    a = sub.add_parser("append")
+    a.add_argument("task_sets", type=Path)
+    a.add_argument("inventory", type=Path)
+    a.add_argument("state", type=Path)
+    a.add_argument("this_host")
+    a.add_argument("--host", action="append", required=True, help="NAME:STREAMS or NAME:STREAMS:small")
+    a.add_argument("--counts", type=Path, action="append", default=[])
+    a.add_argument("--seed", type=int, default=SEED)
+    a.add_argument("--dataset", action="append", required=True, help="hub dataset name, e.g. benchflow/skillsbench")
     k = sub.add_parser("claim")
     k.add_argument("state", type=Path)
     k.add_argument("stream")
@@ -166,9 +213,7 @@ def main(argv: list[str]) -> None:
     args = parser.parse_args(argv)
     if args.command == "count":
         args.out.write_text(json.dumps(count_finished(args.folders), indent=1) + "\n")
-    elif args.command == "plan":
-        if (args.state / "queue.json").exists():
-            raise SystemExit(f"{args.state} already holds a queue; planning again would forget its claims")
+    elif args.command in ("plan", "append"):
         hosts = []
         for spec in args.host:
             parts = spec.split(":")
@@ -178,7 +223,13 @@ def main(argv: list[str]) -> None:
         counts: Counter = Counter()
         for path in args.counts:
             counts.update(json.loads(path.read_text()))
-        queues = plan(args.task_sets, args.inventory, dict(counts), hosts, args.seed)
+        if args.command == "append":
+            mine = append(args.task_sets, args.inventory, args.state, args.this_host, dict(counts), hosts, args.dataset, args.seed)
+            print(f"{args.this_host}: appended {len(mine)} tasks of {', '.join(args.dataset)}")
+            return
+        if (args.state / "queue.json").exists():
+            raise SystemExit(f"{args.state} already holds a queue; planning again would forget its claims")
+        queues = plan(args.task_sets, args.inventory, dict(counts), hosts, args.dataset, args.seed)
         if args.this_host not in queues:
             raise SystemExit(f"host {args.this_host} is not among --host {args.host}")
         order = queues[args.this_host]

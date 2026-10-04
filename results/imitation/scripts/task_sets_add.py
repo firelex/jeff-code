@@ -58,6 +58,22 @@ GB = 1e9
 INSTALL_GB = {"plain": 0.32, "heavy": 1.34}
 LIGHT_INSTALL_GB = 0.05
 
+# Harbor hub version of each added dataset, pinned to the `latest` version on 2026-10-04 (the version downloaded;
+# `harbor version list <org>/<name> --json`): (hub name, revision, content digest).
+HUB = {
+    "deep-swe-1-1": ("datacurve/deep-swe-1-1", 1, "sha256:5affcd534fd90ac85d202d4c63f8b35ddc942140afdd5d60014a21365440a2f5"),
+    "orca-bench": ("orca-bench/orca-bench", 3, "sha256:3e53f8f8e64b58400549e793b280b59166a0dd64ccb656657c29c9f5f98b02c3"),
+    "skillsbench": ("benchflow/skillsbench", 3, "sha256:145925c10bc09425dc0201772cfa50d9b800010081cf5ad77969554a644d7ae1"),
+    "slopcodebench": ("gabeorlanski/slopcodebench", 4, "sha256:aec29354c19d3e762640ab6d7d3c63ba8fcf4895e98a5756aecb9157b5bb4ae0"),
+    "swe-atlas-qna": ("scale-ai/swe-atlas-qna", 1, "sha256:0e26bc0313ae2fc6f912b67b928e648c7f20d17d91f765f702a93042ce5be0e4"),
+    "swe-atlas-rf": ("scale-ai/swe-atlas-rf", 1, "sha256:5f65e33ebd80c3998b2f82d6c78349da1acce1823e4b18e4851f980a03b2ad93"),
+    "swe-atlas-tw": ("scale-ai/swe-atlas-tw", 2, "sha256:1fe41edad7c1cc96925f100be0d314804cc45f55a9a5b7c8583354f4bca30b44"),
+    "swe-rebench-leaderboard": ("swe-rebench/swe-rebench-leaderboard", 2, "sha256:ebe7444e313a0d8db94fa541139826eaebe2b0abcd4900c6f73e750494910dca"),
+}
+# Tasks barred from collection for a reason the inventory does not show (read by hand, 2026-10-04).
+EXCLUDE = {
+    ("skillsbench", "drone-planning-control"): "passes the host's ANTHROPIC_API_KEY into its container (environment/docker-compose.yaml); task containers never hold a real key",
+}
 SOURCES = {
     "swe-rebench-leaderboard": "swe-rebench/swe-rebench-leaderboard@1.0.1",
     "deep-swe-1-1": "datacurve/deep-swe-1-1@1.0.0 (DeepSWE 1.1, the latest; datacurve/deep-swe is 1.0)",
@@ -268,6 +284,7 @@ def main() -> None:
     for ds in added:
         entry = {
             "source": "harbor download " + SOURCES[ds],
+            "hub": {"name": HUB[ds][0], "ref": HUB[ds][2], "revision": HUB[ds][1]},
             "policy": WHOLE_HELD_OUT.get(ds) or SPLIT_POLICY[ds],
             "training": [],
             "held_out": [],
@@ -279,7 +296,9 @@ def main() -> None:
             root = uf.find(k)
             s = side[root]
             reason = None
-            if r["mcp_servers"]:
+            if k in EXCLUDE:
+                reason = EXCLUDE[k]
+            elif r["mcp_servers"]:
                 reason = "needs MCP tools (pi gives the model only bash)"
             elif s == "training" and ds in WHOLE_HELD_OUT:
                 reason = forced[root] + "; its dataset is kept whole as held-out, so it is not trained on either"

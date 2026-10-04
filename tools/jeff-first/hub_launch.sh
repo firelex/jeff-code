@@ -4,14 +4,15 @@
 # First counts this host's finished sessions (runs-collect-xhigh*; counts-*.json copied from other hosts into
 # COLLECT_DIR/hub are added) and plans this host's queue (collect_queue.py plan) unless COLLECT_DIR/hub/queue exists.
 # Every host must be given the same --host list, so all hosts compute the same split of tasks.
-# Usage: hub_launch.sh [--dry-run] COLLECT_DIR THIS_HOST OLD_LAUNCHER --host NAME:STREAMS[:small] ...
+# Usage: hub_launch.sh [--dry-run] COLLECT_DIR THIS_HOST OLD_LAUNCHER --host NAME:STREAMS[:small] ... --dataset HUB_NAME ...
 #   e.g. hub_launch.sh /raid/work/jeff-first/collect b200 collect_launch_b200.sh \
-#          --host b200:48 --host casdgx01:24 --host datigator:6:small
+#          --host b200:48 --host casdgx01:24 --host datigator:6:small --dataset terminal-bench-pro/terminal-bench-pro ...
+# Datasets added later go into the running queues with collect_queue.py append (same --host list on every host).
 # Streams run in tmux -L jeffcollect sessions hub-<stream>; output in COLLECT_DIR/runs-collect-xhigh-hub/<stream>/.
 set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
-[ $# -ge 5 ] || { sed -n '2,11p' "$0" >&2; exit 2; }
+[ $# -ge 5 ] || { sed -n '2,12p' "$0" >&2; exit 2; }
 C=$(cd "$1" && pwd) HOST=$2 OLD=$3
 shift 3
 HUB=$C/hub

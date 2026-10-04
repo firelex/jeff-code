@@ -245,6 +245,11 @@
   },
   "deep-swe-1-1": {
    "source": "harbor download datacurve/deep-swe-1-1@1.0.0 (DeepSWE 1.1, the latest; datacurve/deep-swe is 1.0)",
+   "hub": {
+    "name": "datacurve/deep-swe-1-1",
+    "ref": "sha256:5affcd534fd90ac85d202d4c63f8b35ddc942140afdd5d60014a21365440a2f5",
+    "revision": 1
+   },
    "policy": "DeepSWE is a test benchmark for frontier coding agents with a public leaderboard and no training split; kept whole so its numbers stay comparable. SWE-rebench already supplies SWE training tasks",
    "training": [],
    "held_out": [
@@ -591,6 +596,11 @@
   },
   "orca-bench": {
    "source": "harbor download orca-bench/orca-bench@2.0.0 (public split)",
+   "hub": {
+    "name": "orca-bench/orca-bench",
+    "ref": "sha256:3e53f8f8e64b58400549e793b280b59166a0dd64ccb656657c29c9f5f98b02c3",
+    "revision": 3
+   },
    "policy": "ORCA-bench test benchmark (root cause analysis). Its tasks share telemetry snapshots: grouped by snapshot and incident events they form 17 groups, and the 40 tasks of its reported verified subset sit in 15 of them, so no split keeps that subset held out. It also needs a patched Harbor, privileged containers with the host Docker socket, and a language-model judge",
    "training": [],
    "held_out": [
@@ -1355,6 +1365,11 @@
   },
   "skillsbench": {
    "source": "harbor download benchflow/skillsbench@2.0.1 (SkillsBench v1.1)",
+   "hub": {
+    "name": "benchflow/skillsbench",
+    "ref": "sha256:145925c10bc09425dc0201772cfa50d9b800010081cf5ad77969554a644d7ae1",
+    "revision": 3
+   },
    "policy": "seeded group split, 50% held out (Terminal-Bench-style tasks; numbers are not comparable with the published ones anyway, because pi does not load the benchmark's skill folders)",
    "training": [
     "3d-scan-calc",
@@ -1365,7 +1380,6 @@
     "crystallographic-wyckoff-position-analysis",
     "dapt-intrusion-detection",
     "data-to-d3",
-    "drone-planning-control",
     "earthquake-phase-association",
     "earthquake-plate-calculation",
     "econ-detrending-correlation",
@@ -1447,7 +1461,9 @@
     "weighted-gdp-calc",
     "xlsx-recover-data"
    ],
-   "excluded": {},
+   "excluded": {
+    "drone-planning-control": "passes the host's ANTHROPIC_API_KEY into its container (environment/docker-compose.yaml); task containers never hold a real key"
+   },
    "forced_side": {
     "jpg-ocr-stat": "held_out: same group as held-out task(s) harbor-index-1.0/skillsbench-ocr-receipts-to-excel",
     "shock-analysis-demand": "held_out: same group as held-out task(s) harbor-index-1.0/skillsbench-model-investment-shock-gdp",
@@ -1456,6 +1472,11 @@
   },
   "slopcodebench": {
    "source": "harbor download gabeorlanski/slopcodebench@4.0.0",
+   "hub": {
+    "name": "gabeorlanski/slopcodebench",
+    "ref": "sha256:aec29354c19d3e762640ab6d7d3c63ba8fcf4895e98a5756aecb9157b5bb4ae0",
+    "revision": 4
+   },
    "policy": "SlopCodeBench is a leaderboard benchmark (scbench.ai) of 36 multi-step tasks (196 checkpoints, 2 h agent limit per checkpoint); our runner has not been tried on Harbor multi-step tasks",
    "training": [],
    "held_out": [
@@ -1501,6 +1522,11 @@
   },
   "swe-atlas-qna": {
    "source": "harbor download scale-ai/swe-atlas-qna@1.0.0",
+   "hub": {
+    "name": "scale-ai/swe-atlas-qna",
+    "ref": "sha256:0e26bc0313ae2fc6f912b67b928e648c7f20d17d91f765f702a93042ce5be0e4",
+    "revision": 1
+   },
    "policy": "SWE-Atlas (Scale AI leaderboard) test benchmark; graded by a language-model judge with rubrics (default Claude Opus 4.5), so every training rollout would cost a judge call",
    "training": [],
    "held_out": [
@@ -1634,6 +1660,11 @@
   },
   "swe-atlas-rf": {
    "source": "harbor download scale-ai/swe-atlas-rf@1.0.0",
+   "hub": {
+    "name": "scale-ai/swe-atlas-rf",
+    "ref": "sha256:5f65e33ebd80c3998b2f82d6c78349da1acce1823e4b18e4851f980a03b2ad93",
+    "revision": 1
+   },
    "policy": "SWE-Atlas (Scale AI leaderboard) test benchmark; graded by a language-model judge with rubrics",
    "training": [],
    "held_out": [
@@ -1713,6 +1744,11 @@
   },
   "swe-atlas-tw": {
    "source": "harbor download scale-ai/swe-atlas-tw@1.1.0",
+   "hub": {
+    "name": "scale-ai/swe-atlas-tw",
+    "ref": "sha256:1fe41edad7c1cc96925f100be0d314804cc45f55a9a5b7c8583354f4bca30b44",
+    "revision": 2
+   },
    "policy": "SWE-Atlas (Scale AI leaderboard) test benchmark; graded by a language-model judge with rubrics",
    "training": [],
    "held_out": [
@@ -2334,6 +2370,11 @@
   },
   "swe-rebench-leaderboard": {
    "source": "harbor download swe-rebench/swe-rebench-leaderboard@1.0.1",
+   "hub": {
+    "name": "swe-rebench/swe-rebench-leaderboard",
+    "ref": "sha256:ebe7444e313a0d8db94fa541139826eaebe2b0abcd4900c6f73e750494910dca",
+    "revision": 2
+   },
    "policy": "repository-level seeded split: about 15% of repositories (all their tasks) held out as our own validation benchmark; the rest train (owner decision)",
    "training": [
     "ASPP__pelita-863",

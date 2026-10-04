@@ -6,11 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from collect_queue import ALL_RUNNING, claim, count_finished, plan, release
+from collect_queue import ALL_RUNNING, append, claim, count_finished, plan, release
 from tests.test_task_source import write_task_sets
 
 HERE = Path(__file__).resolve().parent.parent
-DEAD_PID = 2**22 + 12345  # above Linux's and macOS's pid limits, so never alive
+DEAD_PID = 2**22 + 12345
+PRO = "terminal-bench-pro/terminal-bench-pro"  # above Linux's and macOS's pid limits, so never alive
 
 
 def task_sets(tmp_path: Path, n: int = 12) -> tuple[Path, Path]:
@@ -36,7 +37,7 @@ def tid(t: str) -> str:
 
 def test_plan_gives_every_task_to_exactly_one_host_by_stream_share_and_big_tasks_to_big_hosts(tmp_path):
     sets, inventory = task_sets(tmp_path)
-    queues = plan(sets, inventory, {}, [("b200", 6, False), ("rtx", 3, True)], seed=1)
+    queues = plan(sets, inventory, {}, [("b200", 6, False), ("rtx", 3, True)], [PRO], seed=1)
     every = queues["b200"] + queues["rtx"]
     assert sorted(every) == sorted(tid(f"t{i:02d}") for i in range(12))
     assert len(set(every)) == 12
@@ -47,14 +48,14 @@ def test_plan_gives_every_task_to_exactly_one_host_by_stream_share_and_big_tasks
 def test_plan_puts_tasks_with_finished_sessions_last_fewest_first_and_is_deterministic(tmp_path):
     sets, inventory = task_sets(tmp_path)
     counts = {tid("t00"): 3, tid("t01"): 1, "adaptive-rejection-sampler": 6}
-    queues = plan(sets, inventory, counts, [("b200", 1, False)], seed=1)
+    queues = plan(sets, inventory, counts, [("b200", 1, False)], [PRO], seed=1)
     order = queues["b200"]
     assert order[-2:] == [tid("t01"), tid("t00")]
     assert "adaptive-rejection-sampler" not in order  # Terminal-Bench 2.0 is not queued
-    assert plan(sets, inventory, counts, [("b200", 1, False)], seed=1) == queues
+    assert plan(sets, inventory, counts, [("b200", 1, False)], [PRO], seed=1) == queues
     # The partition does not depend on the counts, so hosts that see different counts still agree on it.
     two = [("b200", 2, False), ("cas", 1, False)]
-    assert {h: set(q) for h, q in plan(sets, inventory, counts, two, seed=1).items()} == {h: set(q) for h, q in plan(sets, inventory, {}, two, seed=1).items()}
+    assert {h: set(q) for h, q in plan(sets, inventory, counts, two, [PRO], seed=1).items()} == {h: set(q) for h, q in plan(sets, inventory, {}, two, [PRO], seed=1).items()}
 
 
 def make_queue(tmp_path: Path, tasks: list[str], finished: dict | None = None) -> Path:
@@ -126,14 +127,14 @@ def test_the_cli_plans_claims_and_releases(tmp_path):
     counts = tmp_path / "counts.json"
     subprocess.run([*cli, "count", str(counts), str(root)], check=True)
     state = tmp_path / "queue-b200"
-    subprocess.run([*cli, "plan", str(sets), str(inventory), str(state), "b200", "--host", "b200:2", "--host", "rtx:1:small", "--counts", str(counts), "--seed", "1"], check=True)
+    subprocess.run([*cli, "plan", str(sets), str(inventory), str(state), "b200", "--host", "b200:2", "--host", "rtx:1:small", "--counts", str(counts), "--seed", "1", "--dataset", PRO], check=True)
     order = json.loads((state / "queue.json").read_text())["order"]
     assert order[-1] == tid("t00") or tid("t00") not in order
     first = subprocess.run([*cli, "claim", str(state), "s1", str(os.getpid())], capture_output=True, text=True, check=True).stdout.split()
     assert first == [order[0], "1"]
     subprocess.run([*cli, "release", str(state), "s1", order[0]], check=True)
     # Planning again over an existing queue would forget its claims: refused.
-    again = subprocess.run([*cli, "plan", str(sets), str(inventory), str(state), "b200", "--host", "b200:2"], capture_output=True, text=True)
+    again = subprocess.run([*cli, "plan", str(sets), str(inventory), str(state), "b200", "--host", "b200:2", "--dataset", PRO], capture_output=True, text=True)
     assert again.returncode != 0 and "already" in again.stderr
 
 
@@ -150,7 +151,7 @@ def test_hub_launch_takes_the_streams_urls_and_drivers_of_the_old_launcher(tmp_p
         'tmux -L jeffcollect new-session -d -s collect-b200-gpu0-1 "cd /c && bash collect_rounds.sh /c http://192.168.3.12:8885 runs-collect-xhigh2/b200-gpu0-s1 qwen3.8-27b-nvfp4@b200-gpu0-vllm0.29 0 10"\n'
         'tmux -L jeffcollect new-session -d -s collect-b200-gpu7-6 "cd /c && bash collect_rounds.sh /c http://192.168.3.12:8892 runs-collect-xhigh2/b200-gpu7-s6 qwen3.8-27b-nvfp4@b200-gpu7-vllm0.29 329 10"\n'
     )
-    result = subprocess.run(["bash", str(HERE / "hub_launch.sh"), "--dry-run", str(collect), "b200", "collect_launch_b200.sh", "--host", "b200:2", "--host", "rtx:1:small"], capture_output=True, text=True)
+    result = subprocess.run(["bash", str(HERE / "hub_launch.sh"), "--dry-run", str(collect), "b200", "collect_launch_b200.sh", "--host", "b200:2", "--host", "rtx:1:small", "--dataset", PRO], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     lines = [line for line in result.stdout.splitlines() if line.startswith("hub-")]
     c = collect.resolve()
@@ -160,3 +161,50 @@ def test_hub_launch_takes_the_streams_urls_and_drivers_of_the_old_launcher(tmp_p
     ]
     assert "b200: 3 tasks of 4" in result.stdout or "b200: 2 tasks of 4" in result.stdout
     assert not (collect / "hub" / "queue").exists()  # a dry run plans into a temporary folder
+
+
+def add_dataset(sets: Path, inventory: Path, folder: str, hub: str, tasks: list[str], excluded: dict | None = None) -> None:
+    data = json.loads(sets.read_text())
+    data["datasets"][folder] = {"hub": {"name": hub, "ref": "sha256:" + "d" * 64, "revision": 1}, "training": tasks, "held_out": [], "excluded": excluded or {}}
+    sets.write_text(json.dumps(data))
+    rows = json.loads(inventory.read_text())
+    org = hub.split("/")[0]
+    rows += [{"dataset": folder, "task": t, "task_name": f"{org}/{t}", "agent_timeout_sec": 900.0, "gpus": 0, "mcp_servers": 0, "cpus": 1, "memory_mb": 2048, "compose_services": []} for t in tasks + list((excluded or {}))]
+    inventory.write_text(json.dumps(rows))
+
+
+def test_append_adds_a_new_datasets_tasks_after_the_queue_disjointly_across_hosts_without_touching_claims(tmp_path):
+    sets, inventory = task_sets(tmp_path, n=4)
+    hosts = [("b200", 2, False), ("rtx", 1, True)]
+    states = {}
+    for host, order in plan(sets, inventory, {}, hosts, [PRO], seed=1).items():
+        states[host] = tmp_path / f"queue-{host}"
+        states[host].mkdir()
+        (states[host] / "queue.json").write_text(json.dumps({"order": order, "finished_before": {}}))
+    me = os.getpid()
+    first = claim(states["b200"], "s1", me)
+    before = json.loads((states["b200"] / "queue.json").read_text())["order"]
+    # Read at append time: the dataset is added (and one task excluded) after the queues were planned.
+    add_dataset(sets, inventory, "skillsbench", "benchflow/skillsbench", [f"k{i}" for i in range(6)], {"drone": "passes a key"})
+    skills = "benchflow/skillsbench"
+    counts = {f"{skills}:k0": 1}
+    added = {host: append(sets, inventory, state, host, counts, hosts, [skills], seed=1) for host, state in states.items()}
+    assert sorted(added["b200"] + added["rtx"]) == sorted(f"{skills}:k{i}" for i in range(6))
+    assert not set(added["b200"]) & set(added["rtx"])
+    assert len(added["b200"]) == 4 and len(added["rtx"]) == 2
+    queue = json.loads((states["b200"] / "queue.json").read_text())
+    assert queue["order"] == before + added["b200"]
+    assert json.loads((states["b200"] / "claims.json").read_text())["running"]["s1"]["task"] == first[0]
+    with pytest.raises(ValueError, match="already queued"):
+        append(sets, inventory, states["b200"], "b200", counts, hosts, [skills], seed=1)
+    with pytest.raises(ValueError, match="not pinned hub datasets"):
+        append(sets, inventory, states["b200"], "b200", counts, hosts, ["swe-rebench/swe-rebench-leaderboard"], seed=1)
+
+
+def test_appended_tasks_come_after_unrun_tasks_and_before_repeats(tmp_path):
+    state = make_queue(tmp_path, ["a", "b"], {"a": 1})
+    sets, inventory = task_sets(tmp_path, n=2)
+    add_dataset(sets, inventory, "skillsbench", "benchflow/skillsbench", ["k0"])
+    append(sets, inventory, state, "b200", {}, [("b200", 1, False)], ["benchflow/skillsbench"], seed=1)
+    me = os.getpid()
+    assert [claim(state, f"s{i}", me)[0] for i in range(3)] == ["b", "benchflow/skillsbench:k0", "a"]

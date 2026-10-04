@@ -140,17 +140,19 @@ def test_the_cli_prints_the_harbor_args_and_fails_loudly(tmp_path):
     assert bad.returncode != 0 and "excluded" in bad.stderr
 
 
-def test_the_real_task_sets_pin_every_dataset_and_resolve_all_182_new_training_tasks():
-    # 188 in the split, less 6 that need the model to see an image (excluded on 2026-10-04).
+def test_the_real_task_sets_pin_every_training_dataset_and_resolve_all_training_tasks():
     sets = load_task_sets(RESULTS / "task-sets.json", RESULTS / "task-sets-inventory.json")
     ids = sets.training_ids()
-    assert len(ids) == 182
-    assert {i.split(":")[0] for i in ids} == {
-        "terminal-bench-pro/terminal-bench-pro",
-        "terminal-bench/terminal-bench",
-        "terminal-bench-science/terminal-bench-science",
-        "harbor-index/harbor-index-1.0",
-    }
+    by_dataset = {}
+    for task_id in ids:
+        by_dataset[task_id.split(":")[0]] = by_dataset.get(task_id.split(":")[0], 0) + 1
+    # The first survey's 182 (188 less 6 that need the model to see an image), then the second survey's SkillsBench
+    # (43 less drone-planning-control, which passes an API key into its container) and SWE-rebench.
+    assert by_dataset["terminal-bench-pro/terminal-bench-pro"] + by_dataset["terminal-bench/terminal-bench"] + by_dataset[
+        "terminal-bench-science/terminal-bench-science"] + by_dataset["harbor-index/harbor-index-1.0"] == 182
+    assert by_dataset["benchflow/skillsbench"] == 42
+    assert "benchflow/skillsbench:drone-planning-control" not in ids
+    assert "swe-rebench/swe-rebench-leaderboard" in by_dataset
     for task_id in ids:
         task = sets.resolve(task_id)
         assert task.side == "training"
