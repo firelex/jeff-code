@@ -70,6 +70,7 @@ import argparse
 import collections
 import hashlib
 import json
+import math
 import re
 import sys
 import time
@@ -491,7 +492,7 @@ def predict(args):
                 elapsed = time.monotonic() - started
                 ordered = sorted(latencies)
                 print(f"{index}/{len(todo)} ({len(done)} done before): {index / elapsed:.2f} questions/s, median "
-                      f"{ordered[len(ordered) // 2]:.0f} ms, p90 {ordered[int(0.9 * (len(ordered) - 1))]:.0f} ms, "
+                      f"{ordered[len(ordered) // 2]:.0f} ms, p90 {ordered[math.ceil(0.9 * len(ordered)) - 1]:.0f} ms, "
                       f"busy waits {busy_total}", flush=True)
             if args.pause_ms:
                 time.sleep(args.pause_ms / 1000)
