@@ -426,3 +426,44 @@ def test_judge_check_sample_is_fixed():
     assert len(first) == 10 and len({p["pair"] for p in first}) == 10
     with pytest.raises(ValueError):
         rl.judge_check_pairs(labels, 51)
+
+
+# ------------------------------------------------------------------------------------------------ free match (owner)
+
+
+@pytest.mark.parametrize(("a", "b"), [
+    (["cat /app/a.py"], ["cat -n a.py | head -50"]),  # same file read
+    (["ls /app"], ["ls -la /app"]),  # same folder listed
+    (["python3  run.py --x 'a b'"], ['python3 run.py --x "a b"']),  # same command text after normalising
+])
+def test_free_match_when_the_full_target_is_the_same(a, b):
+    assert rl.free_match(a, b)
+
+
+@pytest.mark.parametrize(("a", "b"), [
+    (["python3 - <<'EOF'\nprint(1)\nEOF"], ["python3 - <<'EOF'\nprint(2)\nEOF"]),  # inline scripts: judge
+    (["python3 -c 'print(1)'"], ["python3 -c 'print(2)'"]),
+    (["cat > /app/a.py <<'EOF'\nx = 1\nEOF"], ["cat > /app/a.py <<'EOF'\nx = 2\nEOF"]),  # file writes: judge
+    (["sed -i 's/a/b/' /app/a.py"], ["sed -i 's/a/c/' /app/a.py"]),  # edits: judge
+    ([], []),  # two final answers (texts compared by the judge)
+    (["cat /app/a.py"], ["cat /app/b.py"]),
+])
+def test_no_free_match_for_scripts_writes_edits_and_answers(a, b):
+    assert not rl.free_match(a, b)
+
+
+def test_cascade_sends_a_different_inline_script_to_the_judge():
+    recorded = {"commands": ["python3 - <<'EOF'\nprint(1)\nEOF"], "final_text": None}
+    asker = FakeAsker({"off": ["python3 - <<'EOF'\nprint(2)\nEOF"]}, verdicts={"off vs recorded": True})
+    result = run(rl.cascade(asker, recorded, calibration=False))
+    assert asker.judged == ["off vs recorded"] and result["checks"]["off"]["by"] == "judge"
+
+
+def test_task_id_of_a_hub_trial(tmp_path):
+    trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 100)])
+    config = json.loads((trial / "config.json").read_text())
+    config["task"] = {"name": "terminal-bench-science/onsager-ising-lean", "ref": "sha256:a7",
+                      "source": "terminal-bench-science/terminal-bench-science"}
+    (trial / "config.json").write_text(json.dumps(config))
+    turns, _ = rl.recorded_turns(trial)
+    assert turns[0]["task"] == "terminal-bench-science/terminal-bench-science:onsager-ising-lean"

@@ -9,8 +9,9 @@ thinking levels, in order, and stops at the first level whose action is good:
   medium  thinking on, reasoning_effort "medium", as low;
   (none good: label "xhigh").
 
-An action is good when it has the same intent as the recorded (xhigh) action (thinking_off.py's intent: the same kind
-of step and the same target for each command), or else when a judge model says it serves the task as well
+An action is good when it is the same step as the recorded (xhigh) action without asking (`free_match`: the same
+commands, or the same intent with every target named in full, such as the same file read; never for inline scripts,
+program runs, file writes or edits, or final answers), or else when a judge model says it serves the task as well
 (`judge_messages`, the owner's validated prompt; thinking off, temperature 0, through judge_service.py; the reply must
 start with YES or NO, anything else raises). A reply without a usable action
 (output cap hit, generation loop cut off, a tool other than bash, unparsable arguments) is not good and is not judged.
@@ -59,10 +60,11 @@ from tokenizers import Tokenizer  # noqa: E402
 import ceiling  # noqa: E402
 import thinking_off  # noqa: E402
 from imitation.record_rows import _json_lines, trial_cut  # noqa: E402
-from imitation.stage3 import model_format  # noqa: E402
+from imitation.stage3 import model_format, task_id  # noqa: E402
 from thinking_off_run import CHECK_EVERY, looping  # noqa: E402
 
 CHEAP_LEVELS = ("off", "low", "medium")
+COARSE_KINDS = ("other", "writes")  # intent parts without a full target (free_match)
 OFF_MAX_TOKENS = 8192
 ROUTER = "fixed:xhigh"
 SENT_XHIGH = {"enable_thinking": True, "reasoning_effort": "xhigh"}
@@ -206,8 +208,18 @@ def usable_commands(record):
     return thinking_off.variant_commands(record)
 
 
-def same_intent(commands_a, commands_b):
-    return thinking_off.intent_of(commands_a) == thinking_off.intent_of(commands_b)
+def free_match(commands_a, commands_b):
+    """Whether two actions are the same step without asking the judge (owner, 2026-10-04: "substantially the same
+    result"). Either the same commands after normalising whitespace and quoting, or the same intent (thinking_off.py)
+    in which every part names its full target: a file read, a folder listed, a search, and so on. A part that runs
+    a program or an inline script ("other", the program name) or writes files ("writes") names no full target, and
+    two final answers can differ in their text: those always go to the judge."""
+    if commands_a and thinking_off.action_of(commands_a) == thinking_off.action_of(commands_b):
+        return True
+    intent = thinking_off.intent_of(commands_a)
+    if intent == thinking_off.FINAL or intent != thinking_off.intent_of(commands_b):
+        return False
+    return all(kind not in COARSE_KINDS for call in intent for kind, _ in call)
 
 
 # ------------------------------------------------------------------------------------------------ cascade
@@ -223,7 +235,7 @@ async def cascade(asker, recorded, calibration):
     async def check(reply, reference, key):
         if reply["commands"] is None:
             return {"good": False, "by": "no usable action"}
-        if same_intent(reply["commands"], reference["commands"]):
+        if free_match(reply["commands"], reference["commands"]):
             return {"good": True, "by": "intent"}
         verdict = await asker.judge(reference, reply, key)
         return {"good": verdict["verdict"], "by": "judge", "judge": verdict}
@@ -354,7 +366,7 @@ def recorded_turns(trial):
             "legacy": legacy,
             "trial": trial.name,
             "trial_dir": str(trial),
-            "task": config["task"]["path"],
+            "task": task_id(trial, config),
             "recording_machine": build,
             "session_id": session_id,
             "session_file": str(sessions[0]),
@@ -937,7 +949,7 @@ def stats_markdown(labels, excluded=()):
     w("")
 
     w("## How the checks decided\n")
-    w("| level | asked | same intent | judge YES | judge NO | no usable action |")
+    w("| level | asked | same step (free match) | judge YES | judge NO | no usable action |")
     w("|---|---:|---:|---:|---:|---:|")
     for level in CHEAP_LEVELS:
         checks = [t["checks"][level] for t in labels if level in t["checks"]]
