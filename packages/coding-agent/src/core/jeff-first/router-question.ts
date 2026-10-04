@@ -14,3 +14,14 @@ export const ROUTER_OPTIONS: Record<QwenThinkingLevel, string> = {
 	medium: "Some thinking before it answers.",
 	xhigh: "Long, careful thinking before it answers: it plans, checks its assumptions and considers other ways.",
 };
+
+/**
+ * The two levels of the flipped router rule (owner, 2026-10-04): a turn runs at thinking off unless the router is
+ * confident xhigh is needed. The router adapter trained on the "is the xhigh step materially better than the off
+ * step?" labels is asked with these two options only (same texts as in ROUTER_OPTIONS), so its probability for
+ * "xhigh" is read from this question. tools/jeff-first/imitation/export_routing.py holds a copy (checked by its test).
+ */
+export const ROUTER_OPTIONS_OFF_XHIGH: Record<"off" | "xhigh", string> = {
+	off: ROUTER_OPTIONS.off,
+	xhigh: ROUTER_OPTIONS.xhigh,
+};

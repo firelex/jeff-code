@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from imitation.export_routing import ROUTER_OPTIONS, ROUTER_QUESTION, export_routing, main, to_example
+from imitation.export_routing import (
+    ROUTER_OPTIONS,
+    ROUTER_OPTIONS_OFF_XHIGH,
+    ROUTER_QUESTION,
+    export_routing,
+    main,
+    to_example,
+)
 from tests.test_task_source import write_task_sets
 
 JEFF_FIRST_TS = Path(__file__).resolve().parents[3] / "packages" / "coding-agent" / "src" / "core" / "jeff-first"
@@ -38,13 +45,22 @@ def routing_row(task="train-task", turn=3, label="off", **extra) -> dict:
 def test_the_router_question_and_options_are_the_typescript_ones(tmp_path):
     script = tmp_path / "router.mjs"
     script.write_text(
-        f'import {{ ROUTER_OPTIONS, ROUTER_QUESTION }} from "{(JEFF_FIRST_TS / "router-question.ts").as_posix()}";\n'
-        "process.stdout.write(JSON.stringify({ question: ROUTER_QUESTION, options: ROUTER_OPTIONS }));\n"
+        f'import {{ ROUTER_OPTIONS, ROUTER_OPTIONS_OFF_XHIGH, ROUTER_QUESTION }} from "{(JEFF_FIRST_TS / "router-question.ts").as_posix()}";\n'
+        "process.stdout.write(JSON.stringify({ question: ROUTER_QUESTION, options: ROUTER_OPTIONS, two: ROUTER_OPTIONS_OFF_XHIGH }));\n"
     )
     done = subprocess.run(["node", str(script)], capture_output=True, text=True, check=True)
     typescript = json.loads(done.stdout)
     assert typescript["question"] == ROUTER_QUESTION
     assert list(typescript["options"].items()) == list(ROUTER_OPTIONS.items())
+    assert list(typescript["two"].items()) == list(ROUTER_OPTIONS_OFF_XHIGH.items())
+
+
+def test_the_off_xhigh_level_set_asks_two_options_and_refuses_other_labels():
+    example = to_example(routing_row(label="xhigh"), ROUTER_OPTIONS_OFF_XHIGH)
+    assert example["question"]["criteria"] == ROUTER_OPTIONS_OFF_XHIGH
+    assert example["label"] == "xhigh"
+    with pytest.raises(ValueError, match="label 'medium' is not one of off, xhigh"):
+        to_example(routing_row(label="medium"), ROUTER_OPTIONS_OFF_XHIGH)
 
 
 def test_a_row_becomes_an_example_with_the_router_question_and_the_four_levels():

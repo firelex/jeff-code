@@ -47,18 +47,22 @@ ROUTER_OPTIONS = {
     "medium": "Some thinking before it answers.",
     "xhigh": "Long, careful thinking before it answers: it plans, checks its assumptions and considers other ways.",
 }
+# The flipped rule's two levels (router-question.ts ROUTER_OPTIONS_OFF_XHIGH): rows labelled by "is the xhigh step
+# materially better than the off step?" (results/imitation/scripts/rejudge_labels.py) carry only off or xhigh.
+ROUTER_OPTIONS_OFF_XHIGH = {level: ROUTER_OPTIONS[level] for level in ("off", "xhigh")}
+LEVEL_SETS = {"four": ROUTER_OPTIONS, "off-xhigh": ROUTER_OPTIONS_OFF_XHIGH}
 
 
 def example_id(row: dict) -> str:
     return f"{row['source']}:route:{row['task']}:{row['session']}:{row['turn']}"
 
 
-def to_example(row: dict) -> dict:
+def to_example(row: dict, router_options: dict[str, str] = ROUTER_OPTIONS) -> dict:
     identifier = example_id(row)
     label = row["routing"]["label"]
-    if label not in ROUTER_OPTIONS:
-        raise ValueError(f"routing row {identifier}: label {label!r} is not one of {', '.join(ROUTER_OPTIONS)}")
-    options = [{"id": level, "description": text} for level, text in ROUTER_OPTIONS.items()]
+    if label not in router_options:
+        raise ValueError(f"routing row {identifier}: label {label!r} is not one of {', '.join(router_options)}")
+    options = [{"id": level, "description": text} for level, text in router_options.items()]
     return {
         "id": identifier,
         "suite": row["task"],
@@ -80,7 +84,8 @@ def to_example(row: dict) -> dict:
     }
 
 
-def export_routing(row_files: Sequence[Path], splits: dict, task_sets_path: Path, out: Path) -> dict[str, int]:
+def export_routing(row_files: Sequence[Path], splits: dict, task_sets_path: Path, out: Path,
+                   router_options: dict[str, str] = ROUTER_OPTIONS) -> dict[str, int]:
     """Write the three split files under `out` (which must not hold them yet); returns the examples per split. Every
     row is checked (label, split, no repeated id) before anything is written."""
     paths = {name: out / f"{name}.jsonl" for name in SPLITS}
@@ -95,7 +100,7 @@ def export_routing(row_files: Sequence[Path], splits: dict, task_sets_path: Path
             if not line.strip():
                 continue
             row = json.loads(line)
-            example = to_example(row)
+            example = to_example(row, router_options)
             if example["id"] in seen:
                 raise ValueError(f"the routing row {example['id']} appears more than once")
             seen.add(example["id"])
@@ -114,8 +119,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--splits", type=Path, required=True, help="results/imitation/splits.json")
     parser.add_argument("--task-sets", type=Path, required=True, help="results/imitation/task-sets.json")
     parser.add_argument("--out", type=Path, required=True, help="Folder for train.jsonl, development.jsonl and temperature.jsonl")
+    parser.add_argument("--levels", choices=sorted(LEVEL_SETS), default="four",
+                        help="the options asked: the four levels, or off and xhigh only (the flipped rule's labels)")
     args = parser.parse_args(argv)
-    counts = export_routing(args.rows, json.loads(args.splits.read_text()), args.task_sets, args.out)
+    counts = export_routing(args.rows, json.loads(args.splits.read_text()), args.task_sets, args.out,
+                            LEVEL_SETS[args.levels])
     print(json.dumps(counts))
 
 
