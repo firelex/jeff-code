@@ -23,7 +23,10 @@
 #                JEFF_FIRST_RUN_APPROVAL (all, seen or never) and JEFF_FIRST_DRIVER_BUILD, e.g.
 #                qwen3.8-27b-nvfp4@spark-head) or record (plain Qwen works alone; at every turn, logs the scout's
 #                full option lists for later labelling; needs JEFF_FIRST_RUN_APPROVAL and JEFF_FIRST_DRIVER_BUILD,
-#                same meaning as in teacher mode, but no teacher URL or model)
+#                same meaning as in teacher mode, but no teacher URL or model); teacher and record also need
+#                JEFF_FIRST_THINKING_ROUTER, how hard Qwen thinks in each request: fixed:off, fixed:low, fixed:medium
+#                or fixed:xhigh (it overrides THINKING per request; THINKING must not be off unless the router is
+#                fixed:off, since pi then marks the model as unable to think)
 #   TIMEOUT_MULTIPLIER  positive number that multiplies each task's agent time limit (Harbor's
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
 #                the teacher's (GLM's) latency never decides a task through the time limit
@@ -38,7 +41,7 @@ set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
 if [ $# -lt 10 ]; then
-  sed -n '5,33p' "$0" >&2
+  sed -n '5,36p' "$0" >&2
   exit 2
 fi
 tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9 timeout_multiplier=${10}
@@ -63,15 +66,18 @@ case "$mode" in
     [ -n "${JEFF_FIRST_TEACHER_MODEL:-}" ] || { echo "MODE teacher needs JEFF_FIRST_TEACHER_MODEL" >&2; exit 2; }
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE teacher needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE teacher needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
+    case "${JEFF_FIRST_THINKING_ROUTER:-}" in fixed:off|fixed:low|fixed:medium|fixed:xhigh) ;; *) echo "MODE teacher needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium or fixed:xhigh" >&2; exit 2 ;; esac
     ;;
   record)
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE record needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE record needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
+    case "${JEFF_FIRST_THINKING_ROUTER:-}" in fixed:off|fixed:low|fixed:medium|fixed:xhigh) ;; *) echo "MODE record needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium or fixed:xhigh" >&2; exit 2 ;; esac
     ;;
   *) echo "MODE must be shadow, teacher or record" >&2; exit 2 ;;
 esac
 export JEFF_FIRST_TEACHER_URL="${JEFF_FIRST_TEACHER_URL:-}" JEFF_FIRST_TEACHER_MODEL="${JEFF_FIRST_TEACHER_MODEL:-}"
 export JEFF_RUN_THINKING_FORMAT="${JEFF_RUN_THINKING_FORMAT:-}" JEFF_RUN_MAX_OUTPUT_TOKENS="${JEFF_RUN_MAX_OUTPUT_TOKENS:-}" JEFF_FIRST_RUN_APPROVAL="${JEFF_FIRST_RUN_APPROVAL:-}" JEFF_FIRST_DRIVER_BUILD="${JEFF_FIRST_DRIVER_BUILD:-}"
+export JEFF_FIRST_THINKING_ROUTER="${JEFF_FIRST_THINKING_ROUTER:-}"
 
 if [ $# -gt 0 ]; then
   tasks=("$@")
@@ -109,10 +115,12 @@ run_one() {
     command+=(
       --ae "JEFF_FIRST_TEACHER_URL=$JEFF_FIRST_TEACHER_URL" --ae "JEFF_FIRST_TEACHER_MODEL=$JEFF_FIRST_TEACHER_MODEL"
       --ae "JEFF_FIRST_RUN_APPROVAL=$JEFF_FIRST_RUN_APPROVAL" --ae "JEFF_FIRST_DRIVER_BUILD=$JEFF_FIRST_DRIVER_BUILD"
+      --ae "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER"
     )
   elif [ "$mode" = record ]; then
     command+=(
       --ae "JEFF_FIRST_RUN_APPROVAL=$JEFF_FIRST_RUN_APPROVAL" --ae "JEFF_FIRST_DRIVER_BUILD=$JEFF_FIRST_DRIVER_BUILD"
+      --ae "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER"
     )
   fi
   if [ "$dry_run" = 1 ]; then
@@ -134,7 +142,7 @@ run_one() {
 }
 export -f run_one
 export here tarball base_url jobs thinking tools model mode timeout_multiplier dry_run JEFF_RUN_API_KEY \
-  JEFF_RUN_THINKING_FORMAT JEFF_RUN_MAX_OUTPUT_TOKENS JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD
+  JEFF_RUN_THINKING_FORMAT JEFF_RUN_MAX_OUTPUT_TOKENS JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD JEFF_FIRST_THINKING_ROUTER
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
 if ! printf '%s\n' "${tasks[@]}" | xargs -P "$concurrency" -I{} bash -c 'run_one "$1"' _ {}; then
