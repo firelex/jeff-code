@@ -21,6 +21,8 @@ export type JeffFirstConfig =
 			driverBuild: string;
 			thinkingRouter: ThinkingRouterSpec;
 			outputTrim: OutputTrimSpec;
+			/** JEFF_FIRST_THINKING_LIMIT: thinking tokens per reply before it is cut and continued; null = off. */
+			thinkingLimit: number | null;
 	  }
 	| {
 			mode: "jeff";
@@ -35,6 +37,8 @@ export type JeffFirstConfig =
 			driverBuild: string;
 			thinkingRouter: ThinkingRouterSpec;
 			outputTrim: OutputTrimSpec;
+			/** JEFF_FIRST_THINKING_LIMIT: thinking tokens per reply before it is cut and continued; null = off. */
+			thinkingLimit: number | null;
 	  }
 	| {
 			mode: "record";
@@ -44,6 +48,8 @@ export type JeffFirstConfig =
 			driverBuild: string;
 			thinkingRouter: ThinkingRouterSpec;
 			outputTrim: OutputTrimSpec;
+			/** JEFF_FIRST_THINKING_LIMIT: thinking tokens per reply before it is cut and continued; null = off. */
+			thinkingLimit: number | null;
 	  };
 
 function required(env: NodeJS.ProcessEnv, mode: string, name: string, meaning: string): string {
@@ -64,6 +70,26 @@ function requireRunApproval(env: NodeJS.ProcessEnv, mode: string): RunApproval {
 		throw new Error(`JeffFirst: JEFF_FIRST_RUN_APPROVAL must be all, seen or never, got "${approval}"`);
 	}
 	return approval as RunApproval;
+}
+
+/**
+ * JEFF_FIRST_THINKING_LIMIT, required in teacher, record and jeff modes: "off", or the most thinking tokens one reply
+ * of the coding model may use (a whole number, for example 8000) before it is cut and continued (thinking-control.ts).
+ */
+export function readThinkingLimit(env: NodeJS.ProcessEnv, mode: string): number | null {
+	const value = env.JEFF_FIRST_THINKING_LIMIT;
+	if (value === undefined || value === "") {
+		throw new Error(
+			`JeffFirst: JEFF_FIRST_MODE=${mode} needs JEFF_FIRST_THINKING_LIMIT, the most thinking tokens one reply of the coding model may use before it is cut: off or a whole number such as 8000`,
+		);
+	}
+	if (value === "off") return null;
+	if (!/^[1-9]\d*$/.test(value)) {
+		throw new Error(
+			`JeffFirst: JEFF_FIRST_THINKING_LIMIT must be off or a whole number of tokens such as 8000, got "${value}"`,
+		);
+	}
+	return Number(value);
 }
 
 export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
@@ -96,6 +122,7 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 			driverBuild,
 			thinkingRouter: readThinkingRouterSpec(env, mode),
 			outputTrim: readOutputTrimSpec(env, mode),
+			thinkingLimit: readThinkingLimit(env, mode),
 		};
 	}
 	if (mode === "jeff") {
@@ -135,6 +162,7 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 			driverBuild,
 			thinkingRouter: readThinkingRouterSpec(env, mode),
 			outputTrim: readOutputTrimSpec(env, mode),
+			thinkingLimit: readThinkingLimit(env, mode),
 		};
 	}
 	const teacherUrl = required(
@@ -166,5 +194,6 @@ export function readJeffFirstConfig(env: NodeJS.ProcessEnv): JeffFirstConfig {
 		driverBuild,
 		thinkingRouter: readThinkingRouterSpec(env, mode),
 		outputTrim: readOutputTrimSpec(env, mode),
+		thinkingLimit: readThinkingLimit(env, mode),
 	};
 }

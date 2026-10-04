@@ -8,14 +8,16 @@ import {
 	createAssistantMessageEventStream,
 	type Model,
 	type SimpleStreamOptions,
+	type ThinkingContent,
 	type ToolCall,
+	type Usage,
 } from "@earendil-works/pi-ai";
 import { repeatedAction } from "./loop-guard.ts";
 import { findRunaway } from "./runaway.ts";
 import { trimState } from "./state.ts";
 import { describeError, errorStream, JEFF_FIRST_ERROR_PREFIX } from "./stream.ts";
 import type { QwenThinkingLevel, ThinkingRouter } from "./thinking.ts";
-import type { GuardTrigger, QwenRequestRecord, TraceWriter } from "./trace.ts";
+import type { GuardTrigger, LimitCut, QwenRequestRecord, TraceWriter } from "./trace.ts";
 import { activeToolNames, collectSteps, taskText } from "./transcript.ts";
 
 /** The thinking level of a re-ask after a loop or a runaway (owner: one re-ask, for that turn only). */
@@ -32,6 +34,20 @@ export interface ThinkingControlOptions {
 	router: ThinkingRouter;
 	/** True for the session's own agent turns; compaction and summaries pass no session id. */
 	isSessionTurn: (sessionId: string | undefined) => boolean;
+	/** JEFF_FIRST_THINKING_LIMIT: the most thinking tokens one reply may use before it is cut; null for no limit. */
+	thinkingLimit: number | null;
+}
+
+/** The thinking of a reply cut at the limit: the text so far and the server's output-token count at the cut. */
+interface ThinkingCut {
+	thinking: string;
+	/** The field the server streamed the thinking in (pi's thinkingSignature), kept on the joined reply. */
+	signature: string | undefined;
+	tokens: number;
+	/** The events of the reply up to the cut (the cut thinking's own events). */
+	events: AssistantMessageEvent[];
+	usage: Usage;
+	ms: number;
 }
 
 /** One request to the coding model, read to its end before anything is passed on. */
@@ -42,6 +58,42 @@ interface Attempt {
 	runaway: Extract<GuardTrigger, { trigger: "runaway" }> | null;
 	sent: QwenRequestRecord["sent"];
 	ms: number;
+	/** Set when the reply's thinking reached the limit and was cut (the reply is then the cut joined to its
+	 * continuation, see joinCut). */
+	limitCut: LimitCut | null;
+}
+
+/** Stops a reply's thinking at the limit (set) or continues a reply from its cut thinking (continueFrom). */
+type LimitMode = { kind: "none" } | { kind: "limit"; tokens: number } | { kind: "continue"; thinking: string };
+
+/**
+ * The request body changes the thinking limit needs, on top of pi's own body:
+ * - limit: every streamed chunk carries the output tokens so far (vLLM stream_options.continuous_usage_stats), so the
+ *   thinking is counted as the server counts output tokens;
+ * - continue: the request ends with the cut reply as an assistant message (its thinking in the "reasoning" field, no
+ *   answer yet) and asks the server to continue that message (vLLM continue_final_message, no generation prompt).
+ *   The prompt is then the chat template's rendering of a reply with that thinking, up to and including the closing
+ *   "</think>" (the template follows it with "\n\n" and the answer, which the model writes); a test of the live
+ *   server checked this token for token (thinking-limit section of the JeffFirst report).
+ */
+function limitPayload(payload: unknown, mode: LimitMode): unknown {
+	if (mode.kind === "none") return payload;
+	if (payload === null || typeof payload !== "object") {
+		throw new Error("the thinking limit needs pi's request body as an object");
+	}
+	const body = payload as { stream_options?: object; messages?: unknown };
+	const counted = {
+		...body,
+		stream_options: { ...body.stream_options, include_usage: true, continuous_usage_stats: true },
+	};
+	if (mode.kind === "limit") return counted;
+	if (!Array.isArray(body.messages)) throw new Error("the thinking limit's continuation needs pi's request messages");
+	return {
+		...counted,
+		messages: [...body.messages, { role: "assistant", content: "", reasoning: mode.thinking }],
+		continue_final_message: true,
+		add_generation_prompt: false,
+	};
 }
 
 /** Reads enable_thinking and reasoning_effort from the request body pi sent (chat_template_kwargs). */
@@ -68,7 +120,8 @@ async function runAttempt(
 	context: Parameters<StreamFn>[1],
 	streamOptions: SimpleStreamOptions | undefined,
 	level: QwenThinkingLevel,
-): Promise<Attempt> {
+	limit: LimitMode,
+): Promise<{ attempt: Attempt; cut: ThinkingCut | null }> {
 	const controller = new AbortController();
 	const outerSignal = streamOptions?.signal;
 	const abortFromOuter = () => controller.abort(outerSignal?.reason);
@@ -85,38 +138,158 @@ async function runAttempt(
 			signal: controller.signal,
 			onPayload: async (payload, payloadModel) => {
 				const replaced = await outerOnPayload?.(payload, payloadModel);
-				sent = sentThinking(replaced ?? payload);
-				return replaced;
+				const next = limit.kind === "none" ? replaced : limitPayload(replaced ?? payload, limit);
+				sent = sentThinking(next ?? payload);
+				return next;
 			},
 		});
 		const events: AssistantMessageEvent[] = [];
 		const pieces = new Map<number, { text: string; checkedAt: number }>();
 		let runaway: Attempt["runaway"] = null;
+		let cut: ThinkingCut | null = null;
 		for await (const event of stream) {
 			if (event.type === "done" || event.type === "error") break;
+			if (cut) continue;
 			events.push(event);
 			if (runaway || (event.type !== "thinking_delta" && event.type !== "text_delta")) continue;
 			const piece = pieces.get(event.contentIndex) ?? { text: "", checkedAt: 0 };
 			piece.text += event.delta;
 			pieces.set(event.contentIndex, piece);
-			if (piece.text.length - piece.checkedAt < RUNAWAY_CHECK_CHARS) continue;
-			piece.checkedAt = piece.text.length;
-			const found = findRunaway(piece.text);
-			if (!found) continue;
-			runaway = {
-				trigger: "runaway",
-				where: event.type === "thinking_delta" ? "thinking" : "text",
-				rule: found.rule,
-				repeated: found.rule === "repeated_piece" ? found.piece : found.line,
-				count: found.rule === "repeated_piece" ? found.repeats : found.count,
-			};
-			controller.abort(new Error("JeffFirst stopped a runaway generation"));
+			if (piece.text.length - piece.checkedAt >= RUNAWAY_CHECK_CHARS) {
+				piece.checkedAt = piece.text.length;
+				const found = findRunaway(piece.text);
+				if (found) {
+					runaway = {
+						trigger: "runaway",
+						where: event.type === "thinking_delta" ? "thinking" : "text",
+						rule: found.rule,
+						repeated: found.rule === "repeated_piece" ? found.piece : found.line,
+						count: found.rule === "repeated_piece" ? found.repeats : found.count,
+					};
+					controller.abort(new Error("JeffFirst stopped a runaway generation"));
+					continue;
+				}
+			}
+			// The limit: checked on each piece of thinking after the runaway rules, while the reply is still all
+			// thinking. The count is the server's own output-token count so far (every chunk carries it).
+			if (
+				limit.kind === "limit" &&
+				event.type === "thinking_delta" &&
+				event.partial.usage.output >= limit.tokens &&
+				event.partial.content.every((part) => part.type === "thinking")
+			) {
+				const block = event.partial.content[event.contentIndex] as ThinkingContent;
+				cut = {
+					thinking: block.thinking,
+					signature: block.thinkingSignature,
+					tokens: event.partial.usage.output,
+					events: [...events],
+					usage: { ...event.partial.usage },
+					ms: performance.now() - started,
+				};
+				controller.abort(new Error("JeffFirst stopped the thinking at its limit"));
+			}
 		}
 		const final = await stream.result();
-		return { level, events, final, runaway, sent, ms: performance.now() - started };
+		return { attempt: { level, events, final, runaway, sent, ms: performance.now() - started, limitCut: null }, cut };
 	} finally {
 		outerSignal?.removeEventListener("abort", abortFromOuter);
 	}
+}
+
+function addUsage(a: Usage, b: Usage): Usage {
+	return {
+		input: a.input + b.input,
+		output: a.output + b.output,
+		cacheRead: a.cacheRead + b.cacheRead,
+		cacheWrite: a.cacheWrite + b.cacheWrite,
+		reasoning: (a.reasoning ?? 0) + (b.reasoning ?? 0),
+		totalTokens: a.totalTokens + b.totalTokens,
+		cost: {
+			input: a.cost.input + b.cost.input,
+			output: a.cost.output + b.cost.output,
+			cacheRead: a.cost.cacheRead + b.cost.cacheRead,
+			cacheWrite: a.cost.cacheWrite + b.cost.cacheWrite,
+			total: a.cost.total + b.cost.total,
+		},
+	};
+}
+
+/**
+ * One reply as the session sees it after a cut: the cut thinking followed by the continuation's answer, as if Qwen
+ * had written both in one reply. The usage is the sum of both requests (the thinking counted once, at the cut).
+ */
+function joinCut(cut: ThinkingCut, continuation: Attempt, sent: QwenRequestRecord["sent"]): Attempt {
+	const thinking: ThinkingContent = { type: "thinking", thinking: cut.thinking, thinkingSignature: cut.signature };
+	const final: AssistantMessage = {
+		...continuation.final,
+		content: [thinking, ...continuation.final.content],
+		usage: addUsage(cut.usage, continuation.final.usage),
+	};
+	const shifted = continuation.events
+		.filter((event) => event.type !== "start")
+		.map((event) =>
+			"contentIndex" in event
+				? { ...event, contentIndex: event.contentIndex + 1, partial: final }
+				: { ...event, partial: final },
+		) as AssistantMessageEvent[];
+	const events: AssistantMessageEvent[] = [
+		...cut.events,
+		{ type: "thinking_end", contentIndex: 0, content: cut.thinking, partial: final },
+		...shifted,
+	];
+	const calls = continuation.final.content.some((part) => part.type === "toolCall");
+	const stop = continuation.final.stopReason;
+	const outcome: LimitCut["continuation"]["outcome"] = continuation.runaway
+		? "runaway"
+		: stop === "error" || stop === "aborted"
+			? "error"
+			: calls
+				? "tool_call"
+				: "no_tool_call";
+	return {
+		level: continuation.level,
+		events,
+		final,
+		runaway: continuation.runaway,
+		sent,
+		ms: cut.ms + continuation.ms,
+		limitCut: {
+			thinking_tokens: cut.tokens,
+			thinking_chars: cut.thinking.length,
+			continuation: {
+				outcome,
+				stop_reason: stop,
+				error_message: continuation.final.errorMessage ?? null,
+				output_tokens: continuation.final.usage.output,
+			},
+			timings_ms: { thinking: cut.ms, continuation: continuation.ms },
+		},
+	};
+}
+
+/**
+ * One request at `level` with the thinking limit: when the thinking reaches the limit, the request is stopped and a
+ * second request continues the same reply from the cut thinking (no added words), with the same settings; the two
+ * are joined into one reply (joinCut). A continuation that fails or brings no tool call is passed on as it is, like
+ * any reply without a tool call; the trace says so (limit_cut.continuation.outcome).
+ */
+async function runLimited(
+	inner: StreamFn,
+	model: Model<Api>,
+	context: Parameters<StreamFn>[1],
+	streamOptions: SimpleStreamOptions | undefined,
+	level: QwenThinkingLevel,
+	limit: number | null,
+): Promise<Attempt> {
+	const mode: LimitMode = limit === null ? { kind: "none" } : { kind: "limit", tokens: limit };
+	const { attempt, cut } = await runAttempt(inner, model, context, streamOptions, level, mode);
+	if (!cut || attempt.runaway || streamOptions?.signal?.aborted) return attempt;
+	const { attempt: continuation } = await runAttempt(inner, model, context, streamOptions, level, {
+		kind: "continue",
+		thinking: cut.thinking,
+	});
+	return joinCut(cut, continuation, attempt.sent);
 }
 
 /** Passes an accepted reply on as if it had streamed now, marked with the thinking level it was generated at. */
@@ -144,6 +317,9 @@ function replay(attempt: Attempt): AssistantMessageEventStream {
  *    no file written since, is discarded (it never enters the session) and the turn is asked again once at "xhigh".
  * 3. Runaway cut-off: a reply whose thinking or text keeps repeating itself is stopped and the turn is asked again once
  *    at "xhigh"; if that re-ask runs away too, the turn ends with a JeffFirst error (no further retries).
+ * 4. Thinking limit (JEFF_FIRST_THINKING_LIMIT, at every level, also on a re-ask): checked on the same stream after
+ *    the runaway rules; when a reply's thinking reaches the limit, it is cut and continued (runLimited). The joined
+ *    reply then goes through the loop guard like any reply, and a continuation that runs away is a runaway (re-ask).
  *
  * Every request writes a "qwen_request" trace line (see QwenRequestRecord). Replies are read to their end before
  * they are passed on, since any reply may be discarded: the session shows a reply only once it is complete.
@@ -206,6 +382,8 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 					cache_read: final.usage.cacheRead,
 					cache_write: final.usage.cacheWrite,
 				},
+				thinking_limit: options.thinkingLimit,
+				limit_cut: attempt.limitCut,
 				timings_ms: { model: attempt.ms, router: number === 1 && routed ? routed.ms : null },
 			});
 		};
@@ -227,7 +405,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 				);
 			}
 
-			const first = await runAttempt(options.inner, model, context, streamOptions, level);
+			const first = await runLimited(options.inner, model, context, streamOptions, level, options.thinkingLimit);
 			let trigger: GuardTrigger | null = first.runaway;
 			// A request the user aborted is passed on as it is; only the guard's own stop is a runaway.
 			if (!trigger && GUARDED_LEVELS.includes(level) && first.final.stopReason === "toolUse") {
@@ -247,7 +425,14 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 			}
 			writeLine(first, 1, "discarded", trigger);
 
-			const second = await runAttempt(options.inner, model, context, streamOptions, REASK_LEVEL);
+			const second = await runLimited(
+				options.inner,
+				model,
+				context,
+				streamOptions,
+				REASK_LEVEL,
+				options.thinkingLimit,
+			);
 			if (second.runaway && !streamOptions?.signal?.aborted) {
 				writeLine(second, 2, "turn_ended", second.runaway);
 				return errorStream(

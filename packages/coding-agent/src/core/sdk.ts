@@ -417,15 +417,21 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// at every model turn without acting on them; teacher mode lets the teacher model scout first; jeff mode lets the
 	// trained Jeff scout first, through its service.
 	const isSessionTurn = (sessionId: string | undefined) => sessionId === sessionManager.getSessionId();
-	// Teacher and record modes: the thinking router sets each Qwen request's thinking level, with the loop guard and
-	// the runaway cut-off around it.
-	const thinkingControlled = (config: { taskId: string; traceFile: string; thinkingRouter: ThinkingRouterSpec }) =>
+	// Teacher, record and jeff modes: the thinking router sets each Qwen request's thinking level, with the loop guard,
+	// the runaway cut-off and the thinking limit around it.
+	const thinkingControlled = (config: {
+		taskId: string;
+		traceFile: string;
+		thinkingRouter: ThinkingRouterSpec;
+		thinkingLimit: number | null;
+	}) =>
 		createThinkingControlStreamFn({
 			inner: sessionStreamFn,
 			taskId: config.taskId,
 			trace: new TraceWriter(config.traceFile),
 			router: createThinkingRouter(config.thinkingRouter),
 			isSessionTurn,
+			thinkingLimit: config.thinkingLimit,
 		});
 	let recorder: Recorder | undefined;
 	let streamFn: StreamFn;

@@ -144,6 +144,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
 		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
+		vi.stubEnv("JEFF_FIRST_THINKING_LIMIT", "off");
 		const { session } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
 		session.dispose();
@@ -188,6 +189,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
 		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
+		vi.stubEnv("JEFF_FIRST_THINKING_LIMIT", "off");
 		const { session } = await startSession([
 			{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "printf 'see notes.md' > notes.md && ls" } },
 			{ type: "toolCall", id: "b2", name: "bash", arguments: { command: "cat notes.md" } },
@@ -232,6 +234,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
 		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
+		vi.stubEnv("JEFF_FIRST_THINKING_LIMIT", "off");
 		const { session, provider } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
 		session.dispose();
@@ -282,6 +285,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "jeff:jeff-router");
 		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", "off");
+		vi.stubEnv("JEFF_FIRST_THINKING_LIMIT", "off");
 		vi.stubEnv("JEFF_FIRST_JEFF_ROUTER_THRESHOLD", "0.5");
 		const { session, provider } = await startSession();
 		await session.prompt("Read README.md and fix the bug.");
@@ -326,6 +330,7 @@ describe("JeffFirst through createAgentSession", () => {
 		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
 		vi.stubEnv("JEFF_FIRST_THINKING_ROUTER", "fixed:off");
 		vi.stubEnv("JEFF_FIRST_OUTPUT_TRIM", value);
+		vi.stubEnv("JEFF_FIRST_THINKING_LIMIT", "off");
 	}
 	const seq100: AssistantMessage["content"] = [
 		{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "seq 1 100" } },

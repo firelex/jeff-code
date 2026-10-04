@@ -232,6 +232,28 @@ export interface QwenRequestRecord {
 	thinking_chars: number;
 	/** thinking_tokens is null when the server reported no separate reasoning count; output includes them. */
 	usage: { input: number; output: number; thinking_tokens: number | null; cache_read: number; cache_write: number };
-	/** router: the time the router took to choose (attempt 1 only; null on attempt 2). */
+	/** JEFF_FIRST_THINKING_LIMIT: thinking tokens per reply before it is cut; null for no limit. */
+	thinking_limit: number | null;
+	/** Set when this reply's thinking reached the limit and was cut and continued; else null. */
+	limit_cut: LimitCut | null;
+	/** model: both requests together when the reply was cut (see limit_cut for each); router: the time the router took
+	 * to choose (attempt 1 only; null on attempt 2). */
 	timings_ms: { model: number; router: number | null };
+}
+
+/**
+ * A reply whose thinking reached the thinking limit: the server's output-token count and the characters of the
+ * thinking at the cut, how the continuation request ended ("tool_call"; "no_tool_call" and "error" are passed on like
+ * any reply without a tool call; "runaway" is re-asked), its output tokens, and the time of both requests.
+ */
+export interface LimitCut {
+	thinking_tokens: number;
+	thinking_chars: number;
+	continuation: {
+		outcome: "tool_call" | "no_tool_call" | "error" | "runaway";
+		stop_reason: StopReason;
+		error_message: string | null;
+		output_tokens: number;
+	};
+	timings_ms: { thinking: number; continuation: number };
 }

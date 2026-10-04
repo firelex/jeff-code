@@ -46,8 +46,15 @@ function reply(
 
 const bash = (command: string, id = "q1"): ToolCall => ({ type: "toolCall", id, name: "bash", arguments: { command } });
 
-/** What the fake model does for one request: answer with a message, or think in a loop until it is stopped. */
-type Script = { answer: AssistantMessage; thinking?: string } | { loopThinking: string };
+/**
+ * What the fake model does for one request: answer with a message, think in a loop until it is stopped, or think one
+ * token per piece (the server's output-token count rising by one per chunk) until stopped or `tokens` are written,
+ * then answer.
+ */
+type Script =
+	| { answer: AssistantMessage; thinking?: string }
+	| { loopThinking: string }
+	| { countedThinking: string; tokens: number; answer: AssistantMessage };
 
 interface Request {
 	reasoning: SimpleStreamOptions["reasoning"];
@@ -61,6 +68,8 @@ interface Request {
 function fakeModel(scripts: Script[]) {
 	const requests: Request[] = [];
 	const payloads: unknown[] = [];
+	/** The bodies as sent: after the onPayload hooks replaced them. */
+	const sentPayloads: unknown[] = [];
 	const inner: StreamFn = (_model, _context, options) => {
 		const script = scripts[requests.length];
 		if (!script) throw new Error(`no script for request ${requests.length + 1}`);
@@ -72,6 +81,8 @@ function fakeModel(scripts: Script[]) {
 				options?.reasoning === undefined ? undefined : options.reasoning === "high" ? "xhigh" : options.reasoning;
 			const payload = {
 				model: "qwen",
+				messages: [{ role: "user", content: "Make the tests pass" }],
+				stream_options: { include_usage: true },
 				chat_template_kwargs: {
 					enable_thinking: effort !== undefined,
 					preserve_thinking: true,
@@ -79,7 +90,26 @@ function fakeModel(scripts: Script[]) {
 				},
 			};
 			payloads.push(payload);
-			await options?.onPayload?.(payload, _model);
+			sentPayloads.push((await options?.onPayload?.(payload, _model)) ?? payload);
+			if ("countedThinking" in script) {
+				const partial = reply([{ type: "thinking", thinking: "", thinkingSignature: "reasoning" }], "aborted");
+				partial.usage = { ...partial.usage, output: 0 };
+				stream.push({ type: "start", partial });
+				for (let index = 0; index < script.tokens && !signal?.aborted; index++) {
+					(partial.content[0] as { thinking: string }).thinking += script.countedThinking;
+					partial.usage = { ...partial.usage, output: partial.usage.output + 1 };
+					stream.push({ type: "thinking_delta", contentIndex: 0, delta: script.countedThinking, partial });
+					await new Promise((resolve) => setImmediate(resolve));
+				}
+				if (signal?.aborted) {
+					partial.errorMessage = "Request was aborted";
+					stream.push({ type: "error", reason: "aborted", error: partial });
+					return;
+				}
+				const message = { ...script.answer, content: [...partial.content, ...script.answer.content] };
+				stream.push({ type: "done", reason: message.stopReason as "toolUse" | "stop", message });
+				return;
+			}
 			if ("loopThinking" in script) {
 				const partial = reply([{ type: "thinking", thinking: "" }], "aborted");
 				stream.push({ type: "start", partial });
@@ -109,7 +139,7 @@ function fakeModel(scripts: Script[]) {
 		});
 		return stream;
 	};
-	return { inner, requests, payloads };
+	return { inner, requests, payloads, sentPayloads };
 }
 
 async function drain(stream: Awaited<ReturnType<StreamFn>>) {
@@ -151,13 +181,14 @@ describe("createThinkingControlStreamFn", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	const control = (inner: StreamFn, router: ThinkingRouter) =>
+	const control = (inner: StreamFn, router: ThinkingRouter, thinkingLimit: number | null = null) =>
 		createThinkingControlStreamFn({
 			inner,
 			taskId: "task-1",
 			trace: new TraceWriter(tracePath),
 			router,
 			isSessionTurn: (id) => id === "s1",
+			thinkingLimit,
 		});
 	const traceLines = () =>
 		readFileSync(tracePath, "utf8")
@@ -465,5 +496,146 @@ describe("createThinkingControlStreamFn", () => {
 		expect(final.errorMessage).toMatch(
 			/^JeffFirst: the thinking control failed on turn 1: the router fixed:low chose thinking "low"/,
 		);
+	});
+
+	describe("thinking limit", () => {
+		const answer = reply([{ type: "text", text: "Listing." }, bash("ls")]);
+
+		it("cuts the thinking at the limit, continues the same reply from it and joins the two", async () => {
+			const fake = fakeModel([{ countedThinking: "hmm ", tokens: 100, answer }, { answer }]);
+			const { events, final } = await drain(
+				await control(fake.inner, fixedRouter("xhigh"), 10)(model, normalizeContext({ messages: [system, task] }), {
+					sessionId: "s1",
+				}),
+			);
+			expect(fake.requests.map((request) => request.reasoning)).toEqual(["xhigh", "xhigh"]);
+			const cut = "hmm ".repeat(10);
+			expect(fake.sentPayloads[0]).toMatchObject({
+				stream_options: { include_usage: true, continuous_usage_stats: true },
+			});
+			expect(fake.sentPayloads[0]).not.toHaveProperty("continue_final_message");
+			expect(fake.sentPayloads[1]).toEqual({
+				...(fake.payloads[1] as object),
+				stream_options: { include_usage: true, continuous_usage_stats: true },
+				messages: [
+					{ role: "user", content: "Make the tests pass" },
+					{ role: "assistant", content: "", reasoning: cut },
+				],
+				continue_final_message: true,
+				add_generation_prompt: false,
+			});
+			expect(final.content).toEqual([
+				{ type: "thinking", thinking: cut, thinkingSignature: "reasoning" },
+				{ type: "text", text: "Listing." },
+				bash("ls"),
+			]);
+			expect(final.stopReason).toBe("toolUse");
+			expect(final.usage.output).toBe(10 + 40);
+			expect(events.filter((event) => event.type === "thinking_delta")).toHaveLength(10);
+			expect(events.find((event) => event.type === "thinking_end")).toMatchObject({ contentIndex: 0, content: cut });
+			const [line] = traceLines();
+			expect(line).toMatchObject({
+				outcome: "kept",
+				thinking_limit: 10,
+				limit_cut: {
+					thinking_tokens: 10,
+					thinking_chars: cut.length,
+					continuation: { outcome: "tool_call", stop_reason: "toolUse", error_message: null, output_tokens: 40 },
+				},
+			});
+			expect(line.limit_cut.timings_ms.thinking).toBeGreaterThanOrEqual(0);
+			expect(line.limit_cut.timings_ms.continuation).toBeGreaterThanOrEqual(0);
+		});
+
+		it("leaves a reply whose thinking stays below the limit alone", async () => {
+			const fake = fakeModel([{ countedThinking: "hmm ", tokens: 5, answer }]);
+			const { final } = await drain(
+				await control(fake.inner, fixedRouter("low"), 10)(model, normalizeContext({ messages: [system, task] }), {
+					sessionId: "s1",
+				}),
+			);
+			expect(fake.requests).toHaveLength(1);
+			expect(final.content).toHaveLength(3);
+			expect(traceLines()[0]).toMatchObject({ thinking_limit: 10, limit_cut: null });
+		});
+
+		it("does not count or cut without a limit", async () => {
+			const fake = fakeModel([{ countedThinking: "hmm ", tokens: 50, answer }]);
+			await drain(
+				await control(fake.inner, fixedRouter("xhigh"), null)(
+					model,
+					normalizeContext({ messages: [system, task] }),
+					{
+						sessionId: "s1",
+					},
+				),
+			);
+			expect(fake.requests).toHaveLength(1);
+			expect(fake.sentPayloads[0]).toEqual(fake.payloads[0]);
+			expect(traceLines()[0]).toMatchObject({ thinking_limit: null, limit_cut: null });
+		});
+
+		it("passes a continuation without a tool call on as it is, and says so", async () => {
+			const fake = fakeModel([
+				{ countedThinking: "hmm ", tokens: 100, answer },
+				{ answer: reply([{ type: "text", text: "I give up." }], "stop") },
+			]);
+			const { final } = await drain(
+				await control(fake.inner, fixedRouter("xhigh"), 10)(model, normalizeContext({ messages: [system, task] }), {
+					sessionId: "s1",
+				}),
+			);
+			expect(final.stopReason).toBe("stop");
+			expect(final.content.map((part) => part.type)).toEqual(["thinking", "text"]);
+			expect(traceLines()[0].limit_cut.continuation).toMatchObject({ outcome: "no_tool_call", stop_reason: "stop" });
+		});
+
+		it("passes a failed continuation on as the error it is, and says so", async () => {
+			const fake = fakeModel([
+				{ countedThinking: "hmm ", tokens: 100, answer },
+				{ answer: { ...reply([], "error"), errorMessage: "server error" } },
+			]);
+			const { events, final } = await drain(
+				await control(fake.inner, fixedRouter("xhigh"), 10)(model, normalizeContext({ messages: [system, task] }), {
+					sessionId: "s1",
+				}),
+			);
+			expect(final.stopReason).toBe("error");
+			expect(events.at(-1)?.type).toBe("error");
+			expect(traceLines()[0].limit_cut.continuation).toEqual({
+				outcome: "error",
+				stop_reason: "error",
+				error_message: "server error",
+				output_tokens: 40,
+			});
+		});
+
+		it("cuts at every level, also on the loop guard's re-ask, and the joined reply goes through the guard", async () => {
+			const repeat = reply([bash("make test", "q1")]);
+			const fake = fakeModel([
+				{ countedThinking: "hmm ", tokens: 100, answer },
+				{ answer: repeat },
+				{ countedThinking: "think ", tokens: 100, answer },
+				{ answer: reply([bash("cat Makefile", "q2")]) },
+			]);
+			const { final } = await drain(
+				await control(fake.inner, fixedRouter("low"), 10)(model, normalizeContext({ messages: afterMakeTest }), {
+					sessionId: "s1",
+				}),
+			);
+			expect(fake.requests.map((request) => request.reasoning)).toEqual(["low", "low", "xhigh", "xhigh"]);
+			expect(final.content.at(-1)).toEqual(bash("cat Makefile", "q2"));
+			expect(
+				traceLines().map((line) => [
+					line.attempt,
+					line.outcome,
+					line.guard?.trigger ?? null,
+					line.limit_cut?.thinking_tokens,
+				]),
+			).toEqual([
+				[1, "discarded", "loop", 10],
+				[2, "kept", null, 10],
+			]);
+		});
 	});
 });
