@@ -242,6 +242,23 @@ def test_a_repeat_of_the_previous_command_is_never_a_label():
     assert match(MENU, "make", previous_command="make") is None
 
 
+@pytest.mark.parametrize(
+    ("description", "arguments"),
+    [
+        # Qwen sent a bash call whose arguments hold no "command" (seen in SWE-rebench sessions); the scout's Repeat
+        # option copies that call, so it has no command text and no command can repeat it.
+        ("Run the last shell command again: undefined", {"parameter=command": "cd /testbed && ls", "timeout": 300}),
+        ("Run the last shell command again: undefined", {"function": "bash", "timeout": 300}),
+        ("Run the last shell command again: ", {"command": "", "timeout": 300}),
+    ],
+)
+def test_a_repeat_option_without_command_text_matches_no_command(description, arguments):
+    broken = {"id": "repeat-1", "description": description, "toolCall": {"name": "bash", "arguments": arguments}}
+    menu = {**MENU, "arguments_by_tool": {**MENU["arguments_by_tool"], "repeat": [broken]}}
+    assert match(menu, "cat /app/main.py") == Choice.step("read", "read-1")
+    assert match(menu, "make") is None
+
+
 def test_neutral_command_is_reported_as_neutral():
     assert match(MENU, "cd /app") is NEUTRAL
 

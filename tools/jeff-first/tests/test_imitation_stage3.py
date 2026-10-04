@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from imitation.stage3 import CURRENT_TARBALL, convert_runs, main, model_format, read_tasks, stats_markdown, summarize
+from imitation.stage3 import CURRENT_TARBALL, UNKNOWN_FOLDER, convert_runs, main, model_format, read_tasks, stats_markdown, summarize
 
 FIXTURES = Path(__file__).parent / "fixtures" / "stage3"
 BUILDS = frozenset({CURRENT_TARBALL})
@@ -129,6 +129,22 @@ def test_a_trial_whose_model_called_a_tool_other_than_bash_is_skipped_and_counte
     conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
     assert {r["session"] for r in conversion.rows} == {"sess-bbb"}
     assert conversion.skipped == {"a reply calls a tool other than bash": 1}
+
+
+def test_a_trial_with_a_command_in_a_folder_the_labeller_cannot_know_is_skipped_counted_and_listed(tmp_path):
+    # `cd ~/...` or `cd $VAR`: the folder its relative paths resolve in is unknown, so no label can be given for that
+    # turn (seen 2026-10-04 in 7 of 1,431 trials, e.g. `cd ~/.cache/pip/http-v2 && grep -rl x .`).
+    run = tmp_path / "runs-collect-xhigh"
+    trial = make_trial(run, "b200-gpu0-s3", "fix-bug", "aaa")
+    make_trial(run, "b200-gpu0-s3", "fix-bug", "bbb")
+    for path in (trial / "agent" / "jeff-first-trace.jsonl", trial / "agent" / "pi" / "sessions" / "s.jsonl"):
+        path.write_text(path.read_text().replace("cat /app/main.py", "cd ~/cache && cat main.py"))
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
+    assert {r["session"] for r in conversion.rows} == {"sess-bbb"}
+    assert conversion.skipped == {UNKNOWN_FOLDER: 1}
+    assert [entry["trial"] for entry in conversion.skipped_trials] == [str(trial)]
+    assert "cd ~/cache" in conversion.skipped_trials[0]["reason"]
+    assert summarize(conversion)["skipped_trials"] == conversion.skipped_trials
 
 
 def test_other_builds_twins_other_tasks_and_trials_without_a_trace_are_skipped_and_counted(tmp_path):

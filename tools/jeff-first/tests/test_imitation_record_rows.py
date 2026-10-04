@@ -302,8 +302,11 @@ def test_a_trial_without_result_json_was_cut(tmp_path):
     assert lines == [record(1, [])] and len(notes) == 1 and "no result.json" in notes[0]
 
 
-def test_trial_cut_names_a_timeout_and_nothing_else(tmp_path):
+def test_trial_cut_names_a_timeout_or_a_killed_agent_and_nothing_else(tmp_path):
     assert trial_cut(write_trial(tmp_path / "a", GOOD, exception_type="AgentTimeoutError")) == "AgentTimeoutError"
+    # pi killed mid-turn (exit 143, e.g. by a pkill in Qwen's own command): the trace may hold a turn the session file
+    # does not, exactly as at a timeout.
+    assert trial_cut(write_trial(tmp_path / "k", GOOD, exception_type="NonZeroAgentExitCodeError")) == "NonZeroAgentExitCodeError"
     assert trial_cut(write_trial(tmp_path / "b", GOOD, exception_type="RuntimeError")) is None
     assert trial_cut(write_trial(tmp_path / "c", GOOD)) is None
 

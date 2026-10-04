@@ -24,6 +24,9 @@ Each trial is checked in this order:
    coding-model turn (see record_rows.py); schema 4 traces give one decision per turn.
 5. A trial whose session file shows a call to a tool other than bash (Qwen on NVFP4 sometimes names a tool that does
    not exist) is skipped and counted; record_rows would raise on it.
+6. A trial with a command whose folder cannot be known (`cd ~/x && grep -r y .`, `cd $VAR && ...`: labels.py raises
+   UnknownFolder) is skipped, counted and listed with the command (summary "skipped_trials"); no label can be given
+   for that turn.
 
 A trial without result.json, or one Harbor stopped at its time limit, is "cut" (record_rows.trial_cut): only its
 complete lines are used. Rows are record_rows' rows with stage 3, quality "exact", source "own", plus `machine`: the
@@ -41,6 +44,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from imitation.labels import UnknownFolder
 from imitation.record_rows import TRACE_NAME, _json_lines, read_trace, record_rows, row_lines, trial_cut
 from task_source import TaskSets, load_task_sets
 
@@ -48,6 +52,7 @@ CURRENT_TARBALL = "jeff-pi-scout-4abde3ece.tgz"
 EVALUATION_TWIN = "make-doom-for-mips"
 SOURCE = "own"
 OTHER_TOOL = "a reply calls a tool other than bash"
+UNKNOWN_FOLDER = "a command runs in a folder the labeller cannot know (cd ~/..., cd $VAR)"
 BUILD = re.compile(r"^qwen3\.8-27b-(fp8|nvfp4)@(.+)$")
 
 
@@ -95,6 +100,8 @@ class Conversion:
     # Trace lines read past (record_rows.SKIPPED_KINDS), by kind.
     skipped_lines: Counter = field(default_factory=Counter)
     builds: list[str] = field(default_factory=list)
+    # Trials skipped for a reason that names a command: {"trial", "reason"}.
+    skipped_trials: list[dict] = field(default_factory=list)
 
 
 def calls_other_tool(session: Path, cut: str | None) -> bool:
@@ -169,7 +176,12 @@ def convert_trial(trial: Path, tasks: Tasks, builds: frozenset[str], conversion:
     if any(calls_other_tool(session, cut) for session in sessions):
         conversion.skipped[OTHER_TOOL] += 1
         return
-    rows, row_notes = record_rows(lines, sessions, cut=cut is not None, source=SOURCE)
+    try:
+        rows, row_notes = record_rows(lines, sessions, cut=cut is not None, source=SOURCE)
+    except UnknownFolder as error:
+        conversion.skipped[UNKNOWN_FOLDER] += 1
+        conversion.skipped_trials.append({"trial": str(trial), "reason": str(error)})
+        return
     conversion.rows.extend({**asdict(row), "machine": build} for row in rows)
     conversion.trials.append(
         {
@@ -232,6 +244,7 @@ def summarize(conversion: Conversion) -> dict:
         "skipped_trace_lines": dict(sorted(conversion.skipped_lines.items())),
         "trials_cut": dict(Counter(trial["cut"] for trial in conversion.trials if trial["cut"]).most_common()),
         "skipped": dict(conversion.skipped.most_common()),
+        "skipped_trials": conversion.skipped_trials,
         "rows_by_level_and_page": {f"{level} page {page}": count for (level, page), count in sorted(Counter((r["level"], r["page"]) for r in rows).items())},
         "argument_rows_by_tool": dict(Counter(r["label"].rsplit("-", 1)[0] for r in rows if r["level"] == "argument").most_common()),
         "by_format": {name: _counts(group) for name, group in sorted(by_format.items())},

@@ -1071,6 +1071,21 @@ def _best_option(menu: Menu, intent: Intent, cwd: str) -> tuple[str, str] | None
     return kind, option_id
 
 
+class UnknownFolder(ValueError):
+    """A command part runs in a folder that cannot be known from the session (`cd ~/x`, `cd $VAR`), so whether it
+    matches an option cannot be decided."""
+
+
+def _repeat_command(option: ArgumentOption) -> str | None:
+    """The command a Repeat option runs again, or None when the coding model's call it copies had no command text (a
+    malformed bash call, e.g. arguments {"parameter=command": ...}): no command can repeat such a call."""
+    call = option["toolCall"]
+    if call["name"] != "bash":
+        raise ValueError(f"the repeat option {option['id']} is not a bash call: {call!r}")
+    command = call["arguments"].get("command")
+    return command if isinstance(command, str) and command.strip() else None
+
+
 def match_command(
     menu: Menu, command: str, previous_command: str | None, folders: list[str | None]
 ) -> Choice | _Marker | None:
@@ -1081,7 +1096,8 @@ def match_command(
         return None
     stripped = _normal(re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", command))
     for option in menu["arguments_by_tool"].get("repeat", []):
-        if _normal(_option_target(option).value) == stripped:
+        repeated = _repeat_command(option)
+        if repeated is not None and _normal(repeated) == stripped:
             return Choice.step("repeat", option["id"])
     parts = split_command(command)
     if len(folders) != len(parts):
@@ -1098,7 +1114,7 @@ def match_command(
             # A Run or Check option runs it once; in a loop or condition it ran any number of times.
             return None
         if folder is None:
-            raise ValueError(f"the folder a part of the command {command[:120]!r} runs in is unknown")
+            raise UnknownFolder(f"the folder a part of the command {command[:120]!r} runs in is unknown")
         best = _best_option(menu, result, folder)
         if best is None:
             return None

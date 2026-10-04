@@ -39,7 +39,8 @@ the turn is labelled from that text (it matches no option).
 
 `read_trace` reads one trial's trace (agent/jeff-first-trace.jsonl, next to result.json, Harbor's record of the
 trial). A trial is "cut" (`trial_cut`) when Harbor stopped the agent at its time limit (result.json's exception type
-"AgentTimeoutError") or when it has no result.json (the collection was stopped, or the trial is still running when
+"AgentTimeoutError"), when the agent process exited non-zero mid-turn ("NonZeroAgentExitCodeError", e.g. killed by
+a pkill in the coding model's own command) or when it has no result.json (the collection was stopped, or the trial is still running when
 its folder is copied). Then pi may have been killed in the middle of writing the trace's or the session file's last
 line, and the trace may already hold the record line of a turn the session file does not have yet: only in a cut
 trial is an unparsable last line dropped and such a record line dropped, each with a note. Otherwise both raise.
@@ -62,6 +63,9 @@ RECORD_KINDS = ("record", "record_step")
 SKIPPED_KINDS = ("qwen_request",)
 TRACE_NAME = "jeff-first-trace.jsonl"
 AGENT_TIMEOUT = "AgentTimeoutError"
+# The agent process ended with a non-zero code mid-turn (e.g. exit 143: killed by a pkill in the coding model's own
+# command); its files end as abruptly as at a timeout.
+AGENT_KILLED = "NonZeroAgentExitCodeError"
 NO_RESULT = "no result.json (the trial was stopped or is still running)"
 # state.ts before the terminal view shortened a long string argument to its first and last 600 characters.
 OLD_TRIM_CHARS = 600
@@ -73,7 +77,7 @@ def trial_cut(trial: Path) -> str | None:
     if not result.exists():
         return NO_RESULT
     info = json.loads(result.read_text())["exception_info"]
-    return AGENT_TIMEOUT if info is not None and info["exception_type"] == AGENT_TIMEOUT else None
+    return info["exception_type"] if info is not None and info["exception_type"] in (AGENT_TIMEOUT, AGENT_KILLED) else None
 
 
 def _json_lines(path: Path, cut: str | None) -> tuple[list[dict], list[str]]:
