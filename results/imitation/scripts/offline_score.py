@@ -77,6 +77,7 @@ Usage (from results/imitation/scripts; needs aiohttp and tokenizers as routing_l
 """
 
 import argparse
+import bisect
 import collections
 import hashlib
 import json
@@ -963,6 +964,74 @@ def markdown(result, meta):
     return "\n".join(out) + "\n"
 
 
+def flipped_router_table(turns, router_predictions, thresholds, gen_s, gen_tool_s, decision_s):
+    """The flipped router rule (a question of the owner's, not the run-time rule): off unless P(xhigh), Jeff's
+    probability of xhigh among the four levels, is at least the threshold; then xhigh. Per threshold: turns sent off,
+    wrong ones (label low, medium or xhigh: off is cheaper than the label), how many of the off turns are labelled
+    xhigh, load-matched seconds saved on the off-labelled ones (wrong choices save nothing), and that net of Jeff's
+    time per Qwen request as a share of generation time and of generation plus tool time."""
+    rows = []
+    for threshold in thresholds:
+        off = wrong = labelled_xhigh = 0
+        saved = 0.0
+        for turn in turns:
+            prediction = router_predictions[f"route:{turn['id']}"]
+            if prediction is None:
+                continue  # Jeff abstains: xhigh
+            options, probabilities = prediction
+            if probabilities[options.index("xhigh")] >= threshold:
+                continue
+            off += 1
+            label = turn["router"]["label"]
+            if label != "off":
+                wrong += 1
+                labelled_xhigh += label == "xhigh"
+                continue
+            measured = turn["router"]["levels"]["off"]
+            saved += turn["rec_s"] * (turn["rec_out"] - measured["out"]) / turn["rec_out"]
+        jeff = decision_s * len(turns)
+        rows.append({"threshold": threshold, "turns": len(turns), "off": off, "off_share": off / len(turns),
+                     "wrong": wrong, "wrong_rate": wrong / len(turns), "off_labelled_xhigh": labelled_xhigh,
+                     "off_labelled_xhigh_share": labelled_xhigh / off if off else 0.0, "matched_saved_s": saved,
+                     "jeff_s": jeff, "net_share_gen": (saved - jeff) / gen_s,
+                     "net_share_gen_tool": (saved - jeff) / gen_tool_s})
+    return rows
+
+
+def xhigh_auc(turns, router_predictions):
+    """Area under the ROC curve of P(xhigh) separating xhigh-labelled from off-labelled turns (ties count half)."""
+    def p(turn):
+        options, probabilities = router_predictions[f"route:{turn['id']}"]
+        return probabilities[options.index("xhigh")]
+    answered = [t for t in turns if router_predictions[f"route:{t['id']}"] is not None]
+    high = sorted(p(t) for t in answered if t["router"]["label"] == "xhigh")
+    low = [p(t) for t in answered if t["router"]["label"] == "off"]
+    if not high or not low:
+        raise ValueError("the AUC needs both xhigh- and off-labelled turns")
+    wins = sum((len(high) - bisect.bisect_right(high, v)) + 0.5 * (bisect.bisect_right(high, v) - bisect.bisect_left(high, v))
+               for v in low)
+    return wins / (len(high) * len(low))
+
+
+def flipped(args):
+    meta, turns, sessions, questions = load_bundle(args.bundle)
+    fit = bundle_fit(args.bundle, meta)
+    gen_s = sum(s["gen_s"] for s in sessions)
+    gen_tool_s = gen_s + sum(s["tool_s"] for s in sessions)
+    out = [("| variant | P(xhigh) threshold | turns off | wrong (label not off) | off turns labelled xhigh | "
+            "saved, load-matched, net of Jeff time: % of gen / % of gen + tool | AUC P(xhigh), xhigh vs off |"),
+           "|---|---:|---:|---:|---:|---:|---:|"]
+    for spec in args.router:
+        name, _, path = spec.partition("=")
+        predictions = read_predictions(path, questions["router"], fit["router"]["abstained"])
+        auc = xhigh_auc(turns, predictions)
+        for row in flipped_router_table(turns, predictions, args.thresholds, gen_s, gen_tool_s, args.decision_ms / 1000):
+            out.append(f"| {name} | {row['threshold']:.2f} | {pct(row['off_share'])} ({row['off']}) | "
+                       f"{pct(row['wrong_rate'])} | {pct(row['off_labelled_xhigh_share'])} | "
+                       f"{pct(row['net_share_gen'])} / {pct(row['net_share_gen_tool'])} | {auc:.3f} |")
+    print("\n".join(out))
+
+
 def compare(args):
     results = [json.loads(Path(p).read_text()) for p in args.scores]
     bundles = {r["bundle_turns_sha256"] for r in results}
@@ -1031,12 +1100,17 @@ def main(argv=None):
     s.add_argument("--decision-ms", type=float, required=True, help="Jeff's time per decision (178 measured)")
     s.add_argument("--thresholds", type=float, nargs="+", default=list(DEFAULT_THRESHOLDS))
     s.add_argument("--out", required=True, help="output path without suffix (.md and .json are written)")
+    f = commands.add_parser("flipped", help="the flipped router rule: off unless P(xhigh) is at least a threshold")
+    f.add_argument("--bundle", required=True)
+    f.add_argument("--router", nargs="+", required=True, help="NAME=router predictions file")
+    f.add_argument("--thresholds", type=float, nargs="+", default=[0.5, 0.6, 0.7, 0.8])
+    f.add_argument("--decision-ms", type=float, required=True)
     c = commands.add_parser("compare", help="several variants' score JSON -> one table")
     c.add_argument("--scores", nargs="+", required=True)
     c.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     {"build": build, "predict": predict, "oracle": oracle, "score": score,
-     "compare": compare}[args.command](args)
+     "compare": compare, "flipped": flipped}[args.command](args)
 
 
 if __name__ == "__main__":

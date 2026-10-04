@@ -381,3 +381,23 @@ def test_questions_that_cannot_fit_are_abstentions_scored_as_without_jeff(tmp_pa
     assert combined["abstained"] == 2 and combined["wrong"] == 0
     assert combined["gross_saved_s"] == pytest.approx(13.0)
     assert "Questions Jeff abstains on" in (tmp_path / "scores" / "labels.md").read_text()
+
+
+def test_flipped_router_rule_table():
+    # four turns: labels off, off, low, xhigh; P(xhigh) 0.1, 0.4, 0.6, 0.9
+    def t(tid, label, rec_s, rec_out, off_out):
+        levels = {"off": level(label == "off", 1.0, off_out), "low": None, "medium": None}
+        return make_turn(tid, label, levels, rec_s=rec_s, rec_out=rec_out)
+    turns = [t("a", "off", 10.0, 1000, 100), t("b", "off", 20.0, 1000, 500), t("c", "low", 30.0, 1000, 100),
+             t("d", "xhigh", 40.0, 1000, 100)]
+    p = {"a": 0.1, "b": 0.4, "c": 0.6, "d": 0.9}
+    preds = {f"route:{k}": (["off", "low", "medium", "xhigh"], [1 - v, 0.0, 0.0, v]) for k, v in p.items()}
+    rows = os_.flipped_router_table(turns, preds, [0.5, 0.7], gen_s=100.0, gen_tool_s=200.0, decision_s=0.1)
+    r5, r7 = rows
+    # 0.5: off on a, b -> both off-labelled: saved 10 x 0.9 + 20 x 0.5 = 19 s load-matched, no wrong
+    assert r5["off"] == 2 and r5["wrong"] == 0 and r5["off_labelled_xhigh"] == 0
+    assert r5["matched_saved_s"] == pytest.approx(19.0) and r5["net_share_gen"] == pytest.approx((19.0 - 0.4) / 100)
+    # 0.7: also c (label low: wrong, no saving)
+    assert r7["off"] == 3 and r7["wrong"] == 1 and r7["matched_saved_s"] == pytest.approx(19.0)
+    # AUC of P(xhigh), xhigh-labelled (d) against off-labelled (a, b): d ranks above both
+    assert os_.xhigh_auc(turns, preds) == pytest.approx(1.0)
