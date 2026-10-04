@@ -5,6 +5,7 @@ import type { Pick } from "./chooser.ts";
 import type { RunApproval } from "./config.ts";
 import type { JeffCannotFit, JeffCut } from "./jeff-service.ts";
 import type { ArgumentOption, ToolKind, ToolOption } from "./lists.ts";
+import type { CallComparison, FailedCommands, StuckOutputs } from "./loop-guard.ts";
 import type { MenuMatch, MenuOption, MenuToolCall } from "./menu.ts";
 import type { JeffState } from "./state.ts";
 import type { ShownOption } from "./teacher-prompt.ts";
@@ -180,8 +181,15 @@ export type GuardTrigger =
 			trigger: "loop";
 			/** The tool calls the reply repeated. */
 			repeated_action: Array<{ name: string; arguments: JsonObject }>;
-			/** 1 when the reply repeated Qwen's latest action, 2 for the one before. */
+			/** 1 when the reply repeated Qwen's latest action, 2 for the one before, up to 6. */
 			turns_back: number;
+			/** The lowest Dice similarity over the call pairs (1 when every pair is equal). */
+			similarity: number;
+			/** Each call of the reply compared with the earlier action's call at the same position: which rule decided
+			 * ("equal" or "dice" for a match), the Dice similarity and the two texts' lengths (the reply's first). */
+			pairs: CallComparison[];
+			/** Writes after the repeated action that did not count, because they wrote what the file already held. */
+			unchanged_writes: Array<{ name: string; paths: string[]; turns_back: number }>;
 	  }
 	| {
 			trigger: "runaway";
@@ -197,8 +205,8 @@ export type GuardTrigger =
  * Schema "jeff-first-trace/6" adds this line kind; the other kinds keep their schema. One line per request to the
  * coding model (Qwen) in teacher and record modes, written before that turn's model_turn or record line: the thinking
  * level the router (or the guard) chose, what pi sent for it, and what came back. A turn has a second request
- * (attempt 2, always at "xhigh") only when the first reply was discarded: it repeated a recent action at thinking
- * "off" or "low" (guard.trigger "loop"), or it ran away (guard.trigger "runaway"). A discarded reply never enters the
+ * (attempt 2, always at "xhigh") only when the first reply was discarded: it repeated one of Qwen's last 6 actions at
+ * thinking "off" or "low" (guard.trigger "loop", see loop-guard.ts), or it ran away (guard.trigger "runaway"). A discarded reply never enters the
  * session. A guard on a kept attempt-1 line means the user aborted the request while the guard fired.
  */
 export interface QwenRequestRecord {
@@ -212,14 +220,22 @@ export interface QwenRequestRecord {
 	driver: string;
 	/** The router's name, for example "fixed:medium" or "jeff:jeff-router". */
 	router: string;
-	/** The trained router's probability per level on attempt 1; null for a fixed router and on attempt 2. */
-	router_probabilities: Record<QwenThinkingLevel, number> | null;
+	/** The trained router's probability per level asked on attempt 1 (four levels for jeff:, off and xhigh for
+	 * jeff-off-unless:); null for a fixed router and on attempt 2. */
+	router_probabilities: Partial<Record<QwenThinkingLevel, number>> | null;
 	/** How the trained router's question was cut to fit Jeff's token limit, on attempt 1; null when it fit, for a fixed
 	 * router and on attempt 2. */
 	router_cut: JeffCut | null;
 	/** Set on attempt 1 when the trained router abstained because its question cannot be cut to fit (the level is then
 	 * xhigh); else null. */
 	router_abstained: JeffCannotFit | null;
+	/** The level the router chose, on attempt 1 (it differs from thinking_level when forced_xhigh is set); null on
+	 * attempt 2. */
+	router_level: QwenThinkingLevel | null;
+	/** Set on attempt 1 when the loop guard made this turn run at xhigh whatever the router chose: Qwen's last 3 tool
+	 * outputs were near-identical (stuck_outputs, with each pair's similarity and lengths), or its last 2 shell
+	 * commands failed (failed_commands); else null. */
+	forced_xhigh: Array<StuckOutputs | FailedCommands> | null;
 	thinking_level: QwenThinkingLevel;
 	/** chat_template_kwargs as sent (format qwen-chat-template); null where the request had no such field. */
 	sent: { enable_thinking: boolean | null; reasoning_effort: string | null };

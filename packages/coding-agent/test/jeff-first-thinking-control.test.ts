@@ -293,7 +293,14 @@ describe("createThinkingControlStreamFn", () => {
 			trigger: "loop",
 			repeated_action: [{ name: "bash", arguments: { command: "make test" } }],
 			turns_back: 1,
+			similarity: 1,
+			pairs: [{ name: "bash", same: true, rule: "equal", similarity: 1, lengths: [9, 9] }],
+			unchanged_writes: [],
 		});
+		expect(lines.map((line) => [line.router_level, line.forced_xhigh])).toEqual([
+			["off", null],
+			[null, null],
+		]);
 		expect(lines[1].guard).toBeNull();
 	});
 
@@ -496,6 +503,147 @@ describe("createThinkingControlStreamFn", () => {
 		expect(final.errorMessage).toMatch(
 			/^JeffFirst: the thinking control failed on turn 1: the router fixed:low chose thinking "low"/,
 		);
+	});
+
+	describe("loop guard v2", () => {
+		const result = (id: string, text: string, isError = false): Message => ({
+			role: "toolResult",
+			toolCallId: id,
+			toolName: "bash",
+			content: [{ type: "text", text }],
+			isError,
+			timestamp: 0,
+		});
+		/** A session where Qwen ran `commands`, each answered with the output and error flag given. */
+		const session = (steps: Array<[string, string, boolean?]>): Message[] => [
+			system,
+			task,
+			...steps.flatMap(([command, output, isError], index): Message[] => [
+				reply([bash(command, `p${index}`)]),
+				result(`p${index}`, output, isError),
+			]),
+		];
+		const run = async (messages: Message[], router: ThinkingRouter, scripts: Script[]) => {
+			const fake = fakeModel(scripts);
+			const out = await drain(
+				await control(fake.inner, router)(model, normalizeContext({ messages }), { sessionId: "s1" }),
+			);
+			return { fake, ...out };
+		};
+
+		it("discards a thinking-off reply near-identical to an earlier action and logs the similarity and lengths", async () => {
+			const earlier = "cd /app && python -m pytest tests/test_parser.py -x -q";
+			const messages = session([
+				[earlier, "1 failed"],
+				["cat src/parser.py", "def parse(): ..."],
+			]);
+			const near = earlier.replace("-q", "-v");
+			const { fake } = await run(messages, fixedRouter("off"), [
+				{ answer: reply([bash(near, "q1")]) },
+				{ answer: reply([bash("cat tests/test_parser.py", "q2")]) },
+			]);
+			expect(fake.requests.map((request) => request.reasoning)).toEqual([undefined, "xhigh"]);
+			const [first] = traceLines();
+			expect(first).toMatchObject({
+				outcome: "discarded",
+				guard: {
+					trigger: "loop",
+					turns_back: 2,
+					pairs: [{ name: "bash", same: true, rule: "dice", lengths: [near.length, earlier.length] }],
+				},
+			});
+			expect(first.guard.similarity).toBeGreaterThanOrEqual(0.9);
+		});
+
+		it("re-asks a repeat when the only write since wrote what the file already held", async () => {
+			const write = "cat > fix.py <<'EOF'\nprint(1)\nEOF";
+			const messages = session([
+				[write, ""],
+				["python fix.py", "Traceback: boom"],
+				[write, ""],
+			]);
+			await run(messages, fixedRouter("off"), [
+				{ answer: reply([bash("python fix.py", "q1")]) },
+				{ answer: reply([bash("cat fix.py", "q2")]) },
+			]);
+			expect(traceLines()[0].guard).toMatchObject({
+				trigger: "loop",
+				turns_back: 2,
+				unchanged_writes: [{ name: "bash", paths: ["fix.py"], turns_back: 1 }],
+			});
+		});
+
+		it("runs the turn at xhigh whatever the router says when Qwen's last 3 outputs are near-identical", async () => {
+			const output = Array.from({ length: 40 }, (_, index) => `test_${index} FAILED AssertionError`).join("\n");
+			const messages = session([
+				["pytest -x", output],
+				["pytest -x -q", output],
+				["pytest -x -vv", output],
+			]);
+			const probabilities = { off: 0.9, low: 0.05, medium: 0.03, xhigh: 0.02 };
+			const router: ThinkingRouter = {
+				name: "jeff-off-unless:r:0.6",
+				levelFor: async () => ({ level: "off", probabilities, cut: null, abstained: null }),
+			};
+			const { fake, final } = await run(messages, router, [{ answer: reply([bash("pytest -x", "q1")]) }]);
+			// At xhigh the reply is not checked for repeats: it is kept.
+			expect(fake.requests.map((request) => request.reasoning)).toEqual(["xhigh"]);
+			expect(final.thinkingLevel).toBe("xhigh");
+			const [line] = traceLines();
+			expect(line).toMatchObject({
+				router: "jeff-off-unless:r:0.6",
+				router_probabilities: probabilities,
+				router_level: "off",
+				thinking_level: "xhigh",
+				outcome: "kept",
+				guard: null,
+			});
+			expect(line.forced_xhigh).toHaveLength(1);
+			expect(line.forced_xhigh[0].rule).toBe("stuck_outputs");
+			expect(line.forced_xhigh[0].pairs.map((pair: { rule: string }) => pair.rule)).toEqual([
+				"equal",
+				"equal",
+				"equal",
+			]);
+		});
+
+		it("runs the turn at xhigh after 2 failed commands in a row", async () => {
+			const messages = session([
+				["make", "error: missing header\n\nCommand exited with code 2", true],
+				["make all", "error: no rule to make target\n\nCommand exited with code 2", true],
+			]);
+			const { fake } = await run(messages, fixedRouter("low"), [{ answer: reply([bash("ls", "q1")]) }]);
+			expect(fake.requests.map((request) => request.reasoning)).toEqual(["xhigh"]);
+			expect(traceLines()[0]).toMatchObject({
+				router_level: "low",
+				thinking_level: "xhigh",
+				forced_xhigh: [
+					{ rule: "failed_commands", last_lines: ["Command exited with code 2", "Command exited with code 2"] },
+				],
+			});
+		});
+
+		it("follows the router after one failed command, and the turn after a guard hit (no forced window)", async () => {
+			const messages = session([
+				["make", "ok"],
+				["make test", "1 failed\n\nCommand exited with code 1", true],
+			]);
+			const fake = fakeModel([
+				{ answer: reply([bash("make test", "q1")]) },
+				{ answer: reply([bash("cat Makefile", "q2")]) },
+				{ answer: reply([bash("ls", "q3")]) },
+			]);
+			const stream = control(fake.inner, fixedRouter("off"));
+			await drain(await stream(model, normalizeContext({ messages }), { sessionId: "s1" }));
+			const next: Message[] = [...messages, reply([bash("cat Makefile", "q2")]), result("q2", "all: build")];
+			await drain(await stream(model, normalizeContext({ messages: next }), { sessionId: "s1" }));
+			expect(fake.requests.map((request) => request.reasoning)).toEqual([undefined, "xhigh", undefined]);
+			expect(traceLines().map((line) => [line.turn, line.attempt, line.thinking_level, line.forced_xhigh])).toEqual([
+				[1, 1, "off", null],
+				[1, 2, "xhigh", null],
+				[2, 1, "off", null],
+			]);
+		});
 	});
 
 	describe("thinking limit", () => {

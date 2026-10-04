@@ -233,7 +233,7 @@ describe("readJeffFirstConfig", () => {
 		for (const value of ["medium", "fixed:", "fixed:high", "fixed:medium:x", "Fixed:low", "jeff"]) {
 			expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_THINKING_ROUTER: value })).toThrow(
 				new RegExp(
-					`JEFF_FIRST_THINKING_ROUTER must be fixed:off, fixed:low, fixed:medium, fixed:xhigh or jeff:<router adapter>, got "${value}"`,
+					`JEFF_FIRST_THINKING_ROUTER must be fixed:off, fixed:low, fixed:medium, fixed:xhigh, jeff:<router adapter> or jeff-off-unless:<router adapter>:<threshold>, got "${value}"`,
 				),
 			);
 		}
@@ -315,6 +315,47 @@ describe("readJeffFirstConfig", () => {
 		const env: Record<string, string> = { ...jeffEnv };
 		delete env[name];
 		expect(() => readJeffFirstConfig(env)).toThrow(new RegExp(name));
+	});
+
+	it("reads the flipped router rule jeff-off-unless:<adapter>:<threshold>", () => {
+		const { JEFF_FIRST_JEFF_ROUTER_THRESHOLD: _, ...env } = jeffEnv;
+		for (const [value, adapter, threshold] of [
+			["jeff-off-unless:jeff-router:0.6", "jeff-router", 0.6],
+			["jeff-off-unless:jeff-router:0.7", "jeff-router", 0.7],
+			["jeff-off-unless:a:b:1", "a:b", 1],
+		] as const) {
+			expect(readJeffFirstConfig({ ...env, JEFF_FIRST_THINKING_ROUTER: value })).toMatchObject({
+				thinkingRouter: { kind: "jeff-off-unless", url: "http://192.168.2.10:8920", adapter, threshold },
+			});
+		}
+		// run_phase0.sh exports the variable empty when it is not given.
+		expect(
+			readJeffFirstConfig({
+				...env,
+				JEFF_FIRST_JEFF_ROUTER_THRESHOLD: "",
+				JEFF_FIRST_THINKING_ROUTER: "jeff-off-unless:r:0.6",
+			}),
+		).toMatchObject({ thinkingRouter: { kind: "jeff-off-unless", threshold: 0.6 } });
+	});
+
+	it("rejects a malformed jeff-off-unless router", () => {
+		const { JEFF_FIRST_JEFF_ROUTER_THRESHOLD: _, ...env } = jeffEnv;
+		const read =
+			(value: string, extra: Record<string, string> = {}) =>
+			() =>
+				readJeffFirstConfig({ ...env, ...extra, JEFF_FIRST_THINKING_ROUTER: value });
+		expect(read("jeff-off-unless:")).toThrow(/needs the router adapter's name and the threshold/);
+		expect(read("jeff-off-unless:r")).toThrow(/needs the router adapter's name and the threshold/);
+		expect(read("jeff-off-unless::0.6")).toThrow(/needs the router adapter's name and the threshold/);
+		for (const threshold of ["", "1.5", "x", "-0.1"]) {
+			expect(read(`jeff-off-unless:r:${threshold}`)).toThrow(/must be a number from 0 to 1/);
+		}
+		expect(read("jeff-off-unless:r:0.6", { JEFF_FIRST_JEFF_ROUTER_THRESHOLD: "0.5" })).toThrow(
+			/holds its own threshold; JEFF_FIRST_JEFF_ROUTER_THRESHOLD \(0.5\) must not be set/,
+		);
+		expect(() => readJeffFirstConfig({ ...recordEnv, JEFF_FIRST_THINKING_ROUTER: "jeff-off-unless:r:0.6" })).toThrow(
+			/JEFF_FIRST_THINKING_ROUTER=jeff-off-unless:r:0.6 needs JEFF_FIRST_JEFF_URL/,
+		);
 	});
 
 	it("requires the service address for the Jeff router in any mode", () => {

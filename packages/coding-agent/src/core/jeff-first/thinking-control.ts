@@ -12,7 +12,7 @@ import {
 	type ToolCall,
 	type Usage,
 } from "@earendil-works/pi-ai";
-import { repeatedAction } from "./loop-guard.ts";
+import { failedCommands, repeatedAction, stuckOutputs } from "./loop-guard.ts";
 import { findRunaway } from "./runaway.ts";
 import { trimState } from "./state.ts";
 import { describeError, errorStream, JEFF_FIRST_ERROR_PREFIX } from "./stream.ts";
@@ -313,8 +313,10 @@ function replay(attempt: Attempt): AssistantMessageEventStream {
  * Thinking control for the coding model (Qwen) in teacher and record modes, wrapped around the model request:
  *
  * 1. The router chooses each request's thinking level (off, low, medium or xhigh), sent as pi's thinking level.
- * 2. Loop guard: a reply generated at "off" or "low" whose tool calls repeat one of Qwen's previous 2 actions, with
- *    no file written since, is discarded (it never enters the session) and the turn is asked again once at "xhigh".
+ * 2. Loop guard (loop-guard.ts): a reply generated at "off" or "low" whose tool calls repeat (equal or near-identical)
+ *    one of Qwen's previous 6 actions, with no file changed since, is discarded (it never enters the session) and the
+ *    turn is asked again once at "xhigh". Before the request, the turn is set to "xhigh" whatever the router chose
+ *    when Qwen's last 3 tool outputs are near-identical or its last 2 shell commands failed (forced_xhigh).
  * 3. Runaway cut-off: a reply whose thinking or text keeps repeating itself is stopped and the turn is asked again once
  *    at "xhigh"; if that re-ask runs away too, the turn ends with a JeffFirst error (no further retries).
  * 4. Thinking limit (JEFF_FIRST_THINKING_LIMIT, at every level, also on a re-ask): checked on the same stream after
@@ -340,6 +342,8 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 		// The router's probabilities and time apply to the first request only; a re-ask always runs at REASK_LEVEL.
 		let routed:
 			| {
+					level: QwenThinkingLevel;
+					forced: QwenRequestRecord["forced_xhigh"];
 					probabilities: QwenRequestRecord["router_probabilities"];
 					cut: QwenRequestRecord["router_cut"];
 					abstained: QwenRequestRecord["router_abstained"];
@@ -365,6 +369,8 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 				router_probabilities: number === 1 && routed ? routed.probabilities : null,
 				router_cut: number === 1 && routed ? routed.cut : null,
 				router_abstained: number === 1 && routed ? routed.abstained : null,
+				router_level: number === 1 && routed ? routed.level : null,
+				forced_xhigh: number === 1 && routed ? routed.forced : null,
 				thinking_level: attempt.level,
 				sent: attempt.sent,
 				outcome,
@@ -392,13 +398,18 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 			task ??= taskText(context.messages);
 			const routerStarted = performance.now();
 			const choice = await options.router.levelFor(trimState(task, collectSteps(context.messages)));
+			const forced = [stuckOutputs(context.messages), failedCommands(context.messages)].filter(
+				(hit) => hit !== null,
+			);
 			routed = {
+				level: choice.level,
+				forced: forced.length > 0 ? forced : null,
 				probabilities: choice.probabilities,
 				cut: choice.cut,
 				abstained: choice.abstained,
 				ms: performance.now() - routerStarted,
 			};
-			const level = choice.level;
+			const level: QwenThinkingLevel = forced.length > 0 ? REASK_LEVEL : choice.level;
 			if (level !== "off" && !model.reasoning) {
 				throw new Error(
 					`the router ${options.router.name} chose thinking "${level}", but the model ${model.id} is not marked as able to think (model.reasoning), so pi would send no thinking`,
@@ -416,6 +427,13 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 						trigger: "loop",
 						repeated_action: calls.map((call) => ({ name: call.name, arguments: call.arguments })),
 						turns_back: repeat.turnsBack,
+						similarity: repeat.similarity,
+						pairs: repeat.pairs,
+						unchanged_writes: repeat.unchangedWrites.map((write) => ({
+							name: write.name,
+							paths: write.paths,
+							turns_back: write.turnsBack,
+						})),
 					};
 				}
 			}
