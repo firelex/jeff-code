@@ -30,6 +30,11 @@
 #   TIMEOUT_MULTIPLIER  positive number that multiplies each task's agent time limit (Harbor's
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
 #                the teacher's (GLM's) latency never decides a task through the time limit
+#   TASK         a bare name is a Terminal-Bench 2.0 task (terminal-bench@2.0); "<org>/<dataset>:<task>" is a task of
+#                a Harbor hub dataset of results/imitation/task-sets.json, run from the dataset's pinned version, with
+#                its agent time capped at 15 minutes x TIMEOUT_MULTIPLIER (task_source.py); such tasks need the
+#                environment variables JEFF_RUN_TASK_SETS (task-sets.json) and JEFF_RUN_TASK_INVENTORY
+#                (task-sets-inventory.json); the full id is the trace's task id
 #
 # The environment variable JEFF_RUN_API_KEY must be "unused": task containers never hold a real key. Every model is
 # reached through a proxy, as driver (BASE_URL) or as teacher (JEFF_FIRST_TEACHER_URL): Qwen through the sparkgate
@@ -41,7 +46,7 @@ set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
 if [ $# -lt 10 ]; then
-  sed -n '5,36p' "$0" >&2
+  sed -n '5,41p' "$0" >&2
   exit 2
 fi
 tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9 timeout_multiplier=${10}
@@ -84,6 +89,17 @@ if [ $# -gt 0 ]; then
 else
   mapfile -t tasks < <(python3 -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1]))["phase0"]))' "$tasks_json")
 fi
+# Hub tasks: every id must resolve (known dataset and task, not excluded) before anything starts.
+hub_tasks=0
+for task in "${tasks[@]}"; do case "$task" in *:*|*/*) hub_tasks=1 ;; esac; done
+if [ "$hub_tasks" = 1 ]; then
+  [ -f "${JEFF_RUN_TASK_SETS:-}" ] || { echo "hub task ids (<org>/<dataset>:<task>) need JEFF_RUN_TASK_SETS, the path of results/imitation/task-sets.json" >&2; exit 2; }
+  [ -f "${JEFF_RUN_TASK_INVENTORY:-}" ] || { echo "hub task ids (<org>/<dataset>:<task>) need JEFF_RUN_TASK_INVENTORY, the path of results/imitation/task-sets-inventory.json" >&2; exit 2; }
+  JEFF_RUN_TASK_SETS=$(cd "$(dirname "$JEFF_RUN_TASK_SETS")" && pwd)/$(basename "$JEFF_RUN_TASK_SETS")
+  JEFF_RUN_TASK_INVENTORY=$(cd "$(dirname "$JEFF_RUN_TASK_INVENTORY")" && pwd)/$(basename "$JEFF_RUN_TASK_INVENTORY")
+  python3 "$here/task_source.py" check "$JEFF_RUN_TASK_SETS" "$JEFF_RUN_TASK_INVENTORY" "${tasks[@]}"
+fi
+export JEFF_RUN_TASK_SETS="${JEFF_RUN_TASK_SETS:-}" JEFF_RUN_TASK_INVENTORY="${JEFF_RUN_TASK_INVENTORY:-}"
 mkdir -p "$jobs/logs"
 # Harbor runs from this folder (so it can import harbor_agent), so every path must be absolute.
 tarball=$(cd "$(dirname "$tarball")" && pwd)/$(basename "$tarball")
@@ -91,15 +107,24 @@ jobs=$(cd "$jobs" && pwd)
 
 run_one() {
   local task=$1
+  # Terminal-Bench 2.0 by bare name; a hub task from its pinned dataset, with its agent time capped (task_source.py).
+  local dataset="terminal-bench@2.0" include=$task multiplier=$timeout_multiplier name=$task
+  case "$task" in
+    *:*)
+      local spec
+      spec=$(python3 "$here/task_source.py" harbor-args "$JEFF_RUN_TASK_SETS" "$JEFF_RUN_TASK_INVENTORY" "$timeout_multiplier" "$task") || return 1
+      read -r dataset include multiplier name <<< "$spec"
+      ;;
+  esac
   local job_name
-  job_name="$task-$(date +%Y%m%d-%H%M%S)"
+  job_name="$name-$(date +%Y%m%d-%H%M%S)"
   local command=(
     uv run --project "$here" harbor run
-    --dataset terminal-bench@2.0 -i "$task" -n 1
+    --dataset "$dataset" -i "$include" -n 1
     -a harbor_agent.jeff_pi:JeffPi
     --ak "tarball=$tarball" --ak model_api=openai-completions --ak "thinking=$thinking"
     -m "openai/$model"
-    --agent-timeout-multiplier "$timeout_multiplier"
+    --agent-timeout-multiplier "$multiplier"
   )
   if [ "$tools" != default ]; then command+=(--ak "tools=$tools"); fi
   if [ "$thinking" != off ]; then
@@ -130,19 +155,20 @@ run_one() {
   echo "$(date -Is) start $task"
   # Harbor exits 0 even when a trial failed, so check_trial.py inspects the job's results afterwards.
   local status=0
-  (cd "$here" && PYTHONPATH="$here" OPENAI_BASE_URL="$base_url/v1" OPENAI_API_KEY="$JEFF_RUN_API_KEY" "${command[@]}") > "$jobs/logs/$task.log" 2>&1 \
-    && (cd "$here" && uv run --project "$here" python check_trial.py "$jobs/$job_name" $( [ "$thinking" != off ] && echo --expect-thinking )) >> "$jobs/logs/$task.log" 2>&1 \
+  (cd "$here" && PYTHONPATH="$here" OPENAI_BASE_URL="$base_url/v1" OPENAI_API_KEY="$JEFF_RUN_API_KEY" "${command[@]}") > "$jobs/logs/$name.log" 2>&1 \
+    && (cd "$here" && uv run --project "$here" python check_trial.py "$jobs/$job_name" $( [ "$thinking" != off ] && echo --expect-thinking )) >> "$jobs/logs/$name.log" 2>&1 \
     || status=$?
   if [ "$status" = 0 ]; then
-    echo "$(date -Is) done  $task ($(tail -1 "$jobs/logs/$task.log"))"
+    echo "$(date -Is) done  $task ($(tail -1 "$jobs/logs/$name.log"))"
   else
-    echo "$(date -Is) FAILED $task (exit $status; see $jobs/logs/$task.log)"
+    echo "$(date -Is) FAILED $task (exit $status; see $jobs/logs/$name.log)"
     return 1
   fi
 }
 export -f run_one
 export here tarball base_url jobs thinking tools model mode timeout_multiplier dry_run JEFF_RUN_API_KEY \
-  JEFF_RUN_THINKING_FORMAT JEFF_RUN_MAX_OUTPUT_TOKENS JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD JEFF_FIRST_THINKING_ROUTER
+  JEFF_RUN_THINKING_FORMAT JEFF_RUN_MAX_OUTPUT_TOKENS JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD JEFF_FIRST_THINKING_ROUTER \
+  JEFF_RUN_TASK_SETS JEFF_RUN_TASK_INVENTORY
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
 if ! printf '%s\n' "${tasks[@]}" | xargs -P "$concurrency" -I{} bash -c 'run_one "$1"' _ {}; then

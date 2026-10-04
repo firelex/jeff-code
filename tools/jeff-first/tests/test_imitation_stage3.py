@@ -349,3 +349,80 @@ def test_a_qwen_request_line_of_another_task_is_an_error(tmp_path):
     trace.write_text(json.dumps(request) + "\n" + trace.read_text())
     with pytest.raises(ValueError, match="dna-assembly"):
         convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
+
+
+HUB_TRAIN = "terminal-bench-pro/terminal-bench-pro:fix-a"
+
+
+def make_hub_trial(run: Path, task_id: str, trial_id: str) -> Path:
+    """A trial of a Harbor hub dataset task: config.json names the task package and its dataset, not a path."""
+    hub, task = task_id.split(":")
+    trial = make_trial(run, "b200-gpu0-s1", task_id.replace("/", ".").replace(":", "."), trial_id, round_folder="round1")
+    config = json.loads((trial / "config.json").read_text())
+    config["task"] = {"name": f"{hub.split('/')[0]}/{task}", "ref": "sha256:" + "c" * 64, "source": hub}
+    config["agent"]["env"]["JEFF_FIRST_TASK_ID"] = task_id
+    (trial / "config.json").write_text(json.dumps(config))
+    trace = trial / "agent" / "jeff-first-trace.jsonl"
+    line = json.loads(trace.read_text())
+    trace.write_text(json.dumps({**line, "task_id": task_id}) + "\n")
+    return trial
+
+
+def hub_tasks(tmp_path: Path):
+    from tests.test_task_source import write_task_sets
+
+    sets, _ = write_task_sets(tmp_path)
+    return read_tasks(write_tasks(tmp_path), sets)
+
+
+def test_a_hub_training_task_converts_with_its_dataset_in_the_task_id(tmp_path):
+    run = tmp_path / "runs-collect-xhigh2"
+    make_hub_trial(run, HUB_TRAIN, "hub")
+    make_trial(run, "gpu0", "fix-bug", "tb2")
+    conversion = convert_runs([run], hub_tasks(tmp_path), BUILDS)
+    assert sorted({(r["session"], r["task"]) for r in conversion.rows}) == [("sess-hub", HUB_TRAIN), ("sess-tb2", "fix-bug")]
+    assert summarize(conversion)["sessions_by_task"] == {HUB_TRAIN: 1, "fix-bug": 1}
+
+
+@pytest.mark.parametrize(
+    ("task_id", "message"),
+    [
+        ("terminal-bench-pro/terminal-bench-pro:held-c", "held-out"),
+        ("terminal-bench-pro/terminal-bench-pro:leak-d", "excluded"),
+        ("terminal-bench-pro/terminal-bench-pro:no-such", "no task no-such"),
+        ("nobody/nothing:x", "unknown dataset"),
+    ],
+)
+def test_hub_tasks_outside_training_are_errors(tmp_path, task_id, message):
+    run = tmp_path / "runs-collect-xhigh2"
+    make_hub_trial(run, task_id, "bad")
+    with pytest.raises(ValueError, match=message):
+        convert_runs([run], hub_tasks(tmp_path), BUILDS)
+
+
+def test_a_hub_task_without_the_task_sets_is_an_error(tmp_path):
+    run = tmp_path / "runs-collect-xhigh2"
+    make_hub_trial(run, HUB_TRAIN, "hub")
+    with pytest.raises(ValueError, match="--task-sets"):
+        convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
+
+
+def test_a_hub_trial_whose_config_names_another_task_is_an_error(tmp_path):
+    run = tmp_path / "runs-collect-xhigh2"
+    trial = make_hub_trial(run, HUB_TRAIN, "hub")
+    config = json.loads((trial / "config.json").read_text())
+    config["task"]["name"] = "terminal-bench-pro/slow-b"
+    (trial / "config.json").write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="slow-b"):
+        convert_runs([run], hub_tasks(tmp_path), BUILDS)
+
+
+def test_the_cli_takes_the_task_sets(tmp_path):
+    from tests.test_task_source import write_task_sets
+
+    run = tmp_path / "runs-collect-xhigh2"
+    make_hub_trial(run, HUB_TRAIN, "hub")
+    sets, _ = write_task_sets(tmp_path)
+    out = tmp_path / "out"
+    main([str(run), "--tasks", str(write_tasks(tmp_path)), "--task-sets", str(sets), "--build", CURRENT_TARBALL, "--rows", str(out / "rows.jsonl"), "--summary", str(out / "s.json"), "--stats", str(out / "s.md")])
+    assert {json.loads(line)["task"] for line in (out / "rows.jsonl").read_text().splitlines()} == {HUB_TRAIN}

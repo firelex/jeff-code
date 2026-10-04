@@ -6,9 +6,12 @@ jobs; a trial folder is `<run>/<stream>/round-N/<task>-<time>/<task>__<id>/` (or
 `agent/pi/sessions/*.jsonl`.
 
 Each trial is checked in this order:
-1. Its task (config.json `task.path`). An evaluation task (training-tasks.json "excluded_evaluation") is an error,
-   whatever the build. `make-doom-for-mips` (a near-identical twin of an evaluation task) and any other task outside
-   "training" are skipped and counted.
+1. Its task. A Terminal-Bench 2.0 task (config.json `task.path`, a bare name): an evaluation task (training-tasks.json
+   "excluded_evaluation") is an error, whatever the build; `make-doom-for-mips` (a near-identical twin of an evaluation
+   task) and any other task outside "training" are skipped and counted. A Harbor hub dataset task (config.json
+   `task.name` "<org>/<task>" and `task.source` "<org>/<dataset>") has the task id "<org>/<dataset>:<task>" (as
+   run_phase0.sh names it in the trace); it needs `--task-sets` (results/imitation/task-sets.json) and must be on its
+   dataset's "training" side: held-out, excluded and unknown tasks are errors, whatever the build.
 2. Its build: only trials whose scout tarball (config.json `agent.kwargs.tarball`) is one of the builds given
    (`--build`, the builds whose menus are current; CURRENT_TARBALL is the build of the first collection) are used;
    others are skipped and counted by tarball.
@@ -28,7 +31,7 @@ trace's driver build, e.g. "qwen3.8-27b-fp8@casdgx01-gpu5" (model format after "
 
 Usage (from tools/jeff-first):
     uv run python -m imitation.stage3 RUN [RUN ...] --tasks ../../results/imitation/training-tasks.json \\
-        --build jeff-pi-scout-4abde3ece.tgz [--build ...] --rows stage3-rows.jsonl --summary stage3-summary.json --stats ../../results/imitation/stage3-stats.md
+        [--task-sets ../../results/imitation/task-sets.json] --build jeff-pi-scout-4abde3ece.tgz [--build ...] --rows stage3-rows.jsonl --summary stage3-summary.json --stats ../../results/imitation/stage3-stats.md
 """
 
 import argparse
@@ -39,6 +42,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from imitation.record_rows import TRACE_NAME, _json_lines, read_trace, record_rows, row_lines, trial_cut
+from task_source import TaskSets, load_task_sets
 
 CURRENT_TARBALL = "jeff-pi-scout-4abde3ece.tgz"
 EVALUATION_TWIN = "make-doom-for-mips"
@@ -51,14 +55,29 @@ BUILD = re.compile(r"^qwen3\.8-27b-(fp8|nvfp4)@(.+)$")
 class Tasks:
     training: frozenset[str]
     evaluation: frozenset[str]
+    # Harbor hub datasets (task-sets.json); None when no --task-sets was given.
+    hub: TaskSets | None = None
 
 
-def read_tasks(path: Path) -> Tasks:
+def read_tasks(path: Path, task_sets: Path | None = None) -> Tasks:
     data = json.loads(path.read_text())
-    tasks = Tasks(frozenset(data["training"]), frozenset(data["excluded_evaluation"]))
+    hub = load_task_sets(task_sets, None) if task_sets is not None else None
+    tasks = Tasks(frozenset(data["training"]), frozenset(data["excluded_evaluation"]), hub)
     if tasks.training & tasks.evaluation or EVALUATION_TWIN in tasks.training:
         raise ValueError(f"{path}: the training tasks include an evaluation task or {EVALUATION_TWIN}")
     return tasks
+
+
+def task_id(trial: Path, config: dict) -> str:
+    """A bare Terminal-Bench 2.0 name, or "<org>/<dataset>:<task>" for a Harbor hub dataset task."""
+    task = config["task"]
+    if task.get("path") is not None:
+        return task["path"]
+    org, name = task["name"].split("/", 1)
+    source = task["source"]
+    if source.split("/", 1)[0] != org:
+        raise ValueError(f"{trial}: task package {task['name']} is not of its dataset {source}'s organisation")
+    return f"{source}:{name}"
 
 
 def model_format(build: str) -> str:
@@ -100,13 +119,19 @@ def find_trials(run: Path) -> list[Path]:
 
 def convert_trial(trial: Path, tasks: Tasks, builds: frozenset[str], conversion: Conversion) -> None:
     config = json.loads((trial / "config.json").read_text())
-    task = config["task"]["path"]
-    if task in tasks.evaluation:
+    task = task_id(trial, config)
+    if ":" in task:
+        if tasks.hub is None:
+            raise ValueError(f"{trial}: a Harbor hub dataset task ({task}); give --task-sets to convert it")
+        side = tasks.hub.side(task)
+        if side != "training":
+            raise ValueError(f"{trial}: a session on {task}, which is {side.replace('_', '-')} in task-sets.json; only training tasks may be collected")
+    elif task in tasks.evaluation:
         raise ValueError(f"{trial}: a session on the evaluation task {task}; evaluation tasks must never be collected")
     if task == EVALUATION_TWIN:
         conversion.skipped[f"{EVALUATION_TWIN} (twin of an evaluation task)"] += 1
         return
-    if task not in tasks.training:
+    if ":" not in task and task not in tasks.training:
         conversion.skipped["not a training task"] += 1
         return
     tarball = Path(config["agent"]["kwargs"]["tarball"]).name
@@ -265,13 +290,14 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("runs", type=Path, nargs="+", help="Run folders (each holds <stream>/round-N/<job>/<trial>/)")
     parser.add_argument("--tasks", type=Path, required=True, help="results/imitation/training-tasks.json")
+    parser.add_argument("--task-sets", type=Path, help="results/imitation/task-sets.json, for Harbor hub dataset tasks")
     parser.add_argument("--build", action="append", required=True, help=f"A scout tarball name whose trials are converted (repeatable), e.g. {CURRENT_TARBALL}")
     parser.add_argument("--rows", type=Path, required=True, help="Output: the rows, one JSON object per line")
     parser.add_argument("--summary", type=Path, required=True, help="Output: the counts as JSON")
     parser.add_argument("--stats", type=Path, required=True, help="Output: the counts as a Markdown statistics file")
     args = parser.parse_args(argv)
     builds = frozenset(args.build)
-    conversion = convert_runs(args.runs, read_tasks(args.tasks), builds)
+    conversion = convert_runs(args.runs, read_tasks(args.tasks, args.task_sets), builds)
     summary = summarize(conversion)
     for path in (args.rows, args.summary, args.stats):
         path.parent.mkdir(parents=True, exist_ok=True)
