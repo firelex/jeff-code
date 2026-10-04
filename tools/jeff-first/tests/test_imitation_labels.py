@@ -73,11 +73,14 @@ def intent(command: str):
         ("python3 /app/solve.py --check", "run", "/app/solve.py"),
         ("bash run.sh", "run", "run.sh"),
         ("./a.out", "run", "./a.out"),
-        ("pytest -q tests/", "check", "pytest"),
-        ("python3 -m pytest -x", "check", "pytest"),
+        # A check's target is its command text after wrappers (timeout, env, ...): Check options match it exactly.
+        ("pytest -q tests/", "check", "pytest -q tests/"),
+        ("python3 -m pytest -x", "check", "python3 -m pytest -x"),
         ("npm test", "check", "npm test"),
         ("make test", "check", "make test"),
-        ("cargo test --release", "check", "cargo test"),
+        ("make -C testsuite one DIR=tests/basic", "check", "make -C testsuite one DIR=tests/basic"),
+        ("timeout 600 make", "check", "make"),
+        ("cargo test --release", "check", "cargo test --release"),
         ("FILE=$(find /app -name QueryInfo.cs -print -quit)", "find", "QueryInfo.cs"),
     ],
 )
@@ -185,7 +188,7 @@ MENU = make_menu(
         option("install", 1, "Install convert with apt (package imagemagick)"),
         option("install", 2, "Install the Python package numpy with pip"),
     ],
-    check=[option("check", 1, "Run: cd /app && python3 -m pytest -q", "cd /app && python3 -m pytest -q")],
+    check=[option("check", 1, "Run: cd /app && pytest -q", "cd /app && pytest -q")],
     run=[option("run", 1, "Run: python3 /app/solve.py", "python3 /app/solve.py")],
     repeat=[option("repeat", 1, "Run the last shell command again: make", "make")],
 )
@@ -346,7 +349,7 @@ def test_a_script_written_then_run_hands_over_at_the_write():
         labeler = SessionLabeler(labelled([[TurnCommand(text, "1", False) for text in commands]]), follow_stints=True, drop_unmatched_information=True)
         drive(labeler, [menu] * 3)
         assert [d.choice for d in labeler.decisions] == [Choice.hand_over()]
-    assert match(menu, "python t.py") == Choice.step("run", "run-1")
+    assert match(menu, "python3 t.py") == Choice.step("run", "run-1")
 
 
 def test_neutral_commands_are_passed_over_and_an_unmatched_information_command_ends_the_walk():
@@ -740,3 +743,77 @@ def test_a_repeat_check_after_a_scout_step_compares_with_the_coding_models_own_c
     labeler = SessionLabeler(labelled(turns), follow_stints=True, drop_unmatched_information=False)
     drive(labeler, [MENU, MENU])
     assert [(d.turn, d.choice) for d in labeler.decisions] == [(1, Choice.step("read", "read-1")), (2, Choice.hand_over())]
+
+
+# Run and Check options match exactly (runcheck-report.md, ranks 4, 6 and 7): the option's script is resolved in the
+# option's own `cd` folder, and the interpreter, its wrappers and the arguments must be the same.
+def run_menu(*commands, kind="run"):
+    return make_menu(**{kind: [option(kind, number, f"Run: {command}", command) for number, command in enumerate(commands, start=1)]})
+
+
+def test_a_run_options_script_resolves_in_the_options_own_folder():
+    menu = run_menu("cd '/tmp' && bash 'test.sh'")
+    assert match(menu, "bash /tmp/test.sh") == Choice.step("run", "run-1")
+    assert match(menu, "cd /app && bash /tmp/test.sh 2>&1 | tail -5") == Choice.step("run", "run-1")
+    assert match(menu, "bash test.sh") is None  # /app/test.sh is another script
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/tmp/venv/bin/python /tmp/repro.py",  # another interpreter
+        "python /tmp/repro.py",
+        "python3 /tmp/repro.py --fast",  # another argument list
+        "PYTHONPATH=/x python3 /tmp/repro.py",  # another environment
+        "nohup python3 /tmp/repro.py &",  # in the background
+        "/tmp/repro.py",  # run directly, not by python3
+    ],
+)
+def test_a_run_option_needs_the_same_interpreter_wrappers_and_arguments(command):
+    assert match(run_menu("cd '/tmp' && python3 'repro.py'"), command) is None
+
+
+def test_time_limits_and_timing_do_not_change_what_a_run_runs():
+    menu = run_menu("cd '/tmp' && python3 'repro.py'")
+    for command in ("timeout 60 python3 /tmp/repro.py", "time python3 /tmp/repro.py", "timeout 5m nice python3 /tmp/repro.py"):
+        assert match(menu, command) == Choice.step("run", "run-1"), command
+    assert match(run_menu("cd '/app' && timeout 600 python eval.py"), "python eval.py") == Choice.step("run", "run-1")
+
+
+def test_run_again_options_match_the_command_as_typed_without_its_output_filters():
+    menu = run_menu("cd '/app' && timeout 180 python3 /tmp/test_headless.py", "cd '/app' && ./cli_tool weights.json image.png")
+    assert match(menu, "cd /app && timeout 180 python3 /tmp/test_headless.py 2>&1 | tail -8") == Choice.step("run", "run-1")
+    assert match(menu, "./cli_tool weights.json image.png") == Choice.step("run", "run-2")
+    assert match(menu, "./cli_tool weights.json other.png") is None
+    assert match(menu, "./cli_tool weights.json image.png", cwd="/tmp") is None
+
+
+def test_check_options_with_a_folder_match_the_exact_command_run_in_that_folder():
+    menu = run_menu("cd '/app/ocaml' && make -C testsuite one DIR=tests/basic", "cd '/app' && python3 '/app/eval.py'", kind="check")
+    assert match(menu, "cd /app/ocaml && make -C testsuite one DIR=tests/basic 2>&1 | tail -12") == Choice.step("check", "check-1")
+    assert match(menu, "make -C testsuite one DIR=tests/basic", cwd="/app/ocaml") == Choice.step("check", "check-1")
+    assert match(menu, "make -C testsuite one DIR=tests/basic") is None  # run in /app
+    assert match(menu, "cd /app/ocaml && make -C testsuite one DIR=tests/other") is None
+    assert match(menu, "cd /app && python3 eval.py; echo EXIT=$?") == Choice.step("check", "check-2")
+    assert match(menu, "python eval.py") is None
+
+
+def test_check_options_without_a_folder_match_the_exact_command_text():
+    menu = run_menu("pytest", "make test", kind="check")
+    assert match(menu, "pytest") == Choice.step("check", "check-1")
+    assert match(menu, "pytest -q tests/") is None
+    assert match(menu, "make test") == Choice.step("check", "check-2")
+    assert match(menu, "make test -j4") is None
+
+
+def test_a_run_inside_an_assignment_matches_like_the_run_itself():
+    menu = run_menu("cd '/app' && python3 a.py")
+    assert match(menu, "out=$(python3 a.py)") == Choice.step("run", "run-1")
+
+
+def test_a_run_or_check_in_a_loop_or_condition_matches_no_option():
+    # The option runs it once; in a loop the coding model ran it any number of times (runcheck-report.md, rank 1).
+    menu = run_menu("cd '/app' && python eval.py")
+    assert match(menu, "for i in 1 2 3; do python eval.py; done") is None
+    assert match(menu, "if python eval.py; then echo ok; fi") is None
+    assert match(menu, "python eval.py") == Choice.step("run", "run-1")

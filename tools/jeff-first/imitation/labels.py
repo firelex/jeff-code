@@ -13,8 +13,13 @@ How a match is decided:
    `export`, `sleep`, a plain `echo`) is NEUTRAL; a part that acts (writes or edits a file, compiles, runs its own
    inline script, `apt-get update`, anything not in the table) is OTHER.
 2. Each option's target is read from its description with the description patterns of scout_value.py (the same fixed
-   sentences pi writes). Run and Check options are compared by the intent of their own command; the two toolchain
-   checks by the programs, modules or package names their own command reports.
+   sentences pi writes). Run and Check options are compared by their own command, exactly (runcheck-report.md): a run
+   matches when it runs the same script or program (resolved in each one's own folder: the option's `cd FOLDER`),
+   with the same words otherwise (interpreter, environment assignments, arguments; `time`, `timeout N`, `nice` and
+   `stdbuf` left out, and output redirections such as `2>&1`); a check (pytest, make, npm test, ...) matches the same
+   command text after its wrappers, run in the option's folder when the option names one. A run or check inside a
+   loop or condition matches no option (the option runs it once). The two toolchain checks are compared by the
+   programs, modules or package names their own command reports.
    Peek and Toolchain match narrowly (review of waves 2-3, finding 3): a peek matches only a command that prints a
    slice of the file itself (head, tail, `wc -l` of the one file, file, xxd/od/hexdump, a schema listing or a
    SELECT ... LIMIT; not objdump, strings, a script or an EXPLAIN or COUNT query), and a toolchain step only when the
@@ -46,7 +51,7 @@ which the caller supplies (menus logged live, or built from a transcript).
 import posixpath
 import re
 import shlex
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from scout_value import DESCRIPTION_PATTERNS, _command, _file_name, _find_name, _localhost, _name, _path
@@ -70,7 +75,10 @@ class Intent:
     `apt-cache`, `npm ls`). `targets` holds every name when the part names several (`which gcc make`, `pip install a b`);
     `target` is the first. `lines` is the line range of a partial read (first, last; last may be None for "to the
     end"). `word` is the program the part runs. `start` is, for a find that only lists what it finds (no -exec, no
-    xargs), its one start folder ("." when none is given; "" for several)."""
+    xargs), its one start folder ("." when none is given; "" for several). `argv` is, for a run or a check, the
+    part's words as typed (wrappers such as `timeout 60` included, redirections such as `2>&1` left out, a trailing
+    `&` kept); a check's `target` is its words after the wrappers, joined by spaces (Check options match it
+    exactly)."""
 
     kind: str
     target: str
@@ -79,6 +87,7 @@ class Intent:
     aspect: str = ""
     word: str = ""
     start: str = ""
+    argv: tuple[str, ...] = ()
 
 
 class _Marker:
@@ -592,10 +601,8 @@ def _test_runner(word: str, args: list[str], part: Part) -> PartResult:
 
 
 def _make(word: str, args: list[str], part: Part) -> PartResult:
-    for goal in ("test", "check"):
-        if goal in args:
-            return Intent("check", f"make {goal}", word=word)
-    return OTHER
+    # Every make run is a check (a build or the tests); a Check option matches only the same make command.
+    return Intent("check", "make", word=word)
 
 
 def _test_subcommand(word: str, args: list[str], part: Part) -> PartResult:
@@ -681,10 +688,21 @@ def _hex_view(result: Intent, part: Part) -> Intent:
 
 
 def part_intent(part: Part) -> PartResult:
-    """What one command part does; see the module docstring. Table-driven: INTENT_RULES."""
+    """What one command part does; see the module docstring. Table-driven: INTENT_RULES. A run or a check carries
+    its words (Intent.argv), and a check's target is its command text after the wrappers."""
     assigned = re.match(r"^\w+=\$\((.*)\)\s*$", part.head, re.DOTALL)
     if assigned:
         return part_intent(Part(head=assigned.group(1)))
+    result = _part_intent(part)
+    if not isinstance(result, Intent) or result.kind not in ("run", "check"):
+        return result
+    argv = tuple(_words(part.head))
+    if result.kind == "check":
+        return replace(result, argv=argv, target=" ".join(_words(first_word(part.head)[1])))
+    return replace(result, argv=argv)
+
+
+def _part_intent(part: Part) -> PartResult:
     word, text = first_word(part.head)
     base = _basename(word)
     if any(_basename(first_word(stage)[0]) in ("tee", "sh", "bash") or has_file_write(stage) for stage in part.filters):
@@ -843,7 +861,8 @@ def _option_target(option: ArgumentOption) -> _OptionTarget:
         if build is _localhost:
             return _OptionTarget("port", match.group(1).split(":", 1)[1])
         if build is _command:
-            return _OptionTarget("command", _command(match).needles[0])
+            # The option's whole command, its `cd FOLDER &&` included: a Run or Check option runs in that folder.
+            return _OptionTarget("command", _probe_command(option))
         if build is _name:
             package = APT_PACKAGE.search(description)
             return _OptionTarget("name", match.group(1), package=package.group(1) if package else "")
@@ -871,23 +890,72 @@ def _service_key(name: str) -> str:
     return SERVICE_ALIASES.get(name, name)
 
 
-def _first_intent(command: str) -> Intent | None:
+def _option_intent(command: str) -> tuple[Intent, str | None] | None:
+    """The first part of a Run or Check option's command that is an Intent, and the folder it runs in: the folder of
+    a `cd FOLDER` part before it (the scout writes absolute folders), or None when the command has no `cd` (it runs
+    in the session's folder). None when no part is an Intent."""
+    folder: str | None = None
     for part in split_command(command):
+        word, text = first_word(part.head)
+        if _basename(word) == "cd":
+            words = _words(text)
+            if len(words) != 2 or not words[1].startswith("/"):
+                raise ValueError(f"the option command {command[:120]!r} changes to a folder that is not one absolute path")
+            folder = posixpath.normpath(words[1])
+            continue
         result = part_intent(part)
         if isinstance(result, Intent):
-            return result
+            return result, folder
     return None
+
+
+def _without_timing(words: list[str]) -> list[str]:
+    """The words without leading `time`, `timeout [flags] DURATION`, `nice` and `stdbuf FLAGS`: they limit or time a
+    run, or change its priority or buffering, but not what it runs."""
+    index = 0
+    while index < len(words):
+        if words[index] in ("time", "nice"):
+            index += 1
+        elif words[index] == "timeout":
+            index += 1
+            while index < len(words) and words[index].startswith("-"):
+                index += 2 if words[index] in ("-s", "-k", "--signal", "--kill-after") else 1
+            index += 1
+        elif words[index] == "stdbuf":
+            index += 1
+            while index < len(words) and words[index].startswith("-"):
+                index += 1
+        else:
+            break
+    return words[index:]
+
+
+def _run_signature(intent: Intent, cwd: str) -> tuple[str, ...]:
+    """A run's words (time limits and timing left out, see `_without_timing`) with the script or program it runs
+    (Intent.target) written as an absolute path."""
+    words = _without_timing(list(intent.argv))
+    # The first word equal to the target: wrappers and the interpreter come before the script.
+    index = words.index(intent.target)
+    words[index] = _resolve(intent.target, cwd)
+    return tuple(words)
 
 
 def _option_matches(intent: Intent, kind: str, target: _OptionTarget, cwd: str) -> bool:
     """Whether an option of tool `kind` with this target does what `intent` does, to the same target."""
     if target.form == "command":
+        # Exact (runcheck-report.md, ranks 4, 6, 7): the same interpreter, wrappers and arguments, the script resolved
+        # in each one's own folder; a check is the same command text, in the option's folder when it names one.
         if kind not in ("run", "check") or intent.kind not in ("run", "check"):
             return False
-        own = _first_intent(target.value)
-        if own is None or own.kind != intent.kind:
+        found = _option_intent(target.value)
+        if found is None:
             return False
-        return _same_path(own.target, intent.target, cwd) if own.kind == "run" else own.target == intent.target
+        own, folder = found
+        if own.kind != intent.kind:
+            return False
+        if own.kind == "check":
+            return own.target == intent.target and (folder is None or folder == _resolve(".", cwd))
+        return _run_signature(own, folder if folder is not None else cwd) == _run_signature(intent, cwd)
     if intent.kind == "read":
         if kind == "peek":
             # The first or last lines of a file are what the peek probe shows of a long text or a table.
@@ -1018,13 +1086,16 @@ def match_command(
     parts = split_command(command)
     if len(folders) != len(parts):
         raise ValueError(f"{len(folders)} folders given for the {len(parts)} parts of the command {command[:120]!r}")
-    results = [(part_intent(part), folder) for part, folder in zip(parts, folders)]
-    acting = [(result, folder) for result, folder in results if result is not NEUTRAL]
+    results = [(part_intent(part), folder, part.in_control_flow) for part, folder in zip(parts, folders)]
+    acting = [(result, folder, looped) for result, folder, looped in results if result is not NEUTRAL]
     if not acting:
         return NEUTRAL
     choices: list[tuple[str, str]] = []
-    for result, folder in acting:
+    for result, folder, looped in acting:
         if not isinstance(result, Intent):
+            return None
+        if looped and result.kind in ("run", "check"):
+            # A Run or Check option runs it once; in a loop or condition it ran any number of times.
             return None
         if folder is None:
             raise ValueError(f"the folder a part of the command {command[:120]!r} runs in is unknown")
