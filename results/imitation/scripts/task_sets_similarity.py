@@ -5,6 +5,11 @@ Same two text metrics as results/imitation/leak-check-ukisai.md:
   - difflib.SequenceMatcher.ratio() over the first 2000 characters of each (near-duplicate at >= 0.8)
 Every pair with Jaccard >= 0.3 or ratio >= 0.6 is written out, so pairs just under the thresholds can be read by hand.
 difflib is only run where its cheap upper bound (quick_ratio) reaches 0.6; below that the exact ratio cannot reach 0.6.
+It is also skipped when the 5-gram Jaccard of the two 2000-character prefixes is below PREFIX_JACCARD_GATE (0.15):
+quick_ratio passes for most pairs of English texts, and the full difflib on them made the second survey (2,135 added
+tasks, 5 million pairs) take hours. A difflib ratio of 0.6 on the prefixes needs long shared runs of characters,
+which give a prefix 5-gram Jaccard far above 0.15. The per-task maximum against the evaluation tasks (eval_max) is
+still exact.
 
 Task names: each task's folder name is normalised (lower case, '_' -> '-', known source prefixes such as 'tb-' or
 'swebenchverified-fix-' removed). A name match is equality or containment in either direction (names of at least
@@ -16,7 +21,12 @@ Inputs:
 Output: JSON with "pairs" (text), "name_matches", and "eval_max" (per task, the highest Jaccard and difflib ratio
 against any frozen evaluation task, computed exactly for every pair).
 
-Usage: python3 task_sets_similarity.py DL EVAL --out similarity.json
+Usage: python3 task_sets_similarity.py DL EVAL --out similarity.json [--new DATASET ...]
+With --new, only pairs that involve at least one task of the named datasets are scored (used when datasets are added
+to an existing survey: pairs among the earlier datasets were scored before and are not repeated).
+With --skip-internal, pairs inside each named dataset are not scored (datasets kept whole on one side whose tasks
+share one long instruction template, e.g. ORCA-bench; scoring them costs hours and cannot change the split).
+Multi-step tasks (no top-level instruction.md) use their step instructions joined (task_sets_inventory.read_instruction).
 """
 
 import argparse
@@ -27,6 +37,8 @@ import sys
 from itertools import combinations
 from multiprocessing import Pool
 from pathlib import Path
+
+from task_sets_inventory import read_instruction
 
 JACCARD_NEAR = 0.5
 RATIO_NEAR = 0.8
@@ -42,8 +54,11 @@ NAME_PREFIXES = [
     "polyglot-",
 ]
 
+PREFIX_JACCARD_GATE = 0.15
+
 TEXTS: list[str] = []
 GRAMS: list[frozenset] = []
+PREFIX_GRAMS: list[frozenset] = []
 
 
 def norm_name(name: str) -> str:
@@ -73,8 +88,12 @@ def pair_scores(ij: tuple[int, int]) -> tuple[int, int, float, float] | None:
     a, b = GRAMS[i], GRAMS[j]
     union = len(a | b)
     jac = len(a & b) / union if union else 0.0
-    sm = difflib.SequenceMatcher(None, TEXTS[i][:2000], TEXTS[j][:2000])
     ratio = 0.0
+    pa, pb = PREFIX_GRAMS[i], PREFIX_GRAMS[j]
+    pu = len(pa | pb)
+    if pu and len(pa & pb) / pu < PREFIX_JACCARD_GATE:
+        return (i, j, jac, ratio) if jac >= JACCARD_REVIEW else None
+    sm = difflib.SequenceMatcher(None, TEXTS[i][:2000], TEXTS[j][:2000])
     if sm.real_quick_ratio() >= RATIO_REVIEW and sm.quick_ratio() >= RATIO_REVIEW:
         ratio = ratio_both(TEXTS[i], TEXTS[j])
     if jac >= JACCARD_REVIEW or ratio >= RATIO_REVIEW:
@@ -92,9 +111,10 @@ def full_scores(ij: tuple[int, int]) -> tuple[int, int, float, float]:
 
 
 def init(texts: list[str]) -> None:
-    global TEXTS, GRAMS
+    global TEXTS, GRAMS, PREFIX_GRAMS
     TEXTS = texts
     GRAMS = [grams(t) for t in texts]
+    PREFIX_GRAMS = [grams(t[:2000]) for t in texts]
 
 
 def main() -> None:
@@ -102,6 +122,8 @@ def main() -> None:
     ap.add_argument("dl", type=Path)
     ap.add_argument("eval", type=Path)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--new", nargs="+", help="score only pairs involving these datasets")
+    ap.add_argument("--skip-internal", nargs="+", default=[], help="do not score pairs inside these datasets")
     args = ap.parse_args()
 
     ids: list[tuple[str, str]] = []
@@ -111,14 +133,19 @@ def main() -> None:
         texts.append(f.read_text(errors="replace").strip())
     for ds in sorted(p for p in args.dl.iterdir() if p.is_dir()):
         for task_dir in sorted(p for p in ds.iterdir() if p.is_dir()):
-            ins = task_dir / "instruction.md"
-            if not ins.exists():
-                raise FileNotFoundError(f"{ins} missing")
             ids.append((ds.name, task_dir.name))
-            texts.append(ins.read_text(errors="replace").strip())
+            texts.append(read_instruction(task_dir).strip())
     print(f"{len(ids)} tasks, {len(ids) * (len(ids) - 1) // 2} pairs", file=sys.stderr)
 
     all_pairs = list(combinations(range(len(ids)), 2))
+    if args.new:
+        new = set(args.new)
+        missing = new - {d for d, _ in ids}
+        if missing:
+            raise ValueError(f"--new names datasets not found under {args.dl}: {sorted(missing)}")
+        all_pairs = [(i, j) for i, j in all_pairs if ids[i][0] in new or ids[j][0] in new]
+    skip = set(args.skip_internal)
+    all_pairs = [(i, j) for i, j in all_pairs if not (ids[i][0] == ids[j][0] and ids[i][0] in skip)]
     pairs = []
     with Pool(initializer=init, initargs=(texts,)) as pool:
         for n, res in enumerate(pool.imap_unordered(pair_scores, all_pairs, chunksize=2000)):
@@ -138,7 +165,7 @@ def main() -> None:
 
     # Per task: the highest score against any frozen evaluation task (or twin), as in leak-check-ukisai.md.
     eval_idx = [i for i, d in enumerate(ids) if d[0] == "tb2-eval"]
-    other_idx = [i for i, d in enumerate(ids) if d[0] != "tb2-eval"]
+    other_idx = [i for i, d in enumerate(ids) if d[0] != "tb2-eval" and (not args.new or d[0] in args.new)]
     best: dict = {}
     with Pool(initializer=init, initargs=(texts,)) as pool:
         work = [(o, e) for o in other_idx for e in eval_idx]

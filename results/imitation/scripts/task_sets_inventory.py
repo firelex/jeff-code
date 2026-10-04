@@ -69,6 +69,53 @@ def install_prefix_hash(dockerfile: str) -> str | None:
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()[:16] if lines else None
 
 
+def size_mb(env: dict, key: str) -> int | None:
+    """`memory_mb` / `storage_mb`, or the older string form `memory = '8G'` / `storage = '16G'` (SWE-rebench)."""
+    if env.get(f"{key}_mb") is not None:
+        return int(env[f"{key}_mb"])
+    v = env.get(key)
+    if v is None:
+        return None
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([KMGT])i?B?\s*", str(v), re.IGNORECASE)
+    if not m:
+        raise ValueError(f"unreadable {key} value {v!r}")
+    return int(float(m.group(1)) * {"K": 1 / 1024, "M": 1, "G": 1024, "T": 1024 * 1024}[m.group(2).upper()])
+
+
+def read_instruction(task_dir: Path) -> str:
+    """The task's instruction text. A multi-step task (SlopCodeBench) has no top-level instruction.md; its text is
+    the step instructions (steps/<name>/instruction.md) joined in the order of [[steps]] in task.toml."""
+    top = task_dir / "instruction.md"
+    if top.exists():
+        return top.read_text(errors="replace")
+    steps = tomllib.loads((task_dir / "task.toml").read_text()).get("steps") or []
+    if not steps:
+        raise FileNotFoundError(f"{task_dir} has neither instruction.md nor [[steps]]")
+    return "\n\n".join((task_dir / "steps" / s["name"] / "instruction.md").read_text(errors="replace") for s in steps)
+
+
+def repository(task: str, cfg: dict) -> str | None:
+    """GitHub repository (owner/name, lower case) a software-engineering task is drawn from, or None.
+
+    Read from [metadata] repository / repository_url (DeepSWE, SWE-Atlas QnA / TW), else from SWE-bench-style task
+    names `owner__repo-<number>[_interface]` (SWE-bench Verified, SWE-rebench), else from SWE-Atlas image tags
+    `swe_atlas_<RF|TW|QnA>_<owner>_<repo>_...` (SWE-Atlas RF has no repository field).
+    """
+    md = cfg.get("metadata", {})
+    for key in ("repository_url", "repository"):
+        if md.get(key):
+            return re.sub(r"^https://github\.com/", "", md[key]).rstrip("/").lower()
+    # SWE-rebench also has `owner__repo-<number>_interface` variants (the issue plus a required interface).
+    m = re.fullmatch(r"([\w.-]+)__([\w.-]+)-\d+(?:_interface)?", task)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}".lower()
+    image = cfg.get("environment", {}).get("docker_image") or ""
+    m = re.search(r"swe_atlas_(?:RF|TW|QnA)_([^_]+)_(.+?)_(?:[0-9a-f]{24}_)?1\.0", image)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}".lower()
+    return None
+
+
 def gpu_from_compose(text: str) -> bool:
     return bool(re.search(r"driver:\s*nvidia|capabilities:\s*\[?\s*gpu|runtime:\s*nvidia", text))
 
@@ -95,9 +142,14 @@ def record(dataset: str, task_dir: Path) -> dict:
     ver_base = None
     if verifier.get("environment_mode") == "separate" and not ver_env.get("docker_image") and ver_dockerfile.exists():
         ver_base, _ = final_from(ver_dockerfile.read_text(errors="replace"))
-    instruction_path = task_dir / "instruction.md"
-    instruction = instruction_path.read_text(errors="replace") if instruction_path.exists() else ""
-    if "network_mode" in env:
+    instruction = read_instruction(task_dir)
+    steps = cfg.get("steps") or []
+    # Total agent time of a multi-step task: the per-step limits added up.
+    steps_agent_sec = sum(float((s.get("agent") or {}).get("timeout_sec") or agent.get("timeout_sec") or 0) for s in steps)
+    # Newer task.toml files (schema 1.3, e.g. DeepSWE) put the agent's network mode under [agent].
+    if "network_mode" in agent:
+        network = agent["network_mode"]
+    elif "network_mode" in env:
         network = env["network_mode"]
     elif env.get("allow_internet") is False:
         network = "no-network"
@@ -111,6 +163,7 @@ def record(dataset: str, task_dir: Path) -> dict:
         "task": task_dir.name,
         "task_name": cfg.get("task", {}).get("name"),
         "category": cfg.get("metadata", {}).get("category"),
+        "repository": repository(task_dir.name, cfg),
         "difficulty": cfg.get("metadata", {}).get("difficulty"),
         "prebuilt_image": env.get("docker_image"),
         "dockerfile_base": base,
@@ -125,14 +178,18 @@ def record(dataset: str, task_dir: Path) -> dict:
         "compose_services": compose_services,
         "compose_images": compose_images,
         "cpus": env.get("cpus"),
-        "memory_mb": env.get("memory_mb"),
-        "storage_mb": env.get("storage_mb"),
+        "memory_mb": size_mb(env, "memory"),
+        "storage_mb": size_mb(env, "storage"),
         "gpus": env.get("gpus") or 0,
         "gpu_types": env.get("gpu_types"),
         "gpu_in_compose": gpu_from_compose(compose_text),
         "network": network,
         "mcp_servers": len(env.get("mcp_servers") or []),
         "agent_timeout_sec": agent.get("timeout_sec"),
+        "steps": len(steps),
+        "steps_agent_timeout_sec": steps_agent_sec or None,
+        # The verifier calls a language-model judge (it needs an API key: SWE-Atlas rubrics, ORCA-bench reports).
+        "llm_judge_verifier": bool(re.search(r"API_KEY", json.dumps(verifier.get("env") or {}) + compose_text)),
         "verifier_timeout_sec": verifier.get("timeout_sec"),
         "build_timeout_sec": env.get("build_timeout_sec"),
         "instruction_chars": len(instruction),

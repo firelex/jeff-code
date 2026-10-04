@@ -8,6 +8,10 @@ evaluation and 4 near-twins of them excluded (`training-tasks.json`). This docum
 checks them for leaks against the frozen evaluation tasks, groups duplicates across all sets, and proposes a seeded
 training / held-out split per dataset plus a disk plan for casdgx01.
 
+Second survey (same day): eight more datasets (SWE-rebench, DeepSWE, the three SWE-Atlas sets, SkillsBench,
+ORCA-bench, SlopCodeBench) were added without changing anything above; see
+[Added datasets: second survey](#added-datasets-second-survey) at the end.
+
 ## Result in one table
 
 | Dataset (Harbor hub name) | Tasks | Training | Held-out | Excluded | Policy |
@@ -297,4 +301,188 @@ python3 task_sets_split.py inventory.json similarity.json topic.json results/imi
   --out results/imitation/task-sets.json
 python3 task_sets_summary.py inventory.json image_sizes.json context_sizes.txt results/imitation/task-sets.json \
   casdgx_local_sizes.txt similarity.json --inventory-out results/imitation/task-sets-inventory.json
+```
+
+## Added datasets: second survey
+
+Date: 2026-10-04 (afternoon). Eight more Harbor datasets, added by `scripts/task_sets_add.py` on top of the split
+above; every entry from the first survey in `task-sets.json` is unchanged (checked: identical dataset entries; two
+cross-dataset groups appended to `cross_dataset_groups`, plus a top-level `added_datasets` record). Added tasks are appended to `task-sets-inventory.json` with three new fields:
+`repository` (GitHub repository of software-engineering tasks), `steps` (multi-step tasks) and
+`llm_judge_verifier` (the verifier or task container gets a model API key; for SkillsBench drone-planning-control
+this is a false positive, the key goes to the task container).
+
+### Result
+
+| Dataset (Harbor hub name, version) | Tasks | Training | Held-out | Excluded | Policy |
+|---|---|---|---|---|---|
+| swe-rebench/swe-rebench-leaderboard 1.0.1 | 860 | 735 | 125 | 0 | repository split: 62 of 413 repositories held out (seeded) |
+| benchflow/skillsbench 2.0.1 (SkillsBench v1.1) | 87 | 43 | 44 | 0 | seeded group split, 50% held out |
+| datacurve/deep-swe-1-1 1.0.0 (DeepSWE 1.1, latest) | 113 | 0 | 113 | 0 | kept whole as held-out |
+| scale-ai/swe-atlas-qna 1.0.0 | 124 | 0 | 124 | 0 | kept whole as held-out |
+| scale-ai/swe-atlas-rf 1.0.0 | 70 | 0 | 70 | 0 | kept whole as held-out |
+| scale-ai/swe-atlas-tw 1.1.0 | 90 | 0 | 90 | 0 | kept whole as held-out |
+| orca-bench/orca-bench 2.0.0 (public split) | 755 | 0 | 755 | 0 | kept whole as held-out |
+| gabeorlanski/slopcodebench 4.0.0 | 36 | 0 | 36 | 0 | kept whole as held-out |
+| **new training tasks** | | **778** | | | |
+
+Hub names: SWE-rebench's 860-task set is `swe-rebench/swe-rebench-leaderboard` (there is also a 111-task
+`ibragim-badertdinov/swe-rebench-07-2026` subset, not used). DeepSWE exists as `datacurve/deep-swe` (1.0.1) and
+`datacurve/deep-swe-1-1` (1.1, same 113 tasks, separate verifier container); 1.1 is used. ORCA-bench has three
+datasets: `orca-bench` (public, 755), `orca-bench-verified` (40, all of them also in the public split under the same
+task ids) and `orca-bench-private` (324, answers removed). No dataset here needs a GPU or MCP tools, so nothing is
+excluded for those reasons.
+
+### Why each set got its policy
+
+- **SWE-rebench: train, with a repository-level held-out validation set** (owner decision). All tasks of a
+  repository are on one side; repositories are drawn with seed 20261004 until 15% of the 413 repositories (62) are
+  held out; they hold 125 of the 860 tasks. Repositories are read from the task names (`owner__repo-<n>`, lower case,
+  with the `_interface` variants mapped to their repository). Tasks linked by text or topic across repositories were
+  merged into one group first (for example `jmcgeheeiv__pyfakefs-1286` and `pytest-dev__pyfakefs-1286` are the same
+  task under a renamed repository). The held-out repositories are listed in `held_out_repositories` in task-sets.json.
+- **SkillsBench: split 50%.** It is a Terminal-Bench-style set (files in, files out, pytest verifier, median limit
+  30 min), the kind of task Jeff is trained for. Its published numbers compare runs with and without "skill" folders;
+  pi does not load the skill folders (they sit in `environment/skills`, and `skills_dir` is not set), so our numbers
+  would not be comparable with the published ones anyway, and keeping it whole would buy nothing.
+- **DeepSWE: whole held-out.** A test benchmark for frontier coding agents with a leaderboard and no training split;
+  SWE-rebench already supplies 735 SWE training tasks.
+- **SWE-Atlas QnA / RF / TW: whole held-out.** Scale AI leaderboard benchmarks graded by a language-model judge with
+  rubrics (default judge Claude Opus 4.5 via `OPENAI_API_KEY`); as training data every rollout would cost a judge
+  call. The three sets share repositories and images (wp-calypso, grafana, k6, scapy, trufflehog, ...), so splitting
+  one of them would have to move the others too.
+- **ORCA-bench: whole held-out.** Tasks share telemetry snapshots; grouped by snapshot and by incident events they
+  form 17 groups (240, 120, 104, 78, 75, ... tasks), and the 40 tasks of the reported verified subset sit in 15 of the
+  17, so no split keeps the verified subset held out. It also needs a one-time Harbor patch, privileged containers
+  with the host Docker socket (each trial starts a telemetry stack), and a language-model judge.
+- **SlopCodeBench: whole held-out.** A leaderboard benchmark of 36 multi-step tasks (196 checkpoints; agent limit
+  2 h per checkpoint, 6-16 h per task); our runner has not been tried on Harbor multi-step tasks.
+
+### Resources
+
+| Dataset | Tasks | Image source | GPU | Network | Sidecars / MCP | LLM-judge verifier | Agent limit (s) min / median / max | CPUs median / max | Memory GB median / max | Storage GB max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| swe-rebench-leaderboard | 860 | Dockerfile `FROM swerebench/sweb.eval.x86_64.*` + uv | 0 | public (Harbor default) | 0 / 0 | 0 | 3000 / 3000 / 3000 | 1 / 2 | 8 / 16 | 16 |
+| skillsbench | 87 | Dockerfile (55 ubuntu, 29 python, 3 other) | 0 | public 86, none 1 | 2 / 0 | 0 | 300 / 1800 / 7200 | 1 / 8 | 4 / 24 | 20 |
+| deep-swe-1-1 | 113 | prebuilt (public.ecr.aws), verifier built from it | 0 | none (agent and verifier) | 0 / 0 | 0 | 5400 / 5400 / 5400 | 2 / 2 | 8 / 8 | 20 |
+| swe-atlas-qna | 124 | prebuilt (ghcr.io/scaleapi/swe-atlas) | 0 | public | 0 / 0 | 124 | 10800 / 10800 / 10800 | 16 / 16 | 16 / 16 | 20 |
+| swe-atlas-rf | 70 | prebuilt (ghcr.io/scaleapi/swe-atlas) | 0 | public | 0 / 0 | 70 | 3600 / 3600 / 3600 | 16 / 16 | 16 / 16 | 20 |
+| swe-atlas-tw | 90 | prebuilt (ghcr.io/scaleapi/swe-atlas) | 0 | public | 0 / 0 | 90 | 10800 / 10800 / 10800 | 16 / 16 | 16 / 16 | 20 |
+| orca-bench | 755 | Dockerfile `FROM orcabench/sre-otel-snapshot` (one image) | 0 | public | starts its own stack via the Docker socket / 0 | 755 | 3600 / 3600 / 3600 | 4 / 4 | 1 / 1 | 4 |
+| slopcodebench | 36 | Dockerfile `FROM ghcr.io/astral-sh/uv` | 0 | public | 0 / 0 | 0 | 21600 / 36000 / 57600 (per task, all steps) | 1 / 1 | 2 / 2 | 10 |
+
+Bash-only pi can do all of them as far as the task text goes: SWE-Atlas QnA asks for the answer in
+`/logs/agent/answer.txt`, ORCA-bench asks for `/app/report.md` and offers Grafana over HTTP (curl).
+
+Agent time at the limit for the training sides: SWE-rebench 735 x 50 min = 612 h, SkillsBench 20 h.
+
+### Image sizes (compressed, linux/amd64, shared layers counted once)
+
+| Dataset | All tasks GB | Median per task GB | Largest task (GB) | Training GB | Held-out GB |
+|---|---|---|---|---|---|
+| swe-rebench-leaderboard | 907.4 | 1.54 | SpikeInterface__spikeinterface-3934 (12.7) | 775.0 | 133.5 |
+| skillsbench | 38.9 | 0.36 | earthquake-phase-association (1.4) | 19.4 | 19.9 |
+| deep-swe-1-1 | 24.4 | 0.85 | goreleaser-retry-publish-auditing (2.5) | 0 | 24.4 |
+| swe-atlas-qna | 14.3 | 0.69 | task-6905333b74f22949d97ba9a3 (4.1) | 0 | 14.3 |
+| swe-atlas-rf | 66.2 | 2.39 | task-69d196f015a150488265afbe (7.8) | 0 | 66.2 |
+| swe-atlas-tw | 17.8 | 0.90 | task-6902ef3ab97fe23e2ad271f1 (4.3) | 0 | 17.8 |
+| orca-bench | 27.5 | 27.5 (one shared image) | (one image) | 0 | 27.5 + its runtime stack |
+| slopcodebench | 2.1 | 0.39 | test_translator (1.4) | 0 | 2.1 |
+| **all added** | | | | **794.4** | **291.3** |
+
+Sizes come from the registries without pulling (`task_sets_image_sizes.py`); 1,154 of 1,156 images resolved (not
+resolved: a SkillsBench base given as a build argument, `bugswarm/cached-images:${bugswarm_image_tag}`, and a
+locally built SkillsBench sidecar). Dockerfile-only tasks use the first survey's estimate (base + build context +
+0.32 GB, or 1.34 GB for large installs), except that a Dockerfile whose RUN steps only install uv or make directories
+(all of SWE-rebench) adds 0.05 GB and one without RUN steps (ORCA-bench) adds nothing. ORCA-bench's size leaves out
+the telemetry stack each trial starts through the Docker socket.
+
+**SWE-rebench training images are about 775 GB compressed, about 1.27 TB on disk at the measured ratio 1.64.** Each
+task has its own `swerebench/sweb.eval.*` image (1.5 GB median), so few layers are shared. Together with the first
+survey's 155 GB this does not fit in the roughly 850 GB free on casdgx01's `/`: training collection on SWE-rebench
+needs a pull-run-remove rotation (for example in batches of 100 tasks, about 150 GB compressed / 250 GB on disk each),
+or a subset.
+
+### Leak check
+
+Against everything held out or evaluated: the 40 frozen Terminal-Bench 2.0 evaluation tasks and their 4 twins, and
+every held-out task of the first survey (SWE-bench Verified 500, Aider Polyglot 225, TBLite 99, Pro 100, terminal-bench
+(66) 33, Science 35, Harbor Index 41); training tasks of the first survey were checked too, for grouping. Methods as
+above: names, 5-gram Jaccard, difflib (`task_sets_similarity.py --new ... --skip-internal ...`), and the word TF-IDF
+topic check (`task_sets_topic_check.py --new swe-rebench-leaderboard skillsbench`) with the closest pairs read by hand.
+
+- **Against the 44 Terminal-Bench 2.0 evaluation tasks: nothing.** Highest 5-gram Jaccard of any added task 0.092
+  (SkillsBench edit-pdf), highest difflib 0.12; no name match; the closest topic neighbour of any evaluation task
+  has cosine 0.23 (a SWE-rebench issue; read, different task).
+- **SkillsBench vs Harbor Index (held-out side):** Harbor Index adapted two SkillsBench tasks.
+  `jpg-ocr-stat` = `skillsbench-ocr-receipts-to-excel` (Jaccard 0.94, difflib 1.0) and `shock-analysis-supply` =
+  `skillsbench-model-investment-shock-gdp` (reworded, cosine 0.77). Both go to the held-out side, and
+  `shock-analysis-demand` (the same Georgia investment-shock exercise on the demand side, cosine 0.49 to its sibling)
+  goes with them. Read and kept: invoice-fraud-detection vs Pro normalize-invoice-pdfs-to-csv (0.35),
+  dapt-intrusion-detection vs Pro python-pcap-anomaly-detector (0.27).
+- **SWE-rebench vs SWE-bench Verified:** no shared instance and no text near-duplicate (highest Jaccard 0.38). The
+  top topic pairs (xarray-10035 vs 7393 at 0.57, sympy-27462 vs 22080 at 0.55, xarray-10838 vs 7229) were read: same
+  repository vocabulary, different issues. They are not linked.
+- **Shared repositories** (not leaks by the text checks, but the same code base; owner decision pending):
+
+  | Held-out set | Repository | Tasks there | SWE-rebench tasks | SWE-rebench side |
+  |---|---|---|---|---|
+  | SWE-bench Verified | astropy/astropy | 22 | 17 | training |
+  | SWE-bench Verified | sympy/sympy | 75 | 28 | training |
+  | SWE-bench Verified | pydata/xarray | 22 | 5 | training |
+  | SWE-bench Verified | sphinx-doc/sphinx | 44 | 3 | training |
+  | SWE-bench Verified | scikit-learn/scikit-learn | 32 | 2 | training |
+  | SWE-bench Verified | matplotlib/matplotlib | 34 | 1 | training |
+  | DeepSWE | ipython/ipython | 1 | 3 | training |
+  | DeepSWE | narwhals-dev/narwhals | 1 | 3 | training |
+  | DeepSWE | psd-tools/psd-tools | 1 | 2 | training |
+  | DeepSWE | skrub-data/skrub | 1 | 1 | held-out |
+
+  That is 56 SWE-rebench training tasks on SWE-bench Verified repositories and 8 on DeepSWE repositories. If Verified
+  is later evaluated, moving these 6 + 3 repositories to the held-out side (or excluding their 64 tasks) is a change
+  of one rule in `task_sets_add.py`. No SWE-rebench repository appears in SWE-Atlas or in Harbor Index's SWE tasks.
+- **Inside the added sets (grouped on one side):** SWE-rebench pyfakefs-1286 twin (renamed repository),
+  schemathesis-3270 / 3334, sqlglot-6409 / 6413, depthviz-55 / 56 and other same-repository pairs (same repository
+  anyway); cross-repository topic pairs virtualenv-2921 / tox-3904 and basic-memory-295 / goodconf-51 (cosine >= 0.45;
+  their repositories were merged into one group each). SkillsBench fix-build-agentops / fix-build-google-auto (Jaccard 0.92) and
+  pddl-airport-planning / pddl-tpp-planning (0.79) are grouped. Pairs inside the whole-held-out sets were not scored
+  (`--skip-internal`): ORCA-bench's 755 tasks share one instruction template.
+
+### Concerns
+
+- **Disk:** 775 GB compressed of SWE-rebench training images (above). Docker Hub anonymous pulls are limited (about
+  100 per 6 hours per IP); 735 `swerebench/*` images need a logged-in Docker Hub account or a pull-through cache.
+- **SWE-rebench containers have internet** (Harbor default). The agent could fetch the upstream fix from GitHub.
+  Setting `network_mode = "no-network"` for training runs (DeepSWE does this) would close it; the verifier runs
+  inside the same container, so check that the tests do not need the network first.
+- **Collection time:** 735 SWE-rebench tasks at the 50-minute limit are up to 612 agent-hours; SkillsBench 20 h.
+- **SkillsBench quirks:** skill folders are not given to the agent (see policy); fix-visual-stability builds a local
+  sidecar image; some tasks download inputs from GitHub at build time; one task (drone-planning-control) passes
+  `ANTHROPIC_API_KEY` into its container.
+- **Judge-graded held-out sets:** SWE-Atlas (284 tasks) and ORCA-bench (755) need a judge model for every
+  evaluation run; ORCA-bench also needs the Harbor patch and privileged containers. Running them is an infra project
+  of its own.
+- The repository split of SWE-rebench is by repository count (15% of repositories); because repositories differ in
+  size, the held-out side has 125 tasks (14.5%).
+
+### Reproducing (second survey)
+
+```
+# on datigator (~/jeff-pi-run/tools/jeff-first): download task definitions, no images
+for d in swe-rebench/swe-rebench-leaderboard datacurve/deep-swe-1-1 scale-ai/swe-atlas-qna scale-ai/swe-atlas-rf \
+         scale-ai/swe-atlas-tw benchflow/skillsbench orca-bench/orca-bench gabeorlanski/slopcodebench; do
+  uv run harbor download $d --export -o ~/task-sets-dl2
+done
+rsync -a --max-size=2m --include='*/' --include=task.toml --include=instruction.md --include=Dockerfile \
+  --include='docker-compose*.y*ml' --include='environment/*' --exclude='*' datigator:task-sets-dl2/ dl2/
+ssh datigator 'cd ~/task-sets-dl2; for t in */*/; do ...du -sb environment, tests...; done' > context_sizes2.txt
+mkdir all; ln -s $PWD/dl/* $PWD/dl2/* all/        # dl/: the first survey's download
+python3 task_sets_inventory.py dl2 --out inv2.json
+python3 task_sets_image_sizes.py inv2.json --cache image_sizes2.json --include-bases
+python3 task_sets_similarity.py all tb2eval --out similarity2.json --new <the 8 added datasets> \
+  --skip-internal orca-bench swe-atlas-qna swe-atlas-rf swe-atlas-tw deep-swe-1-1 slopcodebench
+python3 task_sets_topic_check.py all --ref eval=tb2eval --ref tb2-train=tb2train --pairs-min 0.4 \
+  --new swe-rebench-leaderboard skillsbench --out topic2.json
+python3 task_sets_add.py results/imitation/task-sets.json inv2.json similarity2.json topic2.json image_sizes2.json \
+  context_sizes2.txt dl2 results/imitation/training-tasks.json --inventory-out results/imitation/task-sets-inventory.json
 ```

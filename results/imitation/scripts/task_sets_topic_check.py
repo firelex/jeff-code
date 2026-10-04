@@ -14,9 +14,12 @@ lists for a person to read:
 TF-IDF: each word's count is weighted (1 + log count) * log(N / number of tasks containing the word), the vector is
 normalised to length 1, and cosine similarity is the dot product.
 
+With --new DATASET ..., list 2 only scores pairs that involve a task of the named datasets (used when datasets are
+added to an existing survey). Multi-step tasks use their step instructions joined (task_sets_inventory.read_instruction).
+
 Usage:
   python3 task_sets_topic_check.py DL --ref eval=EVAL_DIR --ref tb2-train=TRAIN_DIR \
-      --top 4 --min 0.2 --pairs-min 0.45 --out topic.json
+      --top 4 --min 0.2 --pairs-min 0.45 --out topic.json [--new DATASET ...]
 """
 
 import argparse
@@ -26,9 +29,22 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from task_sets_inventory import read_instruction
+
 TOKEN = re.compile(r"[a-z][a-z0-9]+")
 SKIP_DATASETS = {"terminal-bench-2", "terminal-bench-2-1"}
-NO_INTERNAL_PAIRS = {"aider-polyglot", "swe-bench-verified"}
+# Pairs inside these datasets are not listed: the whole dataset is on one side (kept whole as held-out), or (aider)
+# grouped by exercise name, or (orca-bench) every task uses one instruction template about one system.
+NO_INTERNAL_PAIRS = {
+    "aider-polyglot",
+    "swe-bench-verified",
+    "deep-swe-1-1",
+    "swe-atlas-qna",
+    "swe-atlas-rf",
+    "swe-atlas-tw",
+    "slopcodebench",
+    "orca-bench",
+}
 
 
 def tokens(text: str) -> list[str]:
@@ -49,6 +65,7 @@ def main() -> None:
     ap.add_argument("--min", type=float, default=0.2)
     ap.add_argument("--pairs-min", type=float, default=0.45)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--new", nargs="+", help="list pairs only when one side is in these datasets")
     args = ap.parse_args()
 
     docs: list[tuple[str, str, Counter]] = []
@@ -59,7 +76,7 @@ def main() -> None:
     ref_labels = {s.split("=", 1)[0] for s in args.ref}
     for ds in sorted(p for p in args.dl.iterdir() if p.is_dir() and p.name not in SKIP_DATASETS):
         for t in sorted(p for p in ds.iterdir() if p.is_dir()):
-            docs.append((ds.name, t.name, Counter(tokens((t / "instruction.md").read_text(errors="replace")))))
+            docs.append((ds.name, t.name, Counter(tokens(read_instruction(t)))))
     df = Counter(w for _, _, c in docs for w in c)
     n = len(docs)
     vecs = []
@@ -90,6 +107,8 @@ def main() -> None:
     for x, i in enumerate(cand_idx):
         for j in cand_idx[x + 1 :]:
             if docs[i][0] == docs[j][0] and docs[i][0] in NO_INTERNAL_PAIRS:
+                continue
+            if args.new and docs[i][0] not in args.new and docs[j][0] not in args.new:
                 continue
             s = dot(vecs[i], vecs[j])
             if s >= args.pairs_min:
