@@ -42,9 +42,11 @@ import asyncio
 import collections
 import hashlib
 import json
+import os
 import re
 import sys
 import time
+import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -653,11 +655,14 @@ class Labeller:
                 if turns and family(turns[0]["recording_machine"]) != self.family:
                     raise ValueError(f"{trial}: a {family(turns[0]['recording_machine'])} session; this labeller "
                                      f"answers {self.family} sessions only")
-                classes = turn_classes(trial, self.tokenizer)
-                assistants = self._assistant_ids(trial)
-                if len(classes) != len(assistants):
-                    raise ValueError(f"{trial}: {len(classes)} classified replies but {len(assistants)} assistant entries")
-                class_of = dict(zip(assistants, classes))
+                class_of = {}
+                if turns:  # a trial left out by recorded_turns may be one ceiling.py cannot classify
+                    classes = turn_classes(trial, self.tokenizer)
+                    assistants = self._assistant_ids(trial)
+                    if len(classes) != len(assistants):
+                        raise ValueError(f"{trial}: {len(classes)} classified replies but {len(assistants)} assistant "
+                                         "entries")
+                    class_of = dict(zip(assistants, classes))
                 for turn in turns:
                     turn["class"] = class_of[turn["entry_id"]]
                     turn["source_host"] = source
@@ -1002,7 +1007,14 @@ def main():
     c.add_argument("--rejudge-model", help="the model the --rejudge-url service must serve")
     options = parser.parse_args()
     if options.step == "run":
-        asyncio.run(Labeller(options).run())
+        try:
+            asyncio.run(Labeller(options).run())
+        except BaseException:  # noqa: BLE001 - not swallowed: printed, then the process ends with code 1
+            # asyncio's shutdown can wait forever on cancelled request tasks; the supervisor restarts the labeller.
+            traceback.print_exc()
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(1)
     elif options.step == "join":
         stage3 = [json.loads(line) for line in Path(options.stage3_rows).read_text().splitlines()]
         rows, counts = join_rows(read_labels(options.labels), stage3)
