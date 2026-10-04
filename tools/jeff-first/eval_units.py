@@ -78,17 +78,28 @@ def trace_counts(trace: Path) -> dict:
     return c
 
 
+def benchmark_of(folder: Path) -> str:
+    """A running session's benchmark: eval_stream.sh writes it to benchmark.txt at the start (the first TB2 streams did
+    not, so a folder without it is Terminal-Bench 2.0)."""
+    path = folder / "benchmark.txt"
+    return path.read_text().strip() if path.exists() else "terminal-bench-2"
+
+
 def unit(folder: Path) -> dict:
     arm, task, attempt = folder.parts[-3], folder.parts[-2], int(folder.parts[-1].removeprefix("attempt"))
-    row: dict = {"arm": arm, "task": task, "attempt": attempt, "folder": str(folder)}
+    row: dict = {"arm": arm, "task": task, "attempt": attempt, "folder": str(folder), "benchmark": benchmark_of(folder)}
     meta_path = folder / "meta.json"
     if not meta_path.exists():
         row["state"] = "running"
         return row
     meta = json.loads(meta_path.read_text())
-    row.update({k: meta[k] for k in ("host", "server", "stream", "block", "started", "finished", "exit")})
+    row.update({k: meta[k] for k in ("host", "server", "stream", "block", "task", "started", "finished", "exit")})
+    row["benchmark"] = meta.get("benchmark", "terminal-bench-2")
     row["state"] = "finished"
     results = sorted(folder.glob("*/*/result.json"))
+    if str(meta["exit"]).startswith("pull-failed"):
+        row["error"] = f"image pull failed ({meta['exit']})"
+        return row
     if len(results) != 1:
         row["error"] = f"{len(results)} result.json files"
         return row

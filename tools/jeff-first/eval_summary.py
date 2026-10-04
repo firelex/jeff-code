@@ -7,7 +7,8 @@ questions), errors, and per host.
 Paired per task: for every task where the arm and the baseline both have a solved session, the ratio of their mean
 wall times of solved sessions (arm / baseline); median and geometric mean over those tasks. Also paired per block
 (same task, attempt and server) where both solved.
-Usage: python3 eval_summary.py PLANNED_SESSIONS UNITS.jsonl...
+One section per benchmark (Terminal-Bench 2.0 first, then the follow-on benchmarks in the order planned).
+Usage: python3 eval_summary.py PLANNED UNITS.jsonl...   (PLANNED: benchmark=sessions,benchmark=sessions,...)
 """
 
 import json
@@ -31,8 +32,20 @@ def ratio_stats(ratios: list[float]) -> str:
 
 
 def main() -> None:
-    planned = int(sys.argv[1])
+    planned = dict(item.split("=") for item in sys.argv[1].split(","))
     rows = [json.loads(line) for path in sys.argv[2:] for line in open(path) if line.strip()]
+    unknown = {r["benchmark"] for r in rows} - set(planned)
+    if unknown:
+        raise SystemExit(f"sessions of benchmarks not in PLANNED: {sorted(unknown)}")
+    for benchmark, sessions in planned.items():
+        subset = [r for r in rows if r["benchmark"] == benchmark]
+        print(f"## {benchmark}")
+        print()
+        section(int(sessions), subset)
+        print()
+
+
+def section(planned: int, rows: list[dict]) -> None:
     by_arm = defaultdict(list)
     for r in rows:
         by_arm[r["arm"]].append(r)

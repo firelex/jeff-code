@@ -10,8 +10,17 @@ plan    writes one queue per host from the task list: attempt 1 of every task fi
 claim   gives a stream on one server its next session: the next arm of a block already open on that server, else the
         first block not yet started (it opens on that server). With --deadline, a session starts only if its longest
         possible duration ends before the deadline; a block whose task does not fit is skipped and stays unstarted.
-        Prints "BLOCK ARM TASK ATTEMPT". Exit 3: nothing to start now; exit 4: nothing left that can ever start here.
-finish  records a session's end (its run_phase0.sh exit status).
+        Prints "BLOCK ARM TASK ATTEMPT BENCHMARK" (TB2 blocks: terminal-bench-2). Exit 3: nothing to start now; exit 4: nothing left that can ever start here.
+followon writes the follow-on queues (queue2-HOST.json): for each benchmark in the order given, its task ids shuffled
+        with the seed, one attempt each, one block per task (block ids PREFIX + number), arm order rotating as in plan;
+        blocks dealt to the hosts in proportion to their stream counts in queue order. Agent time per task as
+        task_source.py gives it (at most 15 minutes x the multiplier). --first-block-to HOST puts the first block of
+        the benchmark named by --first-block-of into a one-block queue (queue-check-HOST.json) for a check run.
+finish  records a session's end (its run_phase0.sh exit status); prints "complete" when it was the block's last session.
+upcoming prints the tasks of the next N blocks not yet started, one per line (for image prefetching).
+take-unfit removes the unstarted blocks whose longest possible session no longer ends by --deadline and prints them as
+        JSON (to append them to the other host's queue).
+append  adds the blocks of a take-unfit JSON file to a queue (ids kept, queue kept in block id order).
 move    moves unstarted blocks from one host's queue to another's (both files local), for rebalancing by hand.
 status  prints the queue's counts.
 
@@ -116,6 +125,100 @@ class Locked:
         self.lock.close()
 
 
+def followon(args: argparse.Namespace) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from task_source import TB2_DEFAULT_AGENT_SEC, load_task_sets
+
+    sets = load_task_sets(Path(args.task_sets), Path(args.inventory))
+    hosts = {h: int(n) for h, n in (x.split(":") for x in args.host)}
+    total_streams = sum(hosts.values())
+    tasks: dict[str, dict] = {}
+    blocks = []
+    counter = 0
+    for spec in args.benchmark:
+        name, prefix = spec.split("=")
+        entry = next(e for e in sets.datasets.values() if e["folder"] == name)
+        hub = entry["hub"]["name"]
+        ids = sorted(f"{hub}:{t}" for t in entry["held_out"])
+        rng = random.Random(args.seed)
+        rng.shuffle(ids)
+        for k, task_id in enumerate(ids):
+            task = sets.resolve(task_id)  # raises on a task that cannot run (excluded, GPU, MCP, unknown)
+            row = sets.inventory[(entry["folder"], task_id.split(":", 1)[1])]
+            tasks[task_id] = {
+                "agent_timeout_s": min(task.agent_timeout_sec, TB2_DEFAULT_AGENT_SEC),
+                "verifier_timeout_s": float(row["verifier_timeout_sec"]),
+                "image": task.image,
+                "benchmark": name,
+            }
+            arms = list(ARMS[counter % 4 :] + ARMS[: counter % 4])
+            blocks.append({"block": f"{prefix}{k:03d}", "benchmark": name, "task": task_id, "attempt": 1, "arms": arms})
+            counter += 1
+    queues: dict[str, list] = {h: [] for h in hosts}
+    check = None
+    if args.first_block_to:
+        check = next(b for b in blocks if b["benchmark"] == args.first_block_of)
+        blocks.remove(check)
+    target = {h: len(blocks) * n / total_streams for h, n in hosts.items()}
+    for b in blocks:
+        host = min(hosts, key=lambda h: (len(queues[h]) + 1) / target[h])
+        queues[host].append(b)
+    out = Path(args.out)
+    files = {f"queue2-{h}.json": (h, q) for h, q in queues.items()}
+    if check:
+        files[f"queue-check-{args.first_block_to}.json"] = (args.first_block_to, [check])
+    for fname, (host, qblocks) in files.items():
+        path = out / fname
+        if path.exists():
+            raise SystemExit(f"{path} exists; delete it by hand to plan again")
+        for b in qblocks:
+            b.update(server=None, opened=None, units={})
+        state = {"host": host, "multiplier": args.multiplier, "seed": args.seed, "tasks": tasks, "blocks": qblocks}
+        path.write_text(json.dumps(state, indent=1))
+        counts = {}
+        for b in qblocks:
+            counts[b["benchmark"]] = counts.get(b["benchmark"], 0) + 1
+        print(f"{path}: {len(qblocks)} blocks {counts}")
+
+
+def upcoming(args: argparse.Namespace) -> None:
+    state = json.loads(Path(args.queue).read_text())
+    for b in [b for b in state["blocks"] if b["server"] is None][: args.n]:
+        print(b["task"])
+
+
+def take_unfit(args: argparse.Namespace) -> None:
+    queue = Locked(args.queue)
+    with queue as state:
+        deadline = dt.datetime.fromisoformat(args.deadline)
+        t = now()
+        unfit = [
+            b
+            for b in state["blocks"]
+            if b["server"] is None
+            and t + dt.timedelta(seconds=longest_s(state["tasks"][b["task"]], state["multiplier"])) > deadline
+        ]
+        state["blocks"] = [b for b in state["blocks"] if b not in unfit]
+        tasks = {b["task"]: state["tasks"][b["task"]] for b in unfit}
+        Path(args.out).write_text(json.dumps({"tasks": tasks, "blocks": unfit}))
+        queue.save()
+        print(len(unfit))
+
+
+def append(args: argparse.Namespace) -> None:
+    moving = json.loads(Path(args.file).read_text())
+    queue = Locked(args.queue)
+    with queue as state:
+        have = {b["block"] for b in state["blocks"]}
+        clash = have & {b["block"] for b in moving["blocks"]}
+        if clash:
+            raise SystemExit(f"{args.queue} already holds blocks {sorted(clash)}")
+        state["tasks"].update(moving["tasks"])
+        state["blocks"] = sorted(state["blocks"] + moving["blocks"], key=lambda b: b["block"])
+        queue.save()
+        print(f"appended {len(moving['blocks'])} blocks")
+
+
 def claim(args: argparse.Namespace) -> int:
     queue = Locked(args.queue)
     with queue as state:
@@ -131,7 +234,7 @@ def claim(args: argparse.Namespace) -> int:
             arm = next(a for a in b["arms"] if a not in b["units"])
             b["units"][arm] = {"stream": args.stream, "started": t.isoformat(), "finished": None, "status": None}
             queue.save()
-            print(b["block"], arm, b["task"], b["attempt"])
+            print(b["block"], arm, b["task"], b["attempt"], b.get("benchmark", "terminal-bench-2"))
             return 0
 
         for b in state["blocks"]:
@@ -155,8 +258,10 @@ def finish(args: argparse.Namespace) -> None:
         unit = b["units"][args.arm]
         if unit["stream"] != args.stream or unit["finished"] is not None:
             raise SystemExit(f"{args.block} {args.arm} is not running on stream {args.stream}: {unit}")
-        unit.update(finished=now().isoformat(), status=int(args.status))
+        unit.update(finished=now().isoformat(), status=args.status)
         queue.save()
+        if len(b["units"]) == 4 and all(u["finished"] is not None for u in b["units"].values()):
+            print("complete")
 
 
 def move(args: argparse.Namespace) -> None:
@@ -184,7 +289,7 @@ def status(args: argparse.Namespace) -> None:
                 "sessions": 4 * len(state["blocks"]),
                 "running": sum(u["finished"] is None for u in units),
                 "finished": sum(u["finished"] is not None for u in units),
-                "nonzero_exit": sum(u["status"] not in (None, 0) for u in units),
+                "nonzero_exit": sum(u["status"] not in (None, 0, "0") for u in units),
             }
         )
     )
@@ -211,6 +316,26 @@ def main() -> None:
     f = sub.add_parser("finish")
     for name in ("queue", "stream", "block", "arm", "status"):
         f.add_argument(name)
+    o = sub.add_parser("followon")
+    o.add_argument("task_sets")
+    o.add_argument("inventory")
+    o.add_argument("out")
+    o.add_argument("--benchmark", action="append", required=True, help="task-sets.json folder=block id prefix, in order")
+    o.add_argument("--host", action="append", required=True, help="NAME:STREAMS")
+    o.add_argument("--seed", type=int, required=True)
+    o.add_argument("--multiplier", type=float, required=True)
+    o.add_argument("--first-block-to")
+    o.add_argument("--first-block-of")
+    u = sub.add_parser("upcoming")
+    u.add_argument("queue")
+    u.add_argument("n", type=int)
+    t = sub.add_parser("take-unfit")
+    t.add_argument("queue")
+    t.add_argument("out")
+    t.add_argument("--deadline", required=True)
+    ap = sub.add_parser("append")
+    ap.add_argument("queue")
+    ap.add_argument("file")
     m = sub.add_parser("move")
     m.add_argument("source")
     m.add_argument("target")
@@ -224,6 +349,14 @@ def main() -> None:
         plan(args)
     elif args.command == "claim":
         sys.exit(claim(args))
+    elif args.command == "followon":
+        followon(args)
+    elif args.command == "upcoming":
+        upcoming(args)
+    elif args.command == "take-unfit":
+        take_unfit(args)
+    elif args.command == "append":
+        append(args)
     elif args.command == "finish":
         finish(args)
     elif args.command == "move":
