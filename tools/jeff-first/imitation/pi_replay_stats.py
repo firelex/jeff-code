@@ -85,7 +85,7 @@ def summarize(data: dict[str, list[dict]]) -> dict:
     differing = [check for check in checks if not check["equal"]]
     kinds: Counter = Counter()
     for check in differing:
-        kinds.update(check["difference"])
+        kinds.update(check["difference"].keys())
     return {
         "trials_failed": len(failed),
         "failures": [{"trial": record["trial"], "reason": record["failed"][:300]} for record in failed],

@@ -51,7 +51,7 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
         tmp_path,
         "menu-checks",
         [{"session": "a", "task": "fix-bug", "turn": 1, "equal": True, "difference": {}}]
-        + [{"session": "b", "task": "fix-bug", "turn": 2, "equal": False, "difference": {"read": {"added": ["Read the file /app/x"], "removed": []}}}],
+        + [{"session": "b", "task": "fix-bug", "turn": turn, "equal": False, "difference": {"read": {"added": ["Read the file /app/x"], "removed": []}}} for turn in (2, 3)],
     )
     command = {"session": "a", "task": "fix-bug", "exit_code": 0, "timed_out": False, "timeout": 1800.0}
     write(
@@ -73,6 +73,7 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
     assert summary["labels"] == {"list": 1, "hand_over": 1}
     assert summary["stint_labels"] == {"hand_over": 1}
     assert summary["menus"] == {"equal": 15, "differing": 5, "equal_kept": 10, "differing_kept": 0}
+    assert summary["menu_difference_kinds"] == {"read": 2}
     assert summary["outputs"] == {
         "commands": 5,
         "compared": 4,
