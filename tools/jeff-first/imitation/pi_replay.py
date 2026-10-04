@@ -94,8 +94,12 @@ SETTLE_BUSY_SHARE = 0.05
 SETTLE_STEP_SECONDS = 1.0
 # The most bytes of one command's replayed output kept for the comparison (pi shows at most 50 KB of its end).
 OUTPUT_KEEP_BYTES = 1_000_000
-# pi's bash tool shows the last 2,000 lines or 50 KB of an output and then this notice (tools/bash.ts).
-TRUNCATION_NOTICE = re.compile(r"\n\n\[Showing (?:lines \d+-\d+ of \d+(?: \([^)]*\))?|last [^\]]*?)\. Full output: ([^\]]*)\]$")
+# pi's bash tool shows the last 2,000 lines or 50 KB of an output and then this notice (tools/bash.ts), before the exit
+# status when there is one.
+TRUNCATION_NOTICE = re.compile(
+    r"\n\n\[Showing (?:lines \d+-\d+ of \d+(?: \([^)]*\))?|last [^\]]*?)\. Full output: ([^\]]*)\]"
+    r"(?=(?:\n\nCommand (?:exited with code -?\d+|timed out after [\d.]+ seconds))?$)"
+)
 # The commands Harbor's JeffPi agent runs before pi (harbor_agent/jeff_pi.py and Harbor's Pi agent), as trial.log
 # shows them; the curl install runs only when the image has no curl.
 SETUP_PATTERNS = (
@@ -236,7 +240,7 @@ def pi_output_differs(
         if exit_code != 0:
             shown = f"{shown}\n\nCommand exited with code {exit_code}"
     match = TRUNCATION_NOTICE.search(recorded)
-    kept = recorded if match is None else recorded[: match.start()]
+    kept = recorded if match is None else recorded[: match.start()] + recorded[match.end() :]
     if ignore_digits:
         kept, shown = re.sub(r"\d", "", kept), re.sub(r"\d", "", shown)
     if match is None:
@@ -314,6 +318,7 @@ def agent_file_prefixes(files: dict[str, tuple[str, str]]) -> Callable[[int], di
     file as it was before a turn's model call, its lines before the turn's assistant message ("pi-log": pi's JSON event
     output, /logs/agent/pi.txt; "session": pi's session file)."""
     starts: dict[str, tuple[list[str], list[int]]] = {}
+    kinds = {path: kind for path, (kind, _) in files.items()}
     for path, (kind, text) in files.items():
         lines = text.splitlines(keepends=True)
         starts[path] = (lines, _assistant_lines(kind, lines))
@@ -321,9 +326,14 @@ def agent_file_prefixes(files: dict[str, tuple[str, str]]) -> Callable[[int], di
     def before(turn: int) -> dict[str, str]:
         prefixes: dict[str, str] = {}
         for path, (lines, assistant_lines) in starts.items():
-            if turn > len(assistant_lines):
+            if turn <= len(assistant_lines):
+                prefixes[path] = "".join(lines[: assistant_lines[turn - 1]])
+            elif kinds[path] == "pi-log":
+                # pi's event output can end before the session does (pi was stopped before it wrote the rest): the
+                # file never grew after its last line, so from then on it is whole.
+                prefixes[path] = "".join(lines)
+            else:
                 raise ValueError(f"{path} has no assistant message for turn {turn}")
-            prefixes[path] = "".join(lines[: assistant_lines[turn - 1]])
         return prefixes
 
     return before

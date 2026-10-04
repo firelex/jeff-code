@@ -268,6 +268,10 @@ def test_pi_output_differs_ignores_whitespace_and_pi_s_truncation_notice():
     shown = "line 3\nline 4\n\n[Showing lines 3-4 of 4. Full output: /tmp/pi-bash-abc.log]"
     assert not pi_output_differs(shown, "line 1\nline 2\nline 3\nline 4\n", 0, False, None, ignore_digits=False)
     assert pi_output_differs(shown, "line 1\nline 2\nline 3\nline 5\n", 0, False, None, ignore_digits=False)
+    # pi writes the exit status after the truncation notice.
+    failed = "line 4\n\n[Showing lines 4-4 of 4. Full output: /tmp/pi-bash-abc.log]\n\nCommand exited with code 2"
+    assert not pi_output_differs(failed, "line 1\nline 2\nline 3\nline 4\n", 2, False, None, ignore_digits=False)
+    assert pi_output_differs(failed, "line 1\nline 2\nline 3\nline 4\n", 0, False, None, ignore_digits=False)
     assert not pi_output_differs("took 3 s\n\nCommand exited with code 1", "took 12 s\n", 1, False, None, ignore_digits=True)
 
 
@@ -355,8 +359,11 @@ def test_agent_file_prefixes_end_before_the_turns_assistant_message():
     prefixes = agent_file_prefixes({"/logs/agent/pi.txt": ("pi-log", pi_log), "/logs/agent/pi/sessions/s.jsonl": ("session", session_file)})
     assert prefixes(1) == {"/logs/agent/pi.txt": "".join(pi_log.splitlines(keepends=True)[:2]), "/logs/agent/pi/sessions/s.jsonl": "".join(session_file.splitlines(keepends=True)[:2])}
     assert prefixes(2)["/logs/agent/pi.txt"] == "".join(pi_log.splitlines(keepends=True)[:5])
+    # pi's event output may end before the session does (pi was stopped before it flushed): from then on the file
+    # never grew again, so it is whole.
+    assert agent_file_prefixes({"/logs/agent/pi.txt": ("pi-log", pi_log)})(3) == {"/logs/agent/pi.txt": pi_log}
     with pytest.raises(ValueError, match="turn 3"):
-        prefixes(3)
+        agent_file_prefixes({"/logs/agent/pi/sessions/s.jsonl": ("session", session_file)})(3)
 
 
 def test_setup_commands_are_the_harbor_install_commands_of_the_trial_log():
@@ -412,3 +419,12 @@ def test_a_truncated_output_is_saved_where_pi_saved_the_full_output(tmp_path):
     container = FakeContainer()
     run(prepared(tmp_path, entries, trace), [0.0, 0.0], container)
     assert container.full_output_paths == ["/tmp/pi-bash-bade5f4c3e5e6376.log"]
+
+
+def test_a_truncated_failed_output_names_its_full_output_file_too(tmp_path):
+    shown = "end\n\n[Showing lines 1999-4000 of 4000. Full output: /tmp/pi-bash-c8005cd5fa54e4e2.log]\n\nCommand exited with code 1"
+    entries = [assistant(bash("c1", "make")), result("c1", shown, True), assistant(bash("c2", "ls")), result("c2", "a")]
+    trace = [record(1, [tool_call("make")]), record(2, [tool_call("ls")], recent=[new_shape("make", shown)])]
+    container = FakeContainer()
+    run(prepared(tmp_path, entries, trace), [0.0, 0.0], container)
+    assert container.full_output_paths == ["/tmp/pi-bash-c8005cd5fa54e4e2.log"]
