@@ -213,7 +213,7 @@ def pi_output_differs(
     else:
         shown = output or "(no output)"
         if exit_code != 0:
-            shown = f"{output}\n\nCommand exited with code {exit_code}" if output else f"Command exited with code {exit_code}"
+            shown = f"{shown}\n\nCommand exited with code {exit_code}"
     match = TRUNCATION_NOTICE.search(recorded)
     kept = recorded if match is None else recorded[: match.start()]
     if ignore_digits:

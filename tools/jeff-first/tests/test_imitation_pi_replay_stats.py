@@ -53,6 +53,19 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
         [{"session": "a", "task": "fix-bug", "turn": 1, "equal": True, "difference": {}}]
         + [{"session": "b", "task": "fix-bug", "turn": 2, "equal": False, "difference": {"read": {"added": ["Read the file /app/x"], "removed": []}}}],
     )
+    command = {"session": "a", "task": "fix-bug", "exit_code": 0, "timed_out": False, "timeout": 1800.0}
+    write(
+        tmp_path,
+        "commands",
+        [
+            # Counted again with the current comparison, whatever the run wrote.
+            {**command, "command": "ls", "information": True, "recorded_output": "a b", "replay_output": "a b\n", "mismatch": True},
+            {**command, "command": "cat f", "information": True, "recorded_output": "x 1", "replay_output": "x 2", "mismatch": False},
+            {**command, "command": "make", "information": False, "recorded_output": "(no output)\n\nCommand exited with code 2", "replay_output": "", "exit_code": 2, "mismatch": True},
+            {**command, "command": "sleep 1", "information": False, "recorded_output": None, "replay_output": "", "mismatch": False},
+            {**command, "session": "b", "command": "pwd", "information": True, "recorded_output": "/", "replay_output": "/x", "mismatch": True},
+        ],
+    )
     summary = summarize(tmp_path)
     assert summary["trials_failed"] == 1 and summary["sessions"] == 2 and summary["sessions_excluded"] == ["b"]
     assert summary["rows"] == 3 and summary["decisions"] == 2 and summary["stint_decisions"] == 1 and summary["stint_rows"] == 1
@@ -60,6 +73,14 @@ def test_summary_counts_rows_stints_labels_and_fidelity(tmp_path):
     assert summary["labels"] == {"list": 1, "hand_over": 1}
     assert summary["stint_labels"] == {"hand_over": 1}
     assert summary["menus"] == {"equal": 15, "differing": 5, "equal_kept": 10, "differing_kept": 0}
-    assert summary["outputs"]["commands"] == 8 and summary["outputs"]["mismatches"] == 2
+    assert summary["outputs"] == {
+        "commands": 5,
+        "compared": 4,
+        "mismatches": 2,
+        "mismatches_beyond_digits": 1,
+        "information_compared": 3,
+        "information_mismatches": 2,
+        "timed_out": 0,
+    }
     markdown = stats_markdown(summary)
     assert "| list | 1 | 50.0% |" in markdown and "Read the file /app/x" in markdown

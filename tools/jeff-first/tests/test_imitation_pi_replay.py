@@ -244,6 +244,9 @@ def test_pi_output_differs_ignores_whitespace_and_pi_s_truncation_notice():
     assert not pi_output_differs("(no output)", "", 0, False, None, ignore_digits=False)
     assert not pi_output_differs("oops\n\nCommand exited with code 2", "oops\n", 2, False, None, ignore_digits=False)
     assert pi_output_differs("oops", "oops\n", 2, False, None, ignore_digits=False)
+    # pi writes "(no output)" before the exit status too (tools/bash.ts formatOutput), but not before a timeout.
+    assert not pi_output_differs("(no output)\n\nCommand exited with code 1", "", 1, False, None, ignore_digits=False)
+    assert not pi_output_differs("Command timed out after 5 seconds", "", 124, True, 5, ignore_digits=False)
     assert not pi_output_differs("partial\n\nCommand timed out after 5 seconds", "partial\n", 124, True, 5, ignore_digits=False)
     shown = "line 3\nline 4\n\n[Showing lines 3-4 of 4. Full output: /tmp/pi-bash-abc.log]"
     assert not pi_output_differs(shown, "line 1\nline 2\nline 3\nline 4\n", 0, False, None, ignore_digits=False)

@@ -14,7 +14,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from imitation.pi_replay import MENU_DIFFERENCE_LIMIT, QUALITY
+from imitation.pi_replay import MENU_DIFFERENCE_LIMIT, QUALITY, pi_output_differs
 from imitation.stage3 import CURRENT_TARBALL
 
 DIFFERENCE_EXAMPLES = 8
@@ -23,6 +23,28 @@ DIFFERENCE_EXAMPLES = 8
 def _lines(folder: Path, name: str) -> list[dict]:
     path = folder / f"stage3-replay-{name}.jsonl"
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _outputs(commands: list[dict]) -> dict:
+    """Replayed outputs against pi's recorded ones, compared again with pi_replay.pi_output_differs (so a run made
+    before a fix to the comparison is counted with the fixed one)."""
+    compared = [command for command in commands if command["recorded_output"] is not None]
+
+    def differs(command: dict, ignore_digits: bool) -> bool:
+        return pi_output_differs(
+            command["recorded_output"], command["replay_output"], command["exit_code"], command["timed_out"], command["timeout"], ignore_digits=ignore_digits
+        )
+
+    mismatched = [command for command in compared if differs(command, False)]
+    return {
+        "commands": len(commands),
+        "compared": len(compared),
+        "mismatches": len(mismatched),
+        "mismatches_beyond_digits": sum(differs(command, True) for command in mismatched),
+        "information_compared": sum(command["information"] for command in compared),
+        "information_mismatches": sum(command["information"] for command in mismatched),
+        "timed_out": sum(command["timed_out"] for command in commands),
+    }
 
 
 def summarize(folder: Path) -> dict:
@@ -64,14 +86,7 @@ def summarize(folder: Path) -> dict:
         },
         "menu_difference_kinds": dict(kinds.most_common()),
         "menu_difference_examples": differing[:DIFFERENCE_EXAMPLES],
-        "outputs": {
-            "commands": sum(record["commands"] for record in sessions),
-            "mismatches": sum(record["output_mismatches"] for record in sessions),
-            "mismatches_beyond_digits": sum(record["output_mismatches_beyond_digits"] for record in sessions),
-            "information_commands": sum(record["information_commands"] for record in sessions),
-            "information_mismatches": sum(record["information_mismatches"] for record in sessions),
-            "timed_out": sum(record["timed_out"] for record in sessions),
-        },
+        "outputs": _outputs(_lines(folder, "commands")),
         "rows_by_machine": dict(Counter(row["machine"] for row in rows).most_common()),
         "sessions_by_task": dict(sorted(Counter(record["task"] for record in kept).items())),
     }
@@ -122,10 +137,12 @@ def stats_markdown(summary: dict) -> str:
         "- Where they differ (menu parts, counted per differing menu): "
         + (", ".join(f"{key} {count}" for key, count in summary["menu_difference_kinds"].items()) or "none")
         + ".",
-        f"- Replayed command outputs that differ from pi's recorded output (whitespace ignored): {outputs['mismatches']} of "
-        f"{outputs['commands']} ({_share(outputs['mismatches'], outputs['commands'])}); still differing with digits ignored: "
-        f"{outputs['mismatches_beyond_digits']}. Information commands: {outputs['information_mismatches']} of "
-        f"{outputs['information_commands']}. Stopped at a time limit: {outputs['timed_out']}.",
+        f"- Commands replayed: {outputs['commands']}; with a recorded output to compare: {outputs['compared']}. Outputs "
+        f"that differ from pi's recorded output (whitespace ignored): {outputs['mismatches']} "
+        f"({_share(outputs['mismatches'], outputs['compared'])}); still differing with digits ignored: "
+        f"{outputs['mismatches_beyond_digits']} ({_share(outputs['mismatches_beyond_digits'], outputs['compared'])}). Information "
+        f"commands: {outputs['information_mismatches']} of {outputs['information_compared']} differ. Stopped at a time "
+        f"limit: {outputs['timed_out']}.",
         "",
     ]
     if summary["menu_difference_examples"]:
