@@ -71,6 +71,7 @@ from imitation.record_rows import (
     logged_menu,
     read_trace,
     record_sessions,
+    row_lines,
     trial_cut,
 )
 from imitation.rows import Menu, Row, ShellStep, render_state, rows_for_decision
@@ -678,7 +679,9 @@ def replay_trial(trial: Trial, task_table: dict, scout: Path, tarball: Path, thi
         kwargs = config["agent"]["kwargs"]
         if kwargs["tools"] != "bash":
             raise ValueError(f"pi ran with the tools {kwargs['tools']!r}; the replay knows bash only")
-        lines, notes = read_trace(trial.folder)
+        all_lines, notes = read_trace(trial.folder)
+        # qwen_request lines (thinking control) are read past; any other kind than record raises.
+        lines, _ = row_lines(all_lines, str(trial.folder))
         if any(line["kind"] != "record" or line["driver_build"] != trial.machine for line in lines):
             raise ValueError("a trace line is not a record line of the config's driver build")
         cut = trial_cut(trial.folder) is not None

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from imitation.record_rows import read_trace, record_rows, trial_cut
+from imitation.record_rows import read_trace, record_rows, row_lines, trial_cut
 
 
 def option(kind, number, description, command):
@@ -479,3 +479,24 @@ def test_a_session_whose_lines_mix_schemas_is_an_error(tmp_path):
     trace[0] = record(1, [call("ls /app"), call("cat /app/main.py")])
     with pytest.raises(ValueError, match="schema"):
         record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
+
+
+QWEN_REQUEST = {"schema": "jeff-first-trace/6", "kind": "qwen_request", "task_id": "fix-bug", "session_id": "sess-1", "turn": 1, "attempt": 1}
+
+
+def test_row_lines_skip_qwen_request_lines_by_name_and_count_them():
+    lines = [QWEN_REQUEST, record(1, []), QWEN_REQUEST]
+    kept, skipped = row_lines(lines, "trial t")
+    assert kept == [record(1, [])]
+    assert skipped == {"qwen_request": 2}
+    with pytest.raises(ValueError, match="trial t: a trace line of the unknown kind 'model_turn'"):
+        row_lines([{"kind": "model_turn"}], "trial t")
+
+
+def test_record_rows_read_past_qwen_request_lines_and_refuse_unknown_kinds(tmp_path):
+    folder = write_session(tmp_path, [assistant(bash("c1", "ls -la /app")), result("c1", "main.py")])
+    files = sorted(folder.glob("*.jsonl"))
+    rows, _ = record_rows([QWEN_REQUEST, record(1, [call("ls -la /app")])], files, cut=False)
+    assert [(r.turn, r.label) for r in rows] == [(1, "list"), (1, "list-1")]
+    with pytest.raises(ValueError, match="unknown kind 'decision'"):
+        record_rows([{"kind": "decision"}, record(1, [call("ls -la /app")])], files, cut=False)

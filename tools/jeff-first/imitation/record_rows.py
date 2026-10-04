@@ -46,6 +46,7 @@ trial is an unparsable last line dropped and such a record line dropped, each wi
 """
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,6 +55,11 @@ from imitation.labels import LabelTurn, SessionLabeler, TurnCommand
 from imitation.rows import Menu, Row, RowSource, ShellStep, render_state, rows_for_decision, terminal_command
 
 FAILED_STOPS = ("error", "aborted")
+# Trace lines rows are made from.
+RECORD_KINDS = ("record", "record_step")
+# Trace lines read past on purpose: "qwen_request" (schema jeff-first-trace/6, thinking-control.ts) logs each request to
+# the coding model (thinking level, guard triggers); it holds no menu.
+SKIPPED_KINDS = ("qwen_request",)
 TRACE_NAME = "jeff-first-trace.jsonl"
 AGENT_TIMEOUT = "AgentTimeoutError"
 NO_RESULT = "no result.json (the trial was stopped or is still running)"
@@ -90,6 +96,22 @@ def read_trace(trial: Path) -> tuple[list[dict], list[str]]:
     """The trace lines of one Harbor trial folder, and a note when a cut last line was dropped (see the module
     docstring)."""
     return _json_lines(trial / "agent" / TRACE_NAME, trial_cut(trial))
+
+
+def row_lines(lines: list[dict], where: str) -> tuple[list[dict], Counter]:
+    """The trace lines rows are made from (RECORD_KINDS), and how many lines of each SKIPPED_KINDS kind were read past.
+    A line of any other kind raises, naming `where`."""
+    kept: list[dict] = []
+    skipped: Counter = Counter()
+    for line in lines:
+        kind = line.get("kind")
+        if kind in RECORD_KINDS:
+            kept.append(line)
+        elif kind in SKIPPED_KINDS:
+            skipped[kind] += 1
+        else:
+            raise ValueError(f"{where}: a trace line of the unknown kind {kind!r}")
+    return kept, skipped
 
 
 def _check_last_step(logged: dict, real: ShellStep, where: str) -> None:
@@ -208,8 +230,8 @@ class RecordSession:
 def record_sessions(
     trace: list[dict], session_files: list[Path], *, cut: bool, source: str, quality: str
 ) -> tuple[list[RecordSession], list[str]]:
-    """The sessions of every record line of `trace` (lines of other kinds are ignored), and notes on turns given no
-    row. `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
+    """The sessions of every record line of `trace` (see `row_lines`: SKIPPED_KINDS lines are read past, unknown kinds
+    raise), and notes on turns given no row. `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
     sessions: dict[str, Session] = {}
     notes: list[str] = []
     for path in session_files:
@@ -218,15 +240,13 @@ def record_sessions(
     by_session: dict[str, dict[int, dict]] = {}
     steps_by_session: dict[str, dict[tuple[int, int], dict]] = {}
     schemas: dict[str, set[str]] = {}
-    for line in trace:
+    for line in row_lines(trace, "the trace")[0]:
         if line.get("kind") == "record":
             by_session.setdefault(line["session_id"], {})[line["turn"]] = line
-        elif line.get("kind") == "record_step":
+        else:
             if line["schema"] != SCHEMA_STEPS:
                 raise ValueError(f"{line['session_id']} turn {line['turn']}: a record_step line of schema {line['schema']}, not {SCHEMA_STEPS}")
             steps_by_session.setdefault(line["session_id"], {})[(line["turn"], line["step"])] = line
-        else:
-            continue
         schemas.setdefault(line["session_id"], set()).add(line["schema"])
     prepared: list[RecordSession] = []
     for session_id, records in by_session.items():
@@ -336,7 +356,7 @@ def check_step_line(prepared: RecordSession, line: dict, own_before: list[ShellS
 def record_rows(
     trace: list[dict], session_files: list[Path], *, cut: bool, source: str = "jeff-pi-record"
 ) -> tuple[list[Row], list[str]]:
-    """Rows for every record and record_step line of `trace` (lines of other kinds are ignored), and notes on turns
+    """Rows for every record and record_step line of `trace` (see `row_lines` for other kinds), and notes on turns
     given no row. `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
     prepared_sessions, notes = record_sessions(trace, session_files, cut=cut, source=source, quality="exact")
     rows: list[Row] = []

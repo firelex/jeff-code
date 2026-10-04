@@ -301,3 +301,29 @@ def test_a_real_schema_5_trial_converts_end_to_end(tmp_path):
     ]
     assert "Step 1 (by you, the scout):\n$ ls -la '/app'\nmain.py\nnotes.md" in conversion.rows[2]["state"]
     assert summarize(conversion)["stint_decisions"] == 2
+
+
+def test_qwen_request_lines_are_skipped_and_counted_and_other_kinds_raise(tmp_path):
+    run = tmp_path / "runs-v6"
+    trial = make_trial(run, "gpu5", "fix-bug", "aaa")
+    trace = trial / "agent" / "jeff-first-trace.jsonl"
+    request = {"schema": "jeff-first-trace/6", "kind": "qwen_request", "task_id": "fix-bug", "session_id": "sess-aaa", "turn": 1, "attempt": 1}
+    trace.write_text(json.dumps(request) + "\n" + trace.read_text())
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
+    summary = summarize(conversion)
+    assert summary["decisions"] == 1
+    assert summary["skipped_trace_lines"] == {"qwen_request": 1}
+    assert "qwen_request 1" in stats_markdown(summary)
+    trace.write_text(json.dumps({**request, "kind": "model_turn"}) + "\n" + trace.read_text())
+    with pytest.raises(ValueError, match="unknown kind 'model_turn'"):
+        convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
+
+
+def test_a_qwen_request_line_of_another_task_is_an_error(tmp_path):
+    run = tmp_path / "runs-v6"
+    trial = make_trial(run, "gpu5", "fix-bug", "aaa")
+    trace = trial / "agent" / "jeff-first-trace.jsonl"
+    request = {"schema": "jeff-first-trace/6", "kind": "qwen_request", "task_id": "dna-assembly", "session_id": "sess-aaa", "turn": 1, "attempt": 1}
+    trace.write_text(json.dumps(request) + "\n" + trace.read_text())
+    with pytest.raises(ValueError, match="dna-assembly"):
+        convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)

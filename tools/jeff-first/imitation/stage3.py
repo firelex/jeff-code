@@ -36,7 +36,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from imitation.record_rows import TRACE_NAME, read_trace, record_rows, trial_cut
+from imitation.record_rows import TRACE_NAME, read_trace, record_rows, row_lines, trial_cut
 
 CURRENT_TARBALL = "jeff-pi-scout-4abde3ece.tgz"
 EVALUATION_TWIN = "make-doom-for-mips"
@@ -70,6 +70,8 @@ class Conversion:
     rows: list[dict] = field(default_factory=list)
     skipped: Counter = field(default_factory=Counter)
     trials: list[dict] = field(default_factory=list)
+    # Trace lines read past (record_rows.SKIPPED_KINDS), by kind.
+    skipped_lines: Counter = field(default_factory=Counter)
     builds: list[str] = field(default_factory=list)
 
 
@@ -109,11 +111,14 @@ def convert_trial(trial: Path, tasks: Tasks, builds: frozenset[str], conversion:
         raise ValueError(f"{trial}: ran in {env['JEFF_FIRST_MODE']!r} mode, not record mode")
     build = env["JEFF_FIRST_DRIVER_BUILD"]
     model_format(build)
-    lines, notes = read_trace(trial)
+    all_lines, notes = read_trace(trial)
     cut = trial_cut(trial)
+    lines, skipped = row_lines(all_lines, str(trial))
+    for line in all_lines:
+        if line["task_id"] != task:
+            raise ValueError(f"{trial}: a trace line of kind {line['kind']!r} for task {line['task_id']!r}, not for {task}")
+    conversion.skipped_lines.update(skipped)
     for line in lines:
-        if line["kind"] not in ("record", "record_step") or line["task_id"] != task:
-            raise ValueError(f"{trial}: a trace line of kind {line['kind']!r} for task {line['task_id']!r}, not a record line for {task}")
         if line["driver_build"] != build:
             raise ValueError(f"{trial}: a trace line's driver build {line['driver_build']!r} is not the config's {build!r}")
     if not lines:
@@ -180,6 +185,7 @@ def summarize(conversion: Conversion) -> dict:
         **_counts(rows),
         "builds": conversion.builds,
         "trials_converted": len(conversion.trials),
+        "skipped_trace_lines": dict(sorted(conversion.skipped_lines.items())),
         "trials_cut": dict(Counter(trial["cut"] for trial in conversion.trials if trial["cut"]).most_common()),
         "skipped": dict(conversion.skipped.most_common()),
         "rows_by_level_and_page": {f"{level} page {page}": count for (level, page), count in sorted(Counter((r["level"], r["page"]) for r in rows).items())},
@@ -207,6 +213,9 @@ def stats_markdown(summary: dict) -> str:
         + (", ".join(f"{reason} {count}" for reason, count in summary["trials_cut"].items()) or "none")
         + ").",
         "- Skipped: " + (", ".join(f"{reason} {count}" for reason, count in summary["skipped"].items()) or "none") + ".",
+        "- Trace lines read past (no menu): "
+        + (", ".join(f"{kind} {count}" for kind, count in summary["skipped_trace_lines"].items()) or "none")
+        + ".",
         "- Turns given no row: " + (", ".join(f"{reason} {count}" for reason, count in summary["notes"].items()) or "none") + ".",
         "",
         "## Rows and decisions",
