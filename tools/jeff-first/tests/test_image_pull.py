@@ -84,10 +84,24 @@ def test_a_rate_limit_error_exits_75(tmp_path):
     assert result.returncode == 75 and "rate limit" in result.stderr
 
 
-def test_another_pull_error_fails(tmp_path):
-    env = fake_docker(tmp_path, pull_output="manifest unknown", pull_status=1)
+def test_only_a_missing_image_counts_as_a_failed_run(tmp_path):
+    env = fake_docker(tmp_path, pull_output="Error response from daemon: manifest unknown", pull_status=1)
     result = run(tmp_path, env, "pull", IMAGE, str(tmp_path / "lock"), "0")
-    assert result.returncode == 1 and "manifest unknown" in result.stderr
+    assert result.returncode == 1 and "no such image" in result.stderr
+    env = fake_docker(tmp_path, pull_output="net/http: TLS handshake timeout", pull_status=1)
+    result = run(tmp_path, env, "pull", IMAGE, str(tmp_path / "lock"), "0")
+    assert result.returncode == 75 and "not counted" in result.stderr
+
+
+def test_a_pull_stopped_by_a_signal_is_not_counted(tmp_path):
+    env = fake_docker(tmp_path)
+    slow = Path(env["PATH"].split(":")[0]) / "docker"
+    slow.write_text(slow.read_text().replace('"pull "*) echo', '"pull "*) sleep 30; echo'))
+    lock = write_settings(tmp_path / "lock")
+    proc = subprocess.Popen([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(lock)], env=env)
+    time.sleep(1.5)
+    proc.terminate()
+    assert proc.wait(timeout=10) == 75
 
 
 def test_remove_deletes_the_image_and_keeps_one_still_in_use(tmp_path):

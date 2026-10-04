@@ -9,8 +9,9 @@ their per_hour values under the account's limit (read it with the rate-limit hea
 
     python3 image_pull.py pull IMAGE LOCK_DIR [IGNORED]
         An image already present is not pulled (a pull of a present image still counts against Docker Hub's limit).
-        Exit 75 on Docker Hub's rate-limit error (the caller releases its claim without counting a run and waits);
-        exit 1 on any other pull error. The third argument (the old fixed spacing, still passed by hub_stream.sh) is
+        Exit 1 only when the registry says the image does not exist (the caller counts the claim as a run). Exit 75
+        on everything else that stops a pull: Docker Hub's rate limit, network errors, or a signal (SIGTERM, SIGINT,
+        SIGHUP: the process ends with 75), so the caller releases the claim without counting a run and waits. The third argument (the old fixed spacing, still passed by hub_stream.sh) is
         not used: the spacing comes from settings.json.
     python3 image_pull.py remove IMAGE
         Removes the image; one still used by a container is kept (said on stdout); any other error fails.
@@ -23,6 +24,7 @@ their per_hour values under the account's limit (read it with the rate-limit hea
 import fcntl
 import json
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -32,8 +34,10 @@ from pathlib import Path
 from collect_queue import upcoming
 from task_source import load_task_sets
 
-RATE_LIMITED = 75
+RATE_LIMITED = 75  # also: any failure that says nothing about the task (stopped by a signal, network trouble)
 RATE_LIMIT_MARKERS = ("toomanyrequests", "pull rate limit", "rate limit exceeded")
+# Definite answers from the registry that the image cannot be had: only these count the claim as a run.
+MISSING_MARKERS = ("manifest unknown", "not found", "pull access denied", "repository does not exist")
 WINDOW_SEC = 3600
 
 
@@ -100,8 +104,11 @@ def pull(image: str, lock_dir: Path) -> int:
     if any(marker in output.lower() for marker in RATE_LIMIT_MARKERS):
         print(f"Docker Hub rate limit while pulling {image}: {output[-500:]}", file=sys.stderr)
         return RATE_LIMITED
-    print(f"docker pull {image} failed (exit {result.returncode}): {output[-1000:]}", file=sys.stderr)
-    return 1
+    if any(marker in output.lower() for marker in MISSING_MARKERS):
+        print(f"docker pull {image}: the registry has no such image (exit {result.returncode}): {output[-1000:]}", file=sys.stderr)
+        return 1
+    print(f"docker pull {image} failed without saying the image is missing (exit {result.returncode}); not counted as a run: {output[-1000:]}", file=sys.stderr)
+    return RATE_LIMITED
 
 
 def remove(image: str) -> int:
@@ -158,7 +165,14 @@ def prefetch(hub: Path, queue_dir: Path, lock_dir: Path, ahead: int, min_free_gb
         time.sleep(30)
 
 
+def _stopped(signum, frame) -> None:
+    print(f"pull stopped by signal {signum}; not counted as a run", file=sys.stderr)
+    sys.exit(RATE_LIMITED)
+
+
 if __name__ == "__main__":
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(signum, _stopped)
     args = sys.argv[1:]
     if len(args) in (3, 4) and args[0] == "pull":
         sys.exit(pull(args[1], Path(args[2])))
