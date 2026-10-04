@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -26,7 +27,15 @@ exit 9
     return {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
 
 
+def write_settings(lock: Path, max_concurrent: int = 4, per_hour: int = 100) -> Path:
+    lock.mkdir(parents=True, exist_ok=True)
+    (lock / "settings.json").write_text(json.dumps({"max_concurrent": max_concurrent, "per_hour": per_hour}))
+    return lock
+
+
 def run(tmp_path: Path, env: dict, *args: str) -> subprocess.CompletedProcess:
+    if len(args) >= 3 and args[0] == "pull" and not (Path(args[2]) / "settings.json").exists():
+        write_settings(Path(args[2]))
     return subprocess.run([sys.executable, str(HERE / "image_pull.py"), *args], capture_output=True, text=True, env=env)
 
 
@@ -41,14 +50,32 @@ def test_a_present_image_is_not_pulled(tmp_path):
     assert calls(tmp_path) == [f"image inspect {IMAGE}"]
 
 
-def test_pulls_are_spaced_by_the_minimum_interval(tmp_path):
+def test_pulls_beyond_the_hourly_budget_wait(tmp_path):
     env = fake_docker(tmp_path)
-    lock = tmp_path / "lock"
-    assert run(tmp_path, env, "pull", IMAGE, str(lock), "2").returncode == 0
+    lock = write_settings(tmp_path / "lock", per_hour=2)
+    (lock / "starts.json").write_text(json.dumps([time.time() - 3600 + 2, time.time()]))
     start = time.monotonic()
-    assert run(tmp_path, env, "pull", IMAGE, str(lock), "2").returncode == 0
-    assert time.monotonic() - start >= 1.5
-    assert [c for c in calls(tmp_path) if c.startswith("pull")] == [f"pull {IMAGE}", f"pull {IMAGE}"]
+    assert run(tmp_path, env, "pull", IMAGE, str(lock)).returncode == 0
+    assert time.monotonic() - start >= 1.5  # waited until the oldest start left the hour
+    assert len(json.loads((lock / "starts.json").read_text())) == 2
+
+
+def test_settings_are_required(tmp_path):
+    env = fake_docker(tmp_path)
+    (tmp_path / "lock").mkdir()
+    result = subprocess.run([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(tmp_path / "lock")], capture_output=True, text=True, env=env)
+    assert result.returncode != 0 and "settings.json" in result.stderr
+
+
+def test_concurrent_pulls_are_capped_by_the_slots(tmp_path):
+    env = fake_docker(tmp_path)
+    slow = Path(env["PATH"].split(":")[0]) / "docker"
+    slow.write_text(slow.read_text().replace('"pull "*) echo', '"pull "*) sleep 2; echo'))
+    lock = write_settings(tmp_path / "lock", max_concurrent=1)
+    start = time.monotonic()
+    procs = [subprocess.Popen([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(lock), "40"], env=env) for _ in range(2)]
+    assert all(p.wait() == 0 for p in procs)
+    assert time.monotonic() - start >= 3.5  # one slot: one after the other
 
 
 def test_a_rate_limit_error_exits_75(tmp_path):
@@ -74,13 +101,12 @@ def test_remove_deletes_the_image_and_keeps_one_still_in_use(tmp_path):
     assert run(tmp_path, env, "remove", IMAGE).returncode == 1
 
 
-def test_a_slow_pull_does_not_hold_back_the_next_one(tmp_path):
+def test_two_slots_let_slow_pulls_run_side_by_side(tmp_path):
     env = fake_docker(tmp_path)
     slow = Path(env["PATH"].split(":")[0]) / "docker"
     slow.write_text(slow.read_text().replace('"pull "*) echo', '"pull "*) sleep 3; echo'))
-    lock = tmp_path / "lock"
+    lock = write_settings(tmp_path / "lock", max_concurrent=2)
     start = time.monotonic()
-    first = subprocess.Popen([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(lock), "0.5"], env=env)
-    second = subprocess.Popen([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(lock), "0.5"], env=env)
-    assert first.wait() == 0 and second.wait() == 0
-    assert time.monotonic() - start < 5.5  # side by side: about 3.5 s, not 6
+    procs = [subprocess.Popen([sys.executable, str(HERE / "image_pull.py"), "pull", IMAGE, str(lock)], env=env) for _ in range(2)]
+    assert all(p.wait() == 0 for p in procs)
+    assert time.monotonic() - start < 5.5

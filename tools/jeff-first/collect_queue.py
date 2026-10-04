@@ -228,6 +228,28 @@ def put_in(state: Path, tasks: list[str], finished: dict[str, int]) -> None:
         _write_queue(state, queue)
 
 
+def upcoming(state: Path) -> list[str]:
+    """The queue's tasks not running now, in the order claims would take them (fewest runs first, then queue order)."""
+    queue = json.loads((state / "queue.json").read_text())
+    claims_path = state / "claims.json"
+    claims = json.loads(claims_path.read_text()) if claims_path.exists() else {"claims": {}, "running": {}}
+    busy = {held["task"] for held in claims["running"].values()}
+    runs = {task: queue["finished_before"].get(task, 0) + claims["claims"].get(task, 0) for task in queue["order"]}
+    position = {task: i for i, task in enumerate(queue["order"])}
+    return sorted((t for t in queue["order"] if t not in busy), key=lambda t: (runs[t], position[t]))
+
+
+def prioritise(state: Path, tasks: list[str]) -> None:
+    """Moves `tasks` (in the queue) to the front of the queue order; runs still count first when claiming."""
+    with _locked(state):
+        queue = json.loads((state / "queue.json").read_text())
+        missing = [t for t in tasks if t not in queue["order"]]
+        if missing:
+            raise ValueError(f"not in {state}: {missing}")
+        queue["order"] = tasks + [t for t in queue["order"] if t not in tasks]
+        _write_queue(state, queue)
+
+
 def claim(state: Path, stream: str, pid: int, free_gb: float | None = None, stream_version: int = 1) -> tuple[str, int] | None | str:
     """`free_gb`: free space on Docker's disk; below MIN_FREE_GB nothing is claimed (LOW_DISK). A stream older than
     the queue's `min_stream_version` gets OLD_STREAM (it ends; its tmux session is restarted with hub_launch.sh)."""
@@ -318,6 +340,9 @@ def main(argv: list[str]) -> None:
     pi.add_argument("state", type=Path)
     pi.add_argument("--counts", type=Path, required=True, help="finished sessions per task (count) from the old host")
     pi.add_argument("tasks", nargs="+")
+    pr = sub.add_parser("prioritise")
+    pr.add_argument("state", type=Path)
+    pr.add_argument("tasks", nargs="+")
     v = sub.add_parser("require-stream-version")
     v.add_argument("state", type=Path)
     v.add_argument("version", type=int)
@@ -376,6 +401,8 @@ def main(argv: list[str]) -> None:
         print("\n".join(take_out(args.state, args.tasks)))
     elif args.command == "put-in":
         put_in(args.state, args.tasks, json.loads(args.counts.read_text()))
+    elif args.command == "prioritise":
+        prioritise(args.state, args.tasks)
     elif args.command == "require-stream-version":
         require_stream_version(args.state, args.version)
     elif args.command == "append-scoring":

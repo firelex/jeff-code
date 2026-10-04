@@ -296,3 +296,14 @@ def test_tasks_move_between_hosts_only_when_not_running(tmp_path):
     assert queue["order"] == ["d", "b"] and queue["finished_before"] == {"b": 1}
     with pytest.raises(ValueError, match="already queued"):
         put_in(dst, ["d"], {})
+
+
+def test_upcoming_lists_free_tasks_in_claim_order_and_prioritise_moves_tasks_first(tmp_path):
+    from collect_queue import prioritise, upcoming
+
+    state = make_queue(tmp_path, ["a", "b", "c", "d"], {"a": 1})
+    assert claim(state, "s1", os.getpid()) == ("b", 1)
+    assert upcoming(state) == ["c", "d", "a"]
+    prioritise(state, ["d"])
+    assert upcoming(state) == ["d", "c", "a"]
+    assert claim(state, "s2", os.getpid()) == ("d", 1)
