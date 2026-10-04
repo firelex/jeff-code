@@ -33,8 +33,11 @@ CAS_W=jeff-first/$NAME  # under the home folder
 PROCESSOR=/private/tmp/claude-501/stage3/tokenizer/Qwen3.5-0.8B
 STAGE1_CUT=/private/tmp/claude-501/imitation/export/stage1-replayed-all-cut
 STAGE2_UNCUT=/private/tmp/claude-501/imitation/export/stage2
+STAGE3_REPLAY_ROWS=/private/tmp/claude-501/imitation/stage3-replay-rows.jsonl
 BUILDS=(--build jeff-pi-scout-6498fcf8d.tgz --build jeff-pi-scout-8db5381f3.tgz)
 SEED=20260920
+# Development and temperature rows per decision (train.py scores all of them at each of the ~20 evaluations).
+EVAL_ROWS=${EVAL_ROWS:-1000}
 
 die() { echo "tonight.sh: $*" >&2; exit 1; }
 refuse_existing() { for p in "$@"; do [ ! -e "$p" ] || die "$p exists; delete it to redo this step"; done; }
@@ -77,13 +80,130 @@ convert() {
   wait_exit b200 ssh "$B200" -- "$B200_W/stage3/exit"
   wait_exit casdgx01 "${CAS[@]}" -- "/home/mstrasser/$CAS_W/stage3/exit"
   mkdir -p "$T/stage3"
-  rsync -a "$B200:$B200_W/stage3/" "$T/stage3/b200/"
-  rsync -a -e "ssh -o ControlPath=none" "mstrasser@casdgx01:/home/mstrasser/$CAS_W/stage3/" "$T/stage3/casdgx01/"
+  rsync -az "$B200:$B200_W/stage3/" "$T/stage3/b200/"
+  rsync -az -e "ssh -o ControlPath=none" "mstrasser@casdgx01:/home/mstrasser/$CAS_W/stage3/" "$T/stage3/casdgx01/"
   uv run -q --no-project python "$REPO/results/imitation/scripts/tonight_training_files.py" merge-rows \
     --out "$T/stage3/rows.jsonl" "$T/stage3/b200/rows.jsonl" "$T/stage3/casdgx01/rows.jsonl"
 }
 
+# --- export --------------------------------------------------------------------------------------------------------
+export_all() {
+  [ -s "$T/stage3/rows.jsonl" ] || die "$T/stage3/rows.jsonl is missing: run convert first"
+  refuse_existing "$T/labels" "$T/export"
+  mkdir -p "$T/labels/routing" "$T/labels/trim" "$T/export"
+  # Routing labels: the B200's own (NVFP4), datigator's (its own file, which began as a copy of the B200's earlier
+  # datigator file labels/routing-labels-datigator.jsonl, so that one is not read again) and casdgx01's (FP8).
+  rsync -az "$B200:/raid/work/jeff-first/routing/labels/routing-labels-b200.jsonl" "$T/labels/routing/"
+  rsync -az "$B200:/raid/work/jeff-first/routing/labels-datigator/routing-labels-datigator.jsonl" "$T/labels/routing/"
+  rsync -az -e "ssh -o ControlPath=none" "mstrasser@casdgx01:jeff-first/routing/labels/routing-labels-casdgx01.jsonl" "$T/labels/routing/"
+  rsync -az "$B200:/raid/work/jeff-first/trim/labels-v2/trim-labels-b200.jsonl" "$B200:/raid/work/jeff-first/trim/labels-v2/trim-labels-datigator.jsonl" "$T/labels/trim/"
+  rsync -az -e "ssh -o ControlPath=none" "mstrasser@casdgx01:jeff-first/trim/labels-v2/trim-labels-casdgx01.jsonl" "$T/labels/trim/"
+  local S="$REPO/results/imitation/scripts" R="$REPO/results/imitation"
+  local UVW=(uv run -q --no-project --with aiohttp==3.12.15 --with tokenizers python)
+  # A labeller appends while we copy: a cut last line is dropped here (the copy's last line may be unfinished).
+  for f in "$T"/labels/routing/*.jsonl "$T"/labels/trim/*.jsonl; do
+    tail -c 1 "$f" | od -An -c | grep -q '\\n' || { sed -i '' '$d' "$f"; echo "$f: unfinished last line dropped"; }
+  done
+  # States for the router and trim rows: this conversion's rows plus the morning's replay rows of the build 4abde3ece
+  # sessions (runs-imitation-v4/v5; labelled, but not convertible by stage3.py). The router and trim questions do not
+  # depend on the menu, only on the state, so those sessions' states serve; they give no step rows (old menus).
+  uv run -q --no-project python "$S/tonight_training_files.py" merge-rows --out "$T/export/state-rows.jsonl" \
+    "$T/stage3/rows.jsonl" "$STAGE3_REPLAY_ROWS" | tee "$T/export/state-rows.txt"
+  (cd "$S" && "${UVW[@]}" routing_labels.py join --labels "$T"/labels/routing/*.jsonl --stage3-rows "$T/export/state-rows.jsonl" \
+      --out "$T/export/routing-rows.jsonl") | tee "$T/export/routing-join.txt"
+  (cd "$S" && "${UVW[@]}" trim_labels.py join --labels "$T"/labels/trim/*.jsonl --stage3-rows "$T/export/state-rows.jsonl" \
+      --out "$T/export/trim-rows.jsonl") | tee "$T/export/trim-join.txt"
+  cd "$REPO/tools/jeff-first"
+  uv run -q python -m imitation.export_jeff export --rows "$T/stage3/rows.jsonl" --splits "$R/splits.json" \
+    --task-sets "$R/task-sets.json" --out "$T/export/stage3" | tee "$T/export/stage3-counts.json"
+  uv run -q python -m imitation.export_routing --rows "$T/export/routing-rows.jsonl" --splits "$R/splits.json" \
+    --task-sets "$R/task-sets.json" --out "$T/export/router" | tee "$T/export/router-counts.json"
+  uv run -q python -m imitation.export_trim --rows "$T/export/trim-rows.jsonl" --splits "$R/splits.json" \
+    --task-sets "$R/task-sets.json" --out "$T/export/trim" | tee "$T/export/trim-counts.json"
+}
+
+# --- cut -----------------------------------------------------------------------------------------------------------
+cut_all() {
+  refuse_existing "$T/cut"
+  mkdir -p "$T/cut"
+  local name src
+  for name in stage2 stage3 router trim; do
+    if [ $name = stage2 ]; then src=$STAGE2_UNCUT; else src=$T/export/$name; fi
+    "$JEFF_DEV/.venv/bin/python" "$REPO/tools/jeff-first/jeff_prompt.py" fit-examples --processor "$PROCESSOR" \
+      --layout live-last --workers 8 --unfittable leave-out --out "$T/cut/$name" \
+      "$src/train.jsonl" "$src/development.jsonl" "$src/temperature.jsonl" | tee "$T/cut/$name.log"
+  done
+}
+
+# --- build ---------------------------------------------------------------------------------------------------------
+build_files() {
+  refuse_existing "$T/train"
+  local R="$REPO/results/imitation"
+  [ -s "$T/scoring-tasks.txt" ] || rsync -az "$B200:/raid/work/jeff-first/collect/hub/scoring-tasks.txt" "$T/scoring-tasks.txt"
+  uv run -q --no-project python "$R/scripts/tonight_training_files.py" build --stage1 "$STAGE1_CUT" \
+    --stage2 "$T/cut/stage2" --stage3 "$T/cut/stage3" --router "$T/cut/router" --trim "$T/cut/trim" \
+    --task-sets "$R/task-sets.json" --training-tasks "$R/training-tasks.json" --scoring-tasks "$T/scoring-tasks.txt" \
+    --seed "$SEED" --eval-rows "$EVAL_ROWS" --out "$T/train"
+  ssh "$B200" "test ! -e $TRAIN_W/data || { echo '$TRAIN_W/data exists' >&2; exit 1; }; mkdir -p $TRAIN_W/data"
+  rsync -az "$T/train/" "$B200:$TRAIN_W/data/"
+}
+
+# --- train / check (B200) ------------------------------------------------------------------------------------------
+# jeff-dev 873bafd (git archive) with its own venv (uv sync --extra lora --extra cuda) in $TRAIN_W/jeff-dev-873bafd;
+# the v1.3 base ll-v12-final (model.safetensors sha256 d324dd6c...) as the service uses it.
+TRAIN_W=/raid/work/jeff-first/$NAME-train
+JD=/raid/work/jeff-first/tonight-train/jeff-dev-873bafd
+BASE=/raid/work/jeff-first/jeff-serve/base/ll-v12-final
+DECAY_START=0.8
+# The v1.3 adapter recipe (casdgx01 ~/v13adapters/lib/train_one.sh) and the ll-v12 full-training recipe
+# (casdgx01 /raid/work/experiments/jeff/runs/ll-v12/config.json: batch 32, effective batch 256, weight decay 0.01,
+# token budget and max length 8192, live-last, resume every 50), both from ll-v12-final, both with the stage order kept
+# and the warm-up/hold/decay learning-rate shape.
+COMMON=(--base-model Qwen/Qwen3.5-0.8B --revision 2fc06364715b967f1860aea9cf38778875588b17 --initial-checkpoint "$BASE"
+        --epochs 1 --seed 20260920 --weight-decay 0.01 --batch-size 32 --token-budget 8192 --max-length 8192
+        --cpu-threads 16 --public-eval-every 1000000 --prompt-layout live-last
+        --keep-stage-order --lr-shape wsd --decay-start "$DECAY_START")
+ADAPTER=(--effective-batch-size 64 --resume-every 100 --lora-rank 16 --lora-alpha 32 --lora-dropout 0 --lr 2e-4 --readout-lr 5e-6)
+full_args() { echo --effective-batch-size 256 --resume-every 50 --lr "$1"; }
+
+run_args() {  # RUN -> data folder name and the recipe arguments
+  case "$1" in
+    step-curriculum|step-stage3|router|trim) echo "$1 ${ADAPTER[*]}" ;;
+    full-2e-6) echo "full $(full_args 2e-6)" ;;
+    full-5e-6) echo "full $(full_args 5e-6)" ;;
+    full-1e-5) echo "full $(full_args 1e-5)" ;;
+    *) die "unknown run $1 (step-curriculum, step-stage3, router, trim, full-2e-6, full-5e-6, full-1e-5)" ;;
+  esac
+}
+
+start_training() {  # RUN GPU MODE (train or check)
+  local run=$1 gpu=$2 mode=$3
+  [[ $gpu =~ ^[0-7]$ ]] || die "GPU must be 0-7, not $gpu"
+  local spec data args; spec=$(run_args "$run"); data=${spec%% *}; args=${spec#* }
+  local batch; if [ "$data" = full ]; then batch=256; else batch=64; fi
+  local rows; rows=$(ssh "$B200" "wc -l < $TRAIN_W/data/$data/train.jsonl")
+  local every=$(( (rows + batch - 1) / batch / 20 )); (( every >= 4 )) || every=4
+  local name=$run; local extra=""
+  if [ "$mode" = check ]; then name=check-$run-$(date +%H%M); extra="--stop-after ${CHECK_STEPS:-3}"; fi
+  ssh "$B200" "test ! -e $TRAIN_W/runs/$name || { echo '$TRAIN_W/runs/$name exists' >&2; exit 1; }
+    used=\$(nvidia-smi -i $gpu --query-gpu=memory.used --format=csv,noheader,nounits)
+    if [ \$used -gt 20000 ]; then echo \"GPU $gpu is busy (\$used MiB used; stop its jeff-qwen-b200-$gpu first)\" >&2; exit 1; fi
+    mkdir -p $TRAIN_W/runs/$name $TRAIN_W/checkpoints && cd $JD && tmux new-session -d -s train-$name \"
+    CUDA_VISIBLE_DEVICES=$gpu LD_LIBRARY_PATH=/raid/work/jeff-first/cuda-compat PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/raid/work/jeff-first/hf-home JEFF_EVENTS=$TRAIN_W/runs/$name/events.jsonl \
+    /usr/bin/time -v $JD/.venv/bin/jeff-train --train $TRAIN_W/data/$data/train.jsonl \
+      --development $TRAIN_W/data/$data/development.jsonl --temperature $TRAIN_W/data/$data/temperature.jsonl \
+      --run $TRAIN_W/runs/$name --output $TRAIN_W/checkpoints/$name ${COMMON[*]} $args --eval-every $every $extra \
+      > $TRAIN_W/runs/$name/train.log 2>&1; echo \\\$? > $TRAIN_W/runs/$name/exit\""
+  echo "B200 GPU $gpu: $name started ($rows rows, eval every $every steps); log $TRAIN_W/runs/$name/train.log"
+}
+
 case "${1:-}" in
   convert) convert ;;
+  export) export_all ;;
+  cut) cut_all ;;
+  build) build_files ;;
+  train) start_training "${2:?run}" "${3:?gpu}" train ;;
+  check) start_training "${2:?run}" "${3:?gpu}" check ;;
   *) die "usage: tonight.sh convert|export|cut|build|train RUN GPU|check RUN GPU" ;;
 esac

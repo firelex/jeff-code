@@ -19,7 +19,8 @@ Training files:
   full             step-curriculum's rows, with the router and trim rows (once each) added to the stage 3 block; their
                    ids get the stage field "3" ("own:route:..." becomes "own:3:route:...").
 Development and temperature rows: stage 3's for the two step files, the router's and trim's own, and all three for
-full. No row of a held-out task or of a scoring task (--scoring-tasks) may be in any file: that is an error.
+full; each decision's are capped at --eval-rows rows (whole task families, seeded), because train.py scores all of them
+at every evaluation. No row of a held-out task or of a scoring task (--scoring-tasks) may be in any file: that is an error.
 
 Run (stdlib only): uv run --no-project python tonight_training_files.py build --stage1 ... --out DIR
 """
@@ -123,6 +124,22 @@ def sample_groups(path: Path, target: int, seed: int) -> tuple[set[int], dict]:
                   "rows_available": sum(len(lines) for lines in by_family.values())}
 
 
+def cap_by_family(rows: list[dict], limit: int, seed: int) -> list[dict]:
+    """At most `limit` rows, whole families in the order of sha256("<seed>:<family>"), a family skipped when it would
+    overshoot; the rows keep their file order. Every evaluation scores all development and temperature rows, so their
+    number sets the evaluation time."""
+    by_family: dict[str, int] = Counter(row["family"] for row in rows)
+    chosen: set[str] = set()
+    total = 0
+    for family in sorted(by_family, key=lambda family: hashlib.sha256(f"{seed}:{family}".encode()).hexdigest()):
+        if total + by_family[family] <= limit:
+            chosen.add(family)
+            total += by_family[family]
+    if not chosen:
+        raise ValueError(f"no family fits in {limit} evaluation rows")
+    return [row for row in rows if row["family"] in chosen]
+
+
 def restaged(row: dict, stage: str) -> dict:
     fields = row["id"].split(":")
     return {**row, "id": ":".join([fields[0], stage, *fields[1:]])}
@@ -222,7 +239,12 @@ def build(args: argparse.Namespace) -> dict:
     stage3_twice = stage3["train"] + [copied(row) for row in stage3["train"]]
     curriculum = stage1_train + stage2["train"] + stage3_twice
     full_train = curriculum + [restaged(row, "3") for row in router["train"] + trim["train"]]
-    step_eval = {name: stage3[name] for name in ("development", "temperature")}
+    evaluation = ("development", "temperature")
+    full_eval = {name: {"stage3": len(stage3[name]), "router": len(router[name]), "trim": len(trim[name])} for name in evaluation}
+    for rows in (stage3, router, trim):
+        for name in evaluation:
+            rows[name] = cap_by_family(rows[name], args.eval_rows, args.seed)
+    step_eval = {name: stage3[name] for name in evaluation}
     files = {
         "step-curriculum": {"train": curriculum, **step_eval},
         "step-stage3": {"train": stage3_twice, **step_eval},
@@ -231,7 +253,8 @@ def build(args: argparse.Namespace) -> dict:
         "full": {"train": full_train,
                  **{name: stage3[name] + router[name] + trim[name] for name in ("development", "temperature")}},
     }
-    manifest = {"seed": args.seed, "stage1_sampling": sampling,
+    manifest = {"seed": args.seed, "stage1_sampling": sampling, "eval_rows_cap": args.eval_rows,
+                "evaluation_rows_before_cap": full_eval,
                 "inputs": {key: str(getattr(args, key)) for key in ("stage1", "stage2", "stage3", "router", "trim")},
                 "files": {}}
     args.out.mkdir(parents=True)
@@ -254,6 +277,8 @@ def main(argv: list[str] | None = None) -> None:
     make.add_argument("--training-tasks", type=Path, required=True, help="results/imitation/training-tasks.json")
     make.add_argument("--scoring-tasks", type=Path, required=True)
     make.add_argument("--seed", type=int, required=True)
+    make.add_argument("--eval-rows", type=int, required=True,
+                      help="at most this many development and this many temperature rows per decision (whole task families)")
     make.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "merge-rows":
