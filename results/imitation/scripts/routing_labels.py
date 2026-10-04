@@ -66,6 +66,15 @@ CHEAP_LEVELS = ("off", "low", "medium")
 OFF_MAX_TOKENS = 8192
 ROUTER = "fixed:xhigh"
 SENT_XHIGH = {"enable_thinking": True, "reasoning_effort": "xhigh"}
+# Before the thinking router (build 4abde3ece, collections v4/v5) pi sent only enable_thinking; the template then
+# applied its default effort, xhigh.
+SENT_LEGACY = {"enable_thinking": True, "reasoning_effort": None}
+LEGACY_TARBALLS = {"jeff-pi-scout-4abde3ece.tgz"}
+# Server prompt tokens minus pi's recorded prompt tokens per level, measured in the smoke (106 turns, every request) on
+# NVFP4 and FP8: xhigh is the recorded request itself; the others lack or change the system prompt's reasoning-effort
+# line (and off closes the thinking block in the prompt).
+PROMPT_DIFF = {"xhigh": 0, "off": -36, "low": -12, "medium": -38}
+PROMPT_MISMATCH = "the rebuilt request's prompt differs from the recorded one (prompt tokens)"
 LABELLED_STOPS = ("toolUse", "stop")
 SKIP_REASONS = {"length": "reply hit the output cap (length)", "error": "the request failed (error)",
                 "aborted": "the request was aborted"}
@@ -262,8 +271,15 @@ async def cascade(asker, recorded, calibration):
 
 
 def finished_trials(root):
-    """Trial folders (<stream>/<round>/<job>/<task>__<id>/) under a collection folder that have their result.json."""
-    return sorted(path.parent for path in root.glob("*/round*/*/*/result.json") if "__" in path.parent.name)
+    """Trial folders (<task>__<id>/, at any depth: <stream>/roundN/<job>/ in the collection, <stream>/<arm>/run1/<job>/
+    in the end-to-end test) under a collection folder that have their result.json. Trial folders are not searched."""
+    found = []
+    for folder, subfolders, files in os.walk(root):
+        if "__" in Path(folder).name:
+            subfolders.clear()
+            if "result.json" in files:
+                found.append(Path(folder))
+    return sorted(found)
 
 
 def recorded_turns(trial):
@@ -272,9 +288,17 @@ def recorded_turns(trial):
     tokens, else ValueError."""
     config = json.loads((trial / "config.json").read_text())
     env = config["agent"]["env"]
-    if env.get("JEFF_FIRST_MODE") != "record" or env.get("JEFF_FIRST_THINKING_ROUTER") != ROUTER:
-        raise ValueError(f"{trial}: not a record-mode session with router {ROUTER} ({env.get('JEFF_FIRST_MODE')}, "
-                         f"{env.get('JEFF_FIRST_THINKING_ROUTER')})")
+    kwargs = config["agent"]["kwargs"]
+    legacy = "JEFF_FIRST_THINKING_ROUTER" not in env
+    if env.get("JEFF_FIRST_MODE") != "record":
+        raise ValueError(f"{trial}: not a record-mode session ({env.get('JEFF_FIRST_MODE')})")
+    if legacy:
+        if (Path(kwargs["tarball"]).name not in LEGACY_TARBALLS or kwargs.get("thinking") in (None, "off")
+                or kwargs.get("thinking_format") != "qwen-chat-template"):
+            raise ValueError(f"{trial}: a session without a thinking router must be of {sorted(LEGACY_TARBALLS)} with "
+                             f"thinking on through qwen-chat-template ({kwargs})")
+    elif env["JEFF_FIRST_THINKING_ROUTER"] != ROUTER:
+        raise ValueError(f"{trial}: router {env['JEFF_FIRST_THINKING_ROUTER']}, not {ROUTER}")
     build = env["JEFF_FIRST_DRIVER_BUILD"]
     family(build)
     cut = trial_cut(trial)
@@ -286,6 +310,8 @@ def recorded_turns(trial):
     trace, _ = _json_lines(trial / "agent" / "jeff-first-trace.jsonl", cut)
     finals = {}
     for line in trace:
+        if legacy and line["kind"] == "record":
+            line = legacy_line(line)
         if line["kind"] != "qwen_request":
             continue
         if line["session_id"] != session_id:
@@ -314,7 +340,7 @@ def recorded_turns(trial):
         if line["stop_reason"] != message["stopReason"] or line["usage"]["input"] != usage["input"]:
             raise ValueError(f"{trial}: turn {line['turn']}: trace ({line['stop_reason']}, {line['usage']['input']}) "
                              f"and session ({message['stopReason']}, {usage['input']}) disagree")
-        if line["sent"] != SENT_XHIGH:
+        if line["sent"] != (SENT_LEGACY if legacy else SENT_XHIGH):
             raise ValueError(f"{trial}: turn {line['turn']} was sent {line['sent']}, not {SENT_XHIGH}")
         if message["stopReason"] not in LABELLED_STOPS:
             skipped[SKIP_REASONS.get(message["stopReason"], message["stopReason"])] += 1
@@ -325,6 +351,7 @@ def recorded_turns(trial):
         text = "".join(part["text"] for part in message["content"] if part["type"] == "text")
         turns.append({
             "id": f"{trial.name}:{entry['id']}",
+            "legacy": legacy,
             "trial": trial.name,
             "trial_dir": str(trial),
             "task": config["task"]["path"],
@@ -344,6 +371,26 @@ def recorded_turns(trial):
             },
         })
     return turns, dict(skipped)
+
+
+def legacy_line(record):
+    """A schema-4 record line (build 4abde3ece, before the thinking router) in the shape of a kept qwen_request line.
+    pi sent thinking on without a reasoning effort, so the chat template used its default, xhigh: the same prompt as
+    an explicit xhigh (checked per turn by the prompt tokens, `check_prompt`)."""
+    return {"kind": "qwen_request", "session_id": record["session_id"], "turn": record["turn"], "outcome": "kept",
+            "stop_reason": record["action"]["stop_reason"], "usage": {"input": record["model_usage"]["input"]},
+            "sent": SENT_LEGACY, "timings_ms": {"model": record["timings_ms"]["model"]}}
+
+
+class PromptMismatch(Exception):
+    """A rebuilt request's prompt tokens differ from what the recorded turn's prompt implies."""
+
+
+def check_prompt(what, level, prompt_diff):
+    """The server's prompt tokens minus pi's recorded prompt tokens must be the level's constant (PROMPT_DIFF)."""
+    if prompt_diff is not None and prompt_diff != PROMPT_DIFF[level]:
+        raise PromptMismatch(f"{what}: prompt tokens differ from the recorded prompt by {prompt_diff}, expected "
+                             f"{PROMPT_DIFF[level]} at {level}")
 
 
 def turn_classes(trial, tokenizer):
@@ -542,6 +589,7 @@ class TurnAsker:
                        "final_text": record["content"] if commands == [] else None,
                        "prompt_diff": None if record["prompt_tokens"] is None
                        else record["prompt_tokens"] - self.turn["recorded"]["prompt_tokens"]})
+        check_prompt(f"{self.turn['id']} {level}-{sample}", level, record["prompt_diff"])
         del record["reasoning"]
         self.asks.append(record)
         return record
@@ -723,13 +771,15 @@ class Labeller:
                 continue
             try:
                 row = await self.label(turn, server)
-            except JudgeRefused as refusal:
-                # Not a fallback: the turn cannot be labelled by the owner's rule; it is left out with its reason
-                # (counted in the statistics), never given a substitute label.
-                print(f"LEFT OUT {turn['id']}: {refusal}", flush=True)
+            except (JudgeRefused, PromptMismatch) as problem:
+                # Not a fallback: the turn cannot be labelled by the owner's rule (the judge refused it, or the rebuilt
+                # request is not the recorded one); it is left out with its reason (counted in the statistics), never
+                # given a substitute label.
+                print(f"LEFT OUT {turn['id']}: {problem}", flush=True)
                 row = {"kind": "excluded", "id": turn["id"], "trial_dir": turn["trial_dir"],
-                       "source_host": turn["source_host"], "class": turn["class"], "reason": JUDGE_REFUSED,
-                       "detail": str(refusal)}
+                       "source_host": turn["source_host"], "class": turn["class"],
+                       "reason": JUDGE_REFUSED if isinstance(problem, JudgeRefused) else PROMPT_MISMATCH,
+                       "detail": str(problem)}
             server.queued_turns -= 1
             self.write(turn["source_host"], row)
             self.written += 1

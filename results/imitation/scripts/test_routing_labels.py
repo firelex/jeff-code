@@ -205,7 +205,8 @@ def test_calibration_asks_everything_and_compares_with_all_three_xhigh_actions()
 def _trial(tmp_path, assistants, lines, cut=False):
     trial = tmp_path / "s1" / "round1" / "job" / "task__abc"
     (trial / "agent" / "pi" / "sessions").mkdir(parents=True)
-    config = {"task": {"path": "task"}, "agent": {"env": {
+    config = {"task": {"path": "task"}, "agent": {"kwargs": {"tarball": "/x/jeff-pi-scout-6498fcf8d.tgz",
+                                                             "thinking": "high"}, "env": {
         "JEFF_FIRST_MODE": "record", "JEFF_FIRST_THINKING_ROUTER": "fixed:xhigh",
         "JEFF_FIRST_DRIVER_BUILD": "qwen3.8-27b-fp8@casdgx01-gpu1"}}}
     (trial / "config.json").write_text(json.dumps(config))
@@ -242,6 +243,7 @@ def test_recorded_turns_pair_session_and_trace(tmp_path):
                    [_line(1, "toolUse", 100), {"kind": "record", "turn": 1}, _line(2, "length", 200),
                     _line(3, "stop", 300)])
     turns, skipped = rl.recorded_turns(trial)
+    assert all(t["legacy"] is False for t in turns)
     assert [(t["turn"], t["entry_id"], t["commands"], t["final_text"]) for t in turns] == [
         (1, "a0", ["ls"], None), (3, "a2", [], "Done.")]
     assert turns[0]["session_id"] == "sess-1" and turns[0]["recorded"]["prompt_tokens"] == 100
@@ -270,6 +272,49 @@ def test_a_trial_with_a_call_to_another_tool_is_left_out(tmp_path):
     assert skipped == {rl.OTHER_TOOL: 2}
 
 
+def _legacy(tmp_path, records):
+    """A build-4abde3ece trial: no router, pi's thinking level medium (sent as enable_thinking only, so the chat
+    template's default effort xhigh applied), schema-4 record lines."""
+    trial = _trial(tmp_path, [("toolUse", ["ls"], 100), ("stop", [], 300)], records)
+    config = json.loads((trial / "config.json").read_text())
+    del config["agent"]["env"]["JEFF_FIRST_THINKING_ROUTER"]
+    config["agent"]["kwargs"] = {"tarball": "/home/x/jeff-pi-scout-4abde3ece.tgz", "thinking": "medium",
+                                 "thinking_format": "qwen-chat-template", "max_output_tokens": 32768}
+    (trial / "config.json").write_text(json.dumps(config))
+    return trial
+
+
+def _record(turn, stop, usage_input):
+    return {"schema": "jeff-first-trace/4", "kind": "record", "session_id": "sess-1", "turn": turn,
+            "action": {"stop_reason": stop, "tool_calls": []},
+            "model_usage": {"input": usage_input, "output": 10, "cache_read": 0, "cache_write": 0},
+            "timings_ms": {"lists": 1.0, "model": 999.0}}
+
+
+def test_legacy_trials_pair_turns_with_record_lines(tmp_path):
+    trial = _legacy(tmp_path, [_record(1, "toolUse", 100), _record(2, "stop", 300)])
+    turns, skipped = rl.recorded_turns(trial)
+    assert [(t["turn"], t["legacy"]) for t in turns] == [(1, True), (2, True)]
+    assert turns[0]["recorded"]["model_ms"] == 999.0 and skipped == {}
+
+
+def test_legacy_trials_of_another_build_raise(tmp_path):
+    trial = _legacy(tmp_path, [_record(1, "toolUse", 100), _record(2, "stop", 300)])
+    config = json.loads((trial / "config.json").read_text())
+    config["agent"]["kwargs"]["tarball"] = "/x/jeff-pi-scout-adad96753.tgz"
+    (trial / "config.json").write_text(json.dumps(config))
+    with pytest.raises(ValueError):
+        rl.recorded_turns(trial)
+
+
+def test_prompt_check_per_level():
+    rl.check_prompt("t", "off", -36)
+    rl.check_prompt("t", "xhigh", 0)
+    rl.check_prompt("t", "off", None)  # a request cut for looping reports no count
+    with pytest.raises(rl.PromptMismatch):
+        rl.check_prompt("t", "medium", -36)
+
+
 def test_recorded_turns_mismatch_raises(tmp_path):
     trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 999)])
     with pytest.raises(ValueError):
@@ -291,6 +336,16 @@ def test_finished_trials_need_a_trial_result(tmp_path):
     running.mkdir(parents=True)
     (tmp_path / "s1" / "round1" / "job" / "result.json").write_text("{}")  # the job's own result, not a trial's
     assert rl.finished_trials(Path(tmp_path)) == [trial]
+
+
+def test_finished_trials_at_any_depth(tmp_path):
+    # The end-to-end test's layout: <stream>/<arm>/run1/<job>/<trial>/.
+    trial = tmp_path / "rtx" / "xhigh" / "run1" / "job" / "task__abc"
+    (trial / "agent").mkdir(parents=True)
+    (trial / "result.json").write_text("{}")
+    (trial / "agent" / "result.json").write_text("{}")  # inside a trial: not a trial
+    (tmp_path / "rtx" / "xhigh" / "run1" / "job" / "result.json").write_text("{}")
+    assert rl.finished_trials(tmp_path) == [trial]
 
 
 # ------------------------------------------------------------------------------------------------ join, stats, check
