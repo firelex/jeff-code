@@ -28,7 +28,7 @@ export interface JeffState {
 /** The shell command a step ran, or for another pi tool the shell command that does the same (read: cat or sed -n,
  * ls: ls -la, grep: grep -rn, find: find, write: cat with a here-document). A call whose arguments do not fit that
  * shape is shown as the tool's name and its arguments, which is what it was. */
-function shellCommand(call: Step["call"]): string {
+export function shellCommand(call: Step["call"]): string {
 	const args = call.arguments as JsonObject;
 	const text = (key: string): string | undefined => (typeof args[key] === "string" ? args[key] : undefined);
 	const whole = (number: unknown): number | undefined => (typeof number === "number" ? number : undefined);

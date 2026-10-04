@@ -34,6 +34,16 @@ export function activeToolNames(messages: Message[]): Set<string> {
 	return names;
 }
 
+/** One tool call with the result pi recorded for it (undefined when none), as the large model's step. */
+export function stepOf(call: ToolCall, result: ToolResultMessage | undefined): Step {
+	return {
+		call,
+		output: result === undefined ? null : textOf(result.content),
+		isError: result === undefined ? false : result.isError,
+		byScout: false,
+	};
+}
+
 export function collectSteps(messages: Message[]): Step[] {
 	const results = new Map<string, ToolResultMessage>();
 	for (const message of messages) {
@@ -44,13 +54,7 @@ export function collectSteps(messages: Message[]): Step[] {
 		if (message.role !== "assistant") continue;
 		for (const part of message.content) {
 			if (part.type !== "toolCall") continue;
-			const result = results.get(part.id);
-			steps.push({
-				call: part,
-				output: result === undefined ? null : textOf(result.content),
-				isError: result === undefined ? false : result.isError,
-				byScout: message.provider === JEFF_PROVIDER,
-			});
+			steps.push({ ...stepOf(part, results.get(part.id)), byScout: message.provider === JEFF_PROVIDER });
 		}
 	}
 	return steps;

@@ -1,14 +1,14 @@
 import { performance } from "node:perf_hooks";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
 import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
 import type { RunApproval } from "./config.ts";
 import { liveFacts } from "./facts.ts";
 import { buildLists, type Lists } from "./lists.ts";
-import { type JeffState, trimState } from "./state.ts";
+import { type JeffState, shellCommand, trimState } from "./state.ts";
 import { describeError, errorStream, forwardModelTurn, JEFF_FIRST_ERROR_PREFIX } from "./stream.ts";
-import type { RecordRecord, TraceWriter } from "./trace.ts";
-import { activeToolNames, collectSteps, taskText } from "./transcript.ts";
+import { type RecordRecord, type RecordStepRecord, TRACE_SCHEMA, type TraceWriter } from "./trace.ts";
+import { activeToolNames, collectSteps, type Step, stepOf, taskText } from "./transcript.ts";
 
 export interface RecordOptions {
 	inner: StreamFn;
@@ -28,19 +28,120 @@ interface Prepared {
 	listsMs: number;
 }
 
+/** A recorded turn whose tool calls are running: what the lists after each of its steps are built from. */
+interface RunningTurn {
+	turn: number;
+	sessionId: string;
+	driver: string;
+	task: string;
+	/** The steps before the turn, as its own lists saw them. */
+	before: Step[];
+	activeTools: Set<string>;
+	calls: ToolCall[];
+	results: Map<string, ToolResultMessage>;
+}
+
+export interface Recorder {
+	/** Wraps the model: before each of Qwen's turns, logs the lists (a "record" line). */
+	streamFn: StreamFn;
+	/**
+	 * The agent's event listener: after each step of a recorded turn that another call of the same turn follows,
+	 * logs the lists as they are then (a "record_step" line). Throws, ending the agent's run with a JeffFirst error,
+	 * when the lists cannot be built or the turn's calls do not run one after another.
+	 */
+	onEvent: (event: AgentEvent) => void;
+}
+
 /**
  * Record mode: plain Qwen works alone, exactly as plain pi. Before each of its turns, this builds and logs the
  * scout's full option lists (every tool, every argument option, up to the usual limit per tool) so that a converter
  * can later label each point with Qwen's actual next action, or "hand over". It never acts on Qwen's behalf: it
  * always calls the inner model and forwards its message unchanged.
+ *
+ * Stints: a scout may take several steps in a row (a stint), each chosen from lists built after the step before it
+ * ran. When one of Qwen's turns makes several tool calls, the converter can label each of them as one stint step, so
+ * after each call that another call of the turn follows, the lists are built and logged again from the disk as it is
+ * then, with the turn's steps so far credited to the scout (byScout), as a live stint shows them: the turn's earlier
+ * steps were the scout's own. This needs the turn's calls to run one after another (pi's sequential tool execution),
+ * so the disk holds exactly the effects of the steps before the point.
  */
-export function createRecordStreamFn(options: RecordOptions): StreamFn {
+export function createRecorder(options: RecordOptions): Recorder {
 	const facts = liveFacts();
 	// Taken on the first turn: compaction later replaces the first user message with a summary.
 	let task: string | undefined;
 	let turn = 0;
+	let running: RunningTurn | undefined;
 
-	return async (model, context, streamOptions) => {
+	const logStep = (current: RunningTurn, index: number): void => {
+		const started = performance.now();
+		const steps = [
+			...current.before,
+			...current.calls
+				.slice(0, index + 1)
+				.map((call) => ({ ...stepOf(call, current.results.get(call.id)), byScout: true })),
+		];
+		const checks = detectCheckCommands({ cwd: options.cwd, task: current.task, steps, facts });
+		const lists = buildLists({
+			cwd: options.cwd,
+			task: current.task,
+			steps,
+			activeTools: current.activeTools,
+			checkCommands: checks.commands,
+			facts,
+			runApproval: options.runApproval,
+		});
+		const record: RecordStepRecord = {
+			schema: TRACE_SCHEMA,
+			kind: "record_step",
+			task_id: options.taskId,
+			session_id: current.sessionId,
+			turn: current.turn,
+			step: index + 1,
+			calls_in_turn: current.calls.length,
+			command: shellCommand(current.calls[index]),
+			mode: "record",
+			driver: current.driver,
+			driver_build: options.driverBuild,
+			run_approval: options.runApproval,
+			time: new Date().toISOString(),
+			state: trimState(current.task, steps),
+			check_command_notes: checks.notes,
+			lists: { tools: lists.tools, arguments_by_tool: lists.argumentsByTool },
+			timings_ms: { lists: performance.now() - started },
+		};
+		options.trace.append(record);
+	};
+
+	const onEvent = (event: AgentEvent): void => {
+		const current = running;
+		if (current === undefined) return;
+		if (event.type === "tool_execution_start") {
+			const index = current.calls.findIndex((call) => call.id === event.toolCallId);
+			if (index < 0) return;
+			const unfinished = current.calls.slice(0, index).find((call) => !current.results.has(call.id));
+			if (unfinished !== undefined) {
+				throw new Error(
+					`${JEFF_FIRST_ERROR_PREFIX} record mode needs the tool calls of a turn to run one after another, but call ${index + 1} of turn ${current.turn} started before call ${current.calls.indexOf(unfinished) + 1} had its result`,
+				);
+			}
+			return;
+		}
+		if (event.type !== "message_end" || event.message.role !== "toolResult") return;
+		const result = event.message;
+		const index = current.calls.findIndex((call) => call.id === result.toolCallId);
+		if (index < 0) return;
+		current.results.set(result.toolCallId, result);
+		if (index === current.calls.length - 1) return;
+		try {
+			logStep(current, index);
+		} catch (error) {
+			throw new Error(
+				`${JEFF_FIRST_ERROR_PREFIX} could not log the lists after step ${index + 1} of turn ${current.turn}: ${describeError(error)}`,
+			);
+		}
+	};
+
+	const streamFn: StreamFn = async (model, context, streamOptions) => {
 		const sessionId = streamOptions?.sessionId;
 		// Only agent turns, which offer tools, get a logged list; summaries and bug reports pass straight through.
 		if (!options.isSessionTurn(sessionId) || activeToolNames(context.messages).size === 0) {
@@ -48,12 +149,15 @@ export function createRecordStreamFn(options: RecordOptions): StreamFn {
 		}
 		turn++;
 		const thisTurn = turn;
+		running = undefined;
 
 		let prepared: Prepared;
+		let before: Step[];
 		try {
 			const started = performance.now();
 			task ??= taskText(context.messages);
 			const steps = collectSteps(context.messages);
+			before = steps;
 			// Detected anew each turn: a project file counts only once the session has revealed it.
 			const checks = detectCheckCommands({ cwd: options.cwd, task, steps, facts });
 			const lists = buildLists({
@@ -75,9 +179,9 @@ export function createRecordStreamFn(options: RecordOptions): StreamFn {
 		}
 
 		const writeTrace = (final: AssistantMessage, modelMs: number) => {
-			const toolCalls = final.content.filter((part) => part.type === "toolCall");
+			const toolCalls = final.content.filter((part): part is ToolCall => part.type === "toolCall");
 			const record: RecordRecord = {
-				schema: "jeff-first-trace/4",
+				schema: TRACE_SCHEMA,
 				kind: "record",
 				task_id: options.taskId,
 				session_id: sessionId as string,
@@ -105,6 +209,16 @@ export function createRecordStreamFn(options: RecordOptions): StreamFn {
 				timings_ms: { lists: prepared.listsMs, model: modelMs },
 			};
 			options.trace.append(record);
+			running = {
+				turn: thisTurn,
+				sessionId: sessionId as string,
+				driver: model.id,
+				task: prepared.state.task,
+				before,
+				activeTools: activeToolNames(context.messages),
+				calls: toolCalls,
+				results: new Map(),
+			};
 		};
 
 		const modelStarted = performance.now();
@@ -117,4 +231,6 @@ export function createRecordStreamFn(options: RecordOptions): StreamFn {
 			"record wrapper",
 		);
 	};
+
+	return { streamFn, onEvent };
 }

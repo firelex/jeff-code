@@ -90,11 +90,18 @@ export interface ModelTurnRecord {
 }
 
 /**
+ * The schema of record-mode traces. "jeff-first-trace/4": one "record" line before each of Qwen's turns.
+ * "jeff-first-trace/5" adds a "record_step" line after each step of a turn that another call of the same turn follows
+ * (the lists inside a stint, see record.ts); "record" lines are unchanged.
+ */
+export const TRACE_SCHEMA = "jeff-first-trace/5";
+
+/**
  * One line per turn of plain Qwen in record mode: the scout's full option lists at that moment (built by code, no
  * scout step taken), so a converter can later label the point with Qwen's actual next action, or "hand over".
  */
 export interface RecordRecord {
-	schema: "jeff-first-trace/4";
+	schema: typeof TRACE_SCHEMA;
 	kind: "record";
 	task_id: string;
 	session_id: string;
@@ -118,7 +125,33 @@ export interface RecordRecord {
 	timings_ms: { lists: number; model: number };
 }
 
-export type TraceRecord = ShadowRecord | DecisionRecord | ModelTurnRecord | RecordRecord;
+/**
+ * One line in record mode after step `step` (1-based) of turn `turn`, when another of the turn's `calls_in_turn` calls
+ * follows: the lists built from the disk right after that step ran, with the turn's steps so far (1 to `step`) credited
+ * to the scout in `state` (byScout true), as a live stint shows the scout's own steps. `command` is the step's shell
+ * command as `state` shows it. The point it describes is the one before call `step` + 1.
+ */
+export interface RecordStepRecord {
+	schema: typeof TRACE_SCHEMA;
+	kind: "record_step";
+	task_id: string;
+	session_id: string;
+	turn: number;
+	step: number;
+	calls_in_turn: number;
+	command: string;
+	mode: "record";
+	driver: string;
+	driver_build: string;
+	run_approval: RunApproval;
+	time: string;
+	state: JeffState;
+	check_command_notes: string[];
+	lists: { tools: ToolOption[]; arguments_by_tool: Partial<Record<ToolKind, ArgumentOption[]>> };
+	timings_ms: { lists: number };
+}
+
+export type TraceRecord = ShadowRecord | DecisionRecord | ModelTurnRecord | RecordRecord | RecordStepRecord;
 
 export class TraceWriter {
 	private readonly path: string;

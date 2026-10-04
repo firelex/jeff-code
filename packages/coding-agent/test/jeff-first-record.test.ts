@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -10,9 +10,10 @@ import {
 	type Message,
 	type Model,
 	normalizeContext,
+	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createRecordStreamFn } from "../src/core/jeff-first/record.ts";
+import { createRecorder } from "../src/core/jeff-first/record.ts";
 import { TraceWriter } from "../src/core/jeff-first/trace.ts";
 
 const model = { id: "qwen", api: "openai-completions", provider: "local" } as unknown as Model<Api>;
@@ -87,8 +88,8 @@ describe("createRecordStreamFn", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	const record = (inner: StreamFn) =>
-		createRecordStreamFn({
+	const recorder = (inner: StreamFn) =>
+		createRecorder({
 			inner,
 			cwd: dir,
 			taskId: "task-1",
@@ -97,6 +98,7 @@ describe("createRecordStreamFn", () => {
 			runApproval: "all",
 			driverBuild: "test-build",
 		});
+	const record = (inner: StreamFn) => recorder(inner).streamFn;
 	const traceLines = () =>
 		readFileSync(tracePath, "utf8")
 			.trimEnd()
@@ -127,7 +129,7 @@ describe("createRecordStreamFn", () => {
 		expect(calls.count).toBe(1);
 		const [line] = traceLines();
 		expect(line).toMatchObject({
-			schema: "jeff-first-trace/4",
+			schema: "jeff-first-trace/5",
 			kind: "record",
 			task_id: "task-1",
 			session_id: "s1",
@@ -186,5 +188,115 @@ describe("createRecordStreamFn", () => {
 		const final = await (await fn(model, normalizeContext({ messages }), { sessionId: "s1" })).result();
 		expect(final.stopReason).toBe("error");
 		expect(final.errorMessage).toMatch(/^JeffFirst: could not write the trace line for turn 1: /);
+	});
+
+	describe("menus after each step within a turn", () => {
+		const bash = (id: string, command: string) => ({
+			type: "toolCall" as const,
+			id,
+			name: "bash",
+			arguments: { command },
+		});
+		const result = (id: string, text: string): ToolResultMessage => ({
+			role: "toolResult",
+			toolCallId: id,
+			toolName: "bash",
+			content: [{ type: "text", text }],
+			isError: false,
+			timestamp: 0,
+		});
+		const start = (id: string): AgentEvent => ({
+			type: "tool_execution_start",
+			toolCallId: id,
+			toolName: "bash",
+			args: {},
+		});
+		const end = (id: string, text: string): AgentEvent => ({ type: "message_end", message: result(id, text) });
+
+		async function turnWithCalls(calls: ReturnType<typeof bash>[]) {
+			const rec = recorder(fakeModel(reply(calls)).inner);
+			await drain(await rec.streamFn(model, normalizeContext({ messages }), { sessionId: "s1" }));
+			return rec;
+		}
+
+		it("logs the lists after each step that another call of the turn follows, the steps credited to the scout", async () => {
+			const rec = await turnWithCalls([bash("c1", "ls"), bash("c2", "cat notes.md"), bash("c3", "cat README.md")]);
+			rec.onEvent(start("c1"));
+			// The first step reveals notes.md, which exists only from now on: the lists are built after the step ran.
+			writeFileSync(join(dir, "notes.md"), "n");
+			rec.onEvent(end("c1", "README.md\nnotes.md"));
+			rec.onEvent(start("c2"));
+			rec.onEvent(end("c2", "n"));
+			rec.onEvent(start("c3"));
+			rec.onEvent(end("c3", "x"));
+			const lines = traceLines();
+			expect(lines.map((line) => [line.kind, line.turn, line.step ?? null])).toEqual([
+				["record", 1, null],
+				["record_step", 1, 1],
+				["record_step", 1, 2],
+			]);
+			expect(lines[1]).toMatchObject({
+				schema: "jeff-first-trace/5",
+				task_id: "task-1",
+				session_id: "s1",
+				mode: "record",
+				driver: "qwen",
+				driver_build: "test-build",
+				run_approval: "all",
+				calls_in_turn: 3,
+				command: "ls",
+			});
+			expect(lines[1].state.recentSteps).toEqual([
+				{ command: "ls", output: "README.md\nnotes.md", isError: false, byScout: true },
+			]);
+			expect(
+				lines[2].state.recentSteps.map((step: { command: string; byScout: boolean }) => [
+					step.command,
+					step.byScout,
+				]),
+			).toEqual([
+				["ls", true],
+				["cat notes.md", true],
+			]);
+			expect(lines[2].command).toBe("cat notes.md");
+			const reads = (lines[1].lists.arguments_by_tool.read ?? []).map(
+				(option: { toolCall: { arguments: { command: string } } }) => option.toolCall.arguments.command,
+			);
+			expect(reads).toContain(`cat '${join(dir, "notes.md")}'`);
+			expect(
+				lines[0].lists.arguments_by_tool.read.map(
+					(option: { toolCall: { arguments: { command: string } } }) => option.toolCall.arguments.command,
+				),
+			).not.toContain(`cat '${join(dir, "notes.md")}'`);
+		});
+
+		it("logs nothing after a turn's only call", async () => {
+			const rec = await turnWithCalls([bash("c1", "ls")]);
+			rec.onEvent(start("c1"));
+			rec.onEvent(end("c1", "README.md"));
+			expect(traceLines().map((line) => line.kind)).toEqual(["record"]);
+		});
+
+		it("ignores tool results of calls it did not record", async () => {
+			const rec = await turnWithCalls([bash("c1", "ls"), bash("c2", "ls")]);
+			rec.onEvent(start("other"));
+			rec.onEvent(end("other", "x"));
+			expect(traceLines().map((line) => line.kind)).toEqual(["record"]);
+		});
+
+		it("refuses calls run in parallel: a call starts before the one before it has its result", async () => {
+			const rec = await turnWithCalls([bash("c1", "ls"), bash("c2", "ls")]);
+			rec.onEvent(start("c1"));
+			expect(() => rec.onEvent(start("c2"))).toThrow(/^JeffFirst: .*one after another/);
+		});
+
+		it("fails loudly with the JeffFirst prefix when the lists after a step cannot be built", async () => {
+			const rec = await turnWithCalls([bash("c1", "ls"), bash("c2", "ls")]);
+			rec.onEvent(start("c1"));
+			rmSync(dir, { recursive: true, force: true });
+			expect(() => rec.onEvent(end("c1", "x"))).toThrow(
+				/^JeffFirst: could not log the lists after step 1 of turn 1: /,
+			);
+		});
 	});
 });

@@ -62,7 +62,11 @@ describe("JeffFirst through createAgentSession", () => {
 		rmSync(tempDir, { recursive: true, force: true });
 	});
 
-	async function startSession() {
+	async function startSession(
+		firstAnswer: AssistantMessage["content"] = [
+			{ type: "toolCall", id: "r1", name: "read", arguments: { path: "README.md" } },
+		],
+	) {
 		const settingsManager = SettingsManager.inMemory({});
 		settingsManager.applyOverrides({
 			retry: { enabled: true, maxRetries: 3, baseDelayMs: 1, maxAgentDelayMs: 1000 },
@@ -80,7 +84,7 @@ describe("JeffFirst through createAgentSession", () => {
 				const stream = createAssistantMessageEventStream();
 				stream.end(
 					provider.calls === 1
-						? answer([{ type: "toolCall", id: "r1", name: "read", arguments: { path: "README.md" } }], "toolUse")
+						? answer(firstAnswer, "toolUse")
 						: answer([{ type: "text", text: "Done." }], "stop"),
 				);
 				return stream;
@@ -137,7 +141,7 @@ describe("JeffFirst through createAgentSession", () => {
 			.map((l) => JSON.parse(l));
 		expect(lines.map((l) => l.turn)).toEqual([1, 2]);
 		expect(lines[0]).toMatchObject({
-			schema: "jeff-first-trace/4",
+			schema: "jeff-first-trace/5",
 			kind: "record",
 			mode: "record",
 			driver_build: "test-build",
@@ -145,6 +149,34 @@ describe("JeffFirst through createAgentSession", () => {
 		});
 		expect(lines[0].action.tool_calls[0]).toMatchObject({ name: "read" });
 		expect(lines[0].lists.arguments_by_tool.read).toBeDefined();
+	});
+
+	it("in record mode runs a turn's calls one after another and logs the lists after each step another call follows", async () => {
+		vi.stubEnv("JEFF_FIRST_MODE", "record");
+		vi.stubEnv("JEFF_FIRST_TRACE_FILE", join(traceDir, "trace.jsonl"));
+		vi.stubEnv("JEFF_FIRST_TASK_ID", "sdk-test");
+		vi.stubEnv("JEFF_FIRST_RUN_APPROVAL", "all");
+		vi.stubEnv("JEFF_FIRST_DRIVER_BUILD", "test-build");
+		const { session } = await startSession([
+			{ type: "toolCall", id: "b1", name: "bash", arguments: { command: "printf 'see notes.md' > notes.md && ls" } },
+			{ type: "toolCall", id: "b2", name: "bash", arguments: { command: "cat notes.md" } },
+		]);
+		await session.prompt("Read README.md and fix the bug.");
+		session.dispose();
+		const lines = readFileSync(join(traceDir, "trace.jsonl"), "utf8")
+			.trimEnd()
+			.split("\n")
+			.map((l) => JSON.parse(l));
+		expect(lines.map((l) => `${l.kind}:${l.turn}:${l.step ?? "-"}`)).toEqual([
+			"record:1:-",
+			"record_step:1:1",
+			"record:2:-",
+		]);
+		expect(lines[1]).toMatchObject({ command: "printf 'see notes.md' > notes.md && ls", calls_in_turn: 2 });
+		expect(lines[1].state.recentSteps).toHaveLength(1);
+		expect(lines[1].state.recentSteps[0]).toMatchObject({ byScout: true });
+		expect(lines[1].state.recentSteps[0].output).toContain("notes.md");
+		expect(lines[2].state.recentSteps.map((step: { byScout: boolean }) => step.byScout)).toEqual([false, false]);
 	});
 
 	it("refuses to create a session with an unknown mode", async () => {
