@@ -4,15 +4,27 @@ from pathlib import Path
 import pytest
 from harbor.agents.installed.pi import Pi
 
-from harbor_agent.jeff_pi import REMOTE_TARBALL, JeffPi
+from harbor.environments.base import ExecResult
+
+from harbor_agent.jeff_pi import BULLSEYE_CURL_INSTALL, CURL_STATE, REMOTE_TARBALL, JeffPi
 
 
 class FakeEnvironment:
-    def __init__(self):
+    """Answers the curl state question with `curl_state` (what the image would print)."""
+
+    def __init__(self, curl_state="present"):
         self.uploads = []
+        self.execs = []
+        self.curl_state = curl_state
 
     async def upload_file(self, source_path, target_path):
         self.uploads.append((Path(source_path), target_path))
+
+    async def exec(self, command, user=None, **kwargs):
+        self.execs.append((command, user))
+        if command != CURL_STATE:
+            raise AssertionError(f"unexpected direct exec: {command}")
+        return ExecResult(stdout=f"{self.curl_state}\n", stderr="", return_code=0)
 
 
 def make_agent(tmp_path, **kwargs):
@@ -28,7 +40,11 @@ def record_calls(agent, monkeypatch):
     async def ensure_system_dependencies(environment, packages):
         calls.append(("deps", tuple(packages)))
 
+    async def exec_as_root(environment, command, env=None, **kwargs):
+        calls.append(("root", command, env))
+
     monkeypatch.setattr(agent, "exec_as_agent", exec_as_agent)
+    monkeypatch.setattr(agent, "exec_as_root", exec_as_root)
     monkeypatch.setattr(agent, "ensure_system_dependencies", ensure_system_dependencies)
     return calls
 
@@ -48,6 +64,46 @@ async def test_installs_the_fork_from_the_uploaded_tarball(tmp_path, monkeypatch
     assert f"npm install -g --ignore-scripts {REMOTE_TARBALL}" in command
     assert "@earendil-works/pi-coding-agent@" not in command
     assert command.rstrip().endswith("pi --version")
+
+
+async def test_installs_curl_from_the_bullseye_main_archive_on_debian_11_without_curl(tmp_path, monkeypatch):
+    # qemu-startup and qemu-alpine-ssh (Debian 11): the security archive lists curl 7.74.0-1.3+deb11u16, whose
+    # package files are gone (404), so Harbor's plain apt-get install fails; the main archive still has curl.
+    tarball = tmp_path / "pi.tgz"
+    tarball.write_bytes(b"tarball")
+    agent = make_agent(tmp_path, tarball=str(tarball))
+    calls = record_calls(agent, monkeypatch)
+    environment = FakeEnvironment("bullseye")
+
+    await agent.install(environment)
+
+    assert environment.execs == [(CURL_STATE, "root")]
+    assert calls[0] == ("root", BULLSEYE_CURL_INSTALL, {"DEBIAN_FRONTEND": "noninteractive"})
+    assert "apt-get install -y -t bullseye curl" in BULLSEYE_CURL_INSTALL
+    assert not any(call[0] == "deps" for call in calls)
+    assert "npm install -g" in calls[1][1]
+
+
+@pytest.mark.parametrize("state", ["present", "other"])
+async def test_leaves_curl_to_harbor_on_other_images(tmp_path, monkeypatch, state):
+    tarball = tmp_path / "pi.tgz"
+    tarball.write_bytes(b"tarball")
+    agent = make_agent(tmp_path, tarball=str(tarball))
+    calls = record_calls(agent, monkeypatch)
+
+    await agent.install(FakeEnvironment(state))
+
+    assert calls[0] == ("deps", ("curl",))
+    assert not any(call[0] == "root" for call in calls)
+
+
+async def test_refuses_an_unknown_curl_state(tmp_path, monkeypatch):
+    tarball = tmp_path / "pi.tgz"
+    tarball.write_bytes(b"tarball")
+    agent = make_agent(tmp_path, tarball=str(tarball))
+    record_calls(agent, monkeypatch)
+    with pytest.raises(RuntimeError, match="curl"):
+        await agent.install(FakeEnvironment(""))
 
 
 async def test_refuses_a_missing_tarball(tmp_path, monkeypatch):

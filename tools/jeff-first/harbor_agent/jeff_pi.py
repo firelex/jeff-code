@@ -4,6 +4,11 @@ Harbor's own pi agent installs @earendil-works/pi-coding-agent from npm. This su
 step: it uploads a tarball of the fork (made with `npm pack` in packages/coding-agent) into the task's container
 and installs that. Running pi, the custom model endpoint and reading pi's session afterwards are all Harbor's code.
 
+curl (needed to install node) is installed by Harbor, except on Debian 11 (bullseye) images that lack it
+(qemu-startup, qemu-alpine-ssh): bullseye's security archive still lists curl 7.74.0-1.3+deb11u16, but its package
+files are gone (404 since bullseye's end of life), so Harbor's `apt-get install -y curl` fails. There curl is installed
+from the bullseye main archive (`apt-get install -y -t bullseye curl`), with a log line saying so.
+
 Usage: harbor run ... -a harbor_agent.jeff_pi:JeffPi --ak tarball=/path/to/earendil-works-pi-coding-agent-X.tgz
 """
 
@@ -17,6 +22,14 @@ from harbor.environments.base import BaseEnvironment
 from pydantic import Field
 
 REMOTE_TARBALL = "/tmp/jeff-pi.tgz"
+# Prints "present" when curl is on PATH, "bullseye" for Debian 11 without curl, "other" otherwise (also when the image
+# has no /etc/os-release).
+CURL_STATE = (
+    "if command -v curl >/dev/null 2>&1; then echo present; "
+    "elif grep -qx 'VERSION_CODENAME=bullseye' /etc/os-release; then echo bullseye; "
+    "else echo other; fi"
+)
+BULLSEYE_CURL_INSTALL = "apt-get update && apt-get install -y -t bullseye curl && command -v curl"
 
 
 class JeffPiOptions(PiOptions):
@@ -88,7 +101,7 @@ class JeffPi(Pi):
         tarball = Path(self.options.tarball).expanduser()
         if not tarball.is_file():
             raise FileNotFoundError(f"the jeff-pi tarball {tarball} does not exist; build it with npm pack")
-        await self.ensure_system_dependencies(environment, ("curl",))
+        await self._install_curl(environment)
         await environment.upload_file(tarball, REMOTE_TARBALL)
         await self.exec_as_agent(
             environment,
@@ -99,3 +112,21 @@ class JeffPi(Pi):
                 "pi --version"
             ),
         )
+
+    async def _install_curl(self, environment: BaseEnvironment) -> None:
+        """curl as Harbor installs it, or from the bullseye main archive on Debian 11 without curl (module docstring)."""
+        result = await environment.exec(command=CURL_STATE, user="root")
+        state = (result.stdout or "").strip()
+        if result.return_code != 0 or state not in ("present", "bullseye", "other"):
+            raise RuntimeError(
+                f"could not tell whether the image has curl: exit {result.return_code}, output {state!r}, "
+                f"errors {(result.stderr or '').strip()!r}"
+            )
+        if state != "bullseye":
+            await self.ensure_system_dependencies(environment, ("curl",))
+            return
+        self.logger.info(
+            "Debian 11 (bullseye) without curl: its security archive's curl package files are gone (404), "
+            "so curl is installed from the bullseye main archive (apt-get install -y -t bullseye curl)"
+        )
+        await self.exec_as_root(environment, command=BULLSEYE_CURL_INSTALL, env={"DEBIAN_FRONTEND": "noninteractive"})
