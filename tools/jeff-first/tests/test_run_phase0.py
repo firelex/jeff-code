@@ -17,7 +17,7 @@ SCRIPT = HERE / "run_phase0.sh"
 BEFORE = "f4c8e8686"
 
 
-def run(tmp_path: Path, script: Path, tasks: list[str], env: dict | None = None) -> subprocess.CompletedProcess:
+def run(tmp_path: Path, script: Path, tasks: list[str], env: dict | None = None, mode: str = "record") -> subprocess.CompletedProcess:
     tarball = tmp_path / "jeff-pi-scout-8db5381f3.tgz"
     tarball.write_text("x")
     tasks_json = tmp_path / "tasks.json"
@@ -34,7 +34,7 @@ def run(tmp_path: Path, script: Path, tasks: list[str], env: dict | None = None)
         "JEFF_FIRST_THINKING_ROUTER": "fixed:xhigh",
         **(env or {}),
     }
-    args = [str(tasks_json), str(tarball), "http://192.168.3.12:8885", str(jobs), "1", "high", "bash", "qwen3.8-27b", "record", "6"]
+    args = [str(tasks_json), str(tarball), "http://192.168.3.12:8885", str(jobs), "1", "high", "bash", "qwen3.8-27b", mode, "6"]
     return subprocess.run(["bash", str(script), "--dry-run", *args, *tasks], capture_output=True, text=True, env=full_env)
 
 
@@ -107,3 +107,74 @@ def test_an_offline_task_runs_in_the_egress_controlled_environment_with_only_the
     assert "--agent-timeout-multiplier 1.8 " in offline  # 50 minutes x 1.8 = 90 minutes
     online = next(line for line in result.stdout.splitlines() if "fix-a" in line)
     assert "EgressDocker" not in online and "allowed_hosts" not in online
+
+
+JEFF_ENV = {
+    "JEFF_FIRST_JEFF_URL": "http://192.168.2.10:8920",
+    "JEFF_FIRST_JEFF_STEP_ADAPTER": "jeff-step",
+    "JEFF_FIRST_JEFF_STEP_THRESHOLD": "0.55",
+    "JEFF_FIRST_THINKING_ROUTER": "jeff:jeff-router",
+    "JEFF_FIRST_JEFF_ROUTER_THRESHOLD": "0.4",
+}
+
+
+def test_jeff_mode_forwards_the_service_the_adapters_and_the_thresholds(tmp_path):
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], JEFF_ENV, mode="jeff")
+    assert result.returncode == 0, result.stderr
+    line = result.stdout.strip() + " "
+    for setting in [
+        "JEFF_FIRST_MODE=jeff",
+        "JEFF_FIRST_JEFF_URL=http://192.168.2.10:8920",
+        "JEFF_FIRST_JEFF_STEP_ADAPTER=jeff-step",
+        "JEFF_FIRST_JEFF_STEP_THRESHOLD=0.55",
+        "JEFF_FIRST_THINKING_ROUTER=jeff:jeff-router",
+        "JEFF_FIRST_JEFF_ROUTER_THRESHOLD=0.4",
+        "JEFF_FIRST_RUN_APPROVAL=all",
+        "JEFF_FIRST_DRIVER_BUILD=qwen3.8-27b-nvfp4@b200-gpu0-vllm0.29",
+    ]:
+        assert f"--ae {setting} " in line, setting
+    assert "TEACHER" not in line
+
+
+def test_jeff_mode_with_a_fixed_router_needs_no_router_threshold(tmp_path):
+    env = {**JEFF_ENV, "JEFF_FIRST_THINKING_ROUTER": "fixed:xhigh", "JEFF_FIRST_JEFF_ROUTER_THRESHOLD": ""}
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], env, mode="jeff")
+    assert result.returncode == 0, result.stderr
+    assert "--ae JEFF_FIRST_THINKING_ROUTER=fixed:xhigh " in result.stdout
+    assert "JEFF_FIRST_JEFF_ROUTER_THRESHOLD" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("missing", "message"),
+    [
+        ("JEFF_FIRST_JEFF_URL", "JEFF_FIRST_JEFF_URL"),
+        ("JEFF_FIRST_JEFF_STEP_ADAPTER", "JEFF_FIRST_JEFF_STEP_ADAPTER"),
+        ("JEFF_FIRST_JEFF_STEP_THRESHOLD", "JEFF_FIRST_JEFF_STEP_THRESHOLD"),
+        ("JEFF_FIRST_JEFF_ROUTER_THRESHOLD", "JEFF_FIRST_JEFF_ROUTER_THRESHOLD"),
+    ],
+)
+def test_jeff_mode_stops_without_a_required_setting(tmp_path, missing, message):
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {**JEFF_ENV, missing: ""}, mode="jeff")
+    assert result.returncode == 2 and message in result.stderr
+    assert result.stdout == ""
+
+
+def test_the_jeff_router_in_record_mode_needs_the_service(tmp_path):
+    env = {"JEFF_FIRST_THINKING_ROUTER": "jeff:jeff-router", "JEFF_FIRST_JEFF_ROUTER_THRESHOLD": "0.4"}
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], env)
+    assert result.returncode == 2 and "JEFF_FIRST_JEFF_URL" in result.stderr
+    result = run(tmp_path, SCRIPT, ["adaptive-rejection-sampler"], {**env, "JEFF_FIRST_JEFF_URL": "http://192.168.2.10:8920"})
+    assert result.returncode == 0, result.stderr
+    assert "--ae JEFF_FIRST_JEFF_URL=http://192.168.2.10:8920 " in result.stdout
+
+
+def test_an_offline_task_in_jeff_mode_also_allows_the_jeff_service_host(tmp_path):
+    from tests.test_task_source import add_swe_rebench
+
+    sets, inventory = write_task_sets(tmp_path)
+    task_id = add_swe_rebench(sets, inventory)
+    env = {"JEFF_RUN_TASK_SETS": str(sets), "JEFF_RUN_TASK_INVENTORY": str(inventory), **JEFF_ENV}
+    result = run(tmp_path, SCRIPT, [task_id], env, mode="jeff")
+    assert result.returncode == 0, result.stderr
+    # The dry run prints each argument shell-quoted (printf %q), which escapes the comma.
+    assert "--ak allowed_hosts=192.168.3.12\\,192.168.2.10 " in result.stdout

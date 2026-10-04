@@ -23,9 +23,16 @@
 #                JEFF_FIRST_RUN_APPROVAL (all, seen or never) and JEFF_FIRST_DRIVER_BUILD, e.g.
 #                qwen3.8-27b-nvfp4@spark-head) or record (plain Qwen works alone; at every turn, logs the scout's
 #                full option lists for later labelling; needs JEFF_FIRST_RUN_APPROVAL and JEFF_FIRST_DRIVER_BUILD,
-#                same meaning as in teacher mode, but no teacher URL or model); teacher and record also need
-#                JEFF_FIRST_THINKING_ROUTER, how hard Qwen thinks in each request: fixed:off, fixed:low, fixed:medium
-#                or fixed:xhigh (it overrides THINKING per request; THINKING must not be off unless the router is
+#                same meaning as in teacher mode, but no teacher URL or model) or jeff (the trained small model Jeff
+#                scouts before every model turn, asked through its service; needs JEFF_FIRST_JEFF_URL, the Jeff service
+#                (jeff-serve) as containers reach it, e.g. http://192.168.2.10:8920, JEFF_FIRST_JEFF_STEP_ADAPTER, the
+#                step adapter's name there ("jeff" = the base model itself), JEFF_FIRST_JEFF_STEP_THRESHOLD, the
+#                probability from 0 to 1 Jeff's best option needs or the scout hands over, and JEFF_FIRST_RUN_APPROVAL
+#                and JEFF_FIRST_DRIVER_BUILD as in teacher mode); teacher, record and jeff also need
+#                JEFF_FIRST_THINKING_ROUTER, how hard Qwen thinks in each request: fixed:off, fixed:low, fixed:medium,
+#                fixed:xhigh, or jeff:<router adapter> (Jeff's router adapter chooses per request; needs
+#                JEFF_FIRST_JEFF_URL and JEFF_FIRST_JEFF_ROUTER_THRESHOLD, the probability from 0 to 1 a level below
+#                xhigh needs) (it overrides THINKING per request; THINKING must not be off unless the router is
 #                fixed:off, since pi then marks the model as unable to think)
 #   TIMEOUT_MULTIPLIER  positive number that multiplies each task's agent time limit (Harbor's
 #                --agent-timeout-multiplier); use the same value in both Gate 0 arms and make it large enough that
@@ -46,7 +53,7 @@ set -euo pipefail
 dry_run=0
 if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
 if [ $# -lt 10 ]; then
-  sed -n '5,41p' "$0" >&2
+  sed -n '5,48p' "$0" >&2
   exit 2
 fi
 tasks_json=$1 tarball=$2 base_url=$3 jobs=$4 concurrency=$5 thinking=$6 tools=$7 model=$8 mode=$9 timeout_multiplier=${10}
@@ -64,6 +71,20 @@ fi
 case "$concurrency" in ''|*[!0-9]*) echo "CONCURRENCY must be a whole number" >&2; exit 2 ;; esac
 [[ "$timeout_multiplier" =~ ^[0-9]*\.?[0-9]+$ && "$timeout_multiplier" =~ [1-9] ]] \
   || { echo "TIMEOUT_MULTIPLIER must be a positive number, e.g. 3 or 2.5 (got \"$timeout_multiplier\")" >&2; exit 2; }
+# The thinking router of teacher, record and jeff modes: a fixed level, or Jeff's router adapter at its service.
+check_router() {
+  case "${JEFF_FIRST_THINKING_ROUTER:-}" in
+    fixed:off|fixed:low|fixed:medium|fixed:xhigh) ;;
+    jeff:?*)
+      [ -n "${JEFF_FIRST_JEFF_URL:-}" ] || { echo "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER needs JEFF_FIRST_JEFF_URL (the Jeff service as containers reach it)" >&2; exit 2; }
+      check_threshold JEFF_FIRST_JEFF_ROUTER_THRESHOLD "${JEFF_FIRST_JEFF_ROUTER_THRESHOLD:-}"
+      ;;
+    *) echo "MODE $mode needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium, fixed:xhigh or jeff:<router adapter>" >&2; exit 2 ;;
+  esac
+}
+check_threshold() {
+  [[ "$2" =~ ^(0(\.[0-9]+)?|1(\.0+)?|\.[0-9]+)$ ]] || { echo "$1 must be a number from 0 to 1, e.g. 0.5 (got \"$2\")" >&2; exit 2; }
+}
 case "$mode" in
   shadow) ;;
   teacher)
@@ -71,18 +92,28 @@ case "$mode" in
     [ -n "${JEFF_FIRST_TEACHER_MODEL:-}" ] || { echo "MODE teacher needs JEFF_FIRST_TEACHER_MODEL" >&2; exit 2; }
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE teacher needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE teacher needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
-    case "${JEFF_FIRST_THINKING_ROUTER:-}" in fixed:off|fixed:low|fixed:medium|fixed:xhigh) ;; *) echo "MODE teacher needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium or fixed:xhigh" >&2; exit 2 ;; esac
+    check_router
+    ;;
+  jeff)
+    [ -n "${JEFF_FIRST_JEFF_URL:-}" ] || { echo "MODE jeff needs JEFF_FIRST_JEFF_URL (the Jeff service as containers reach it, e.g. http://192.168.2.10:8920)" >&2; exit 2; }
+    [ -n "${JEFF_FIRST_JEFF_STEP_ADAPTER:-}" ] || { echo "MODE jeff needs JEFF_FIRST_JEFF_STEP_ADAPTER (the step adapter's name at the Jeff service; jeff = the base model)" >&2; exit 2; }
+    check_threshold JEFF_FIRST_JEFF_STEP_THRESHOLD "${JEFF_FIRST_JEFF_STEP_THRESHOLD:-}"
+    case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE jeff needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
+    [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE jeff needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
+    check_router
     ;;
   record)
     case "${JEFF_FIRST_RUN_APPROVAL:-}" in all|seen|never) ;; *) echo "MODE record needs JEFF_FIRST_RUN_APPROVAL: all, seen or never" >&2; exit 2 ;; esac
     [ -n "${JEFF_FIRST_DRIVER_BUILD:-}" ] || { echo "MODE record needs JEFF_FIRST_DRIVER_BUILD, e.g. qwen3.8-27b-nvfp4@spark-head" >&2; exit 2; }
-    case "${JEFF_FIRST_THINKING_ROUTER:-}" in fixed:off|fixed:low|fixed:medium|fixed:xhigh) ;; *) echo "MODE record needs JEFF_FIRST_THINKING_ROUTER: fixed:off, fixed:low, fixed:medium or fixed:xhigh" >&2; exit 2 ;; esac
+    check_router
     ;;
-  *) echo "MODE must be shadow, teacher or record" >&2; exit 2 ;;
+  *) echo "MODE must be shadow, teacher, record or jeff" >&2; exit 2 ;;
 esac
 export JEFF_FIRST_TEACHER_URL="${JEFF_FIRST_TEACHER_URL:-}" JEFF_FIRST_TEACHER_MODEL="${JEFF_FIRST_TEACHER_MODEL:-}"
 export JEFF_RUN_THINKING_FORMAT="${JEFF_RUN_THINKING_FORMAT:-}" JEFF_RUN_MAX_OUTPUT_TOKENS="${JEFF_RUN_MAX_OUTPUT_TOKENS:-}" JEFF_FIRST_RUN_APPROVAL="${JEFF_FIRST_RUN_APPROVAL:-}" JEFF_FIRST_DRIVER_BUILD="${JEFF_FIRST_DRIVER_BUILD:-}"
-export JEFF_FIRST_THINKING_ROUTER="${JEFF_FIRST_THINKING_ROUTER:-}"
+export JEFF_FIRST_THINKING_ROUTER="${JEFF_FIRST_THINKING_ROUTER:-}" JEFF_FIRST_JEFF_URL="${JEFF_FIRST_JEFF_URL:-}"
+export JEFF_FIRST_JEFF_STEP_ADAPTER="${JEFF_FIRST_JEFF_STEP_ADAPTER:-}" JEFF_FIRST_JEFF_STEP_THRESHOLD="${JEFF_FIRST_JEFF_STEP_THRESHOLD:-}"
+export JEFF_FIRST_JEFF_ROUTER_THRESHOLD="${JEFF_FIRST_JEFF_ROUTER_THRESHOLD:-}"
 
 if [ $# -gt 0 ]; then
   tasks=("$@")
@@ -131,7 +162,14 @@ run_one() {
     # No internet once pi runs (harbor_agent/offline.py); only the model's host (BASE_URL's) stays reachable.
     local model_host=${base_url#*://}
     model_host=${model_host%%[:/]*}
-    command+=(--env harbor_agent.offline:EgressDocker --ak "allowed_hosts=$model_host")
+    local hosts=$model_host
+    # Jeff mode, or a Jeff router: the Jeff service's host must stay reachable too.
+    if [ -n "$JEFF_FIRST_JEFF_URL" ] && { [ "$mode" = jeff ] || [[ "$JEFF_FIRST_THINKING_ROUTER" == jeff:* ]]; }; then
+      local jeff_host=${JEFF_FIRST_JEFF_URL#*://}
+      jeff_host=${jeff_host%%[:/]*}
+      [ "$jeff_host" = "$model_host" ] || hosts="$hosts,$jeff_host"
+    fi
+    command+=(--env harbor_agent.offline:EgressDocker --ak "allowed_hosts=$hosts")
   fi
   if [ "$thinking" != off ]; then
     command+=(--ak "thinking_format=$JEFF_RUN_THINKING_FORMAT" --ak "max_output_tokens=$JEFF_RUN_MAX_OUTPUT_TOKENS")
@@ -153,6 +191,18 @@ run_one() {
       --ae "JEFF_FIRST_RUN_APPROVAL=$JEFF_FIRST_RUN_APPROVAL" --ae "JEFF_FIRST_DRIVER_BUILD=$JEFF_FIRST_DRIVER_BUILD"
       --ae "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER"
     )
+  elif [ "$mode" = jeff ]; then
+    command+=(
+      --ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL" --ae "JEFF_FIRST_JEFF_STEP_ADAPTER=$JEFF_FIRST_JEFF_STEP_ADAPTER"
+      --ae "JEFF_FIRST_JEFF_STEP_THRESHOLD=$JEFF_FIRST_JEFF_STEP_THRESHOLD"
+      --ae "JEFF_FIRST_RUN_APPROVAL=$JEFF_FIRST_RUN_APPROVAL" --ae "JEFF_FIRST_DRIVER_BUILD=$JEFF_FIRST_DRIVER_BUILD"
+      --ae "JEFF_FIRST_THINKING_ROUTER=$JEFF_FIRST_THINKING_ROUTER"
+    )
+  fi
+  # A Jeff router (any mode with a router) needs the service and its threshold.
+  if [[ "$mode" != shadow && "$JEFF_FIRST_THINKING_ROUTER" == jeff:* ]]; then
+    [ "$mode" = jeff ] || command+=(--ae "JEFF_FIRST_JEFF_URL=$JEFF_FIRST_JEFF_URL")
+    command+=(--ae "JEFF_FIRST_JEFF_ROUTER_THRESHOLD=$JEFF_FIRST_JEFF_ROUTER_THRESHOLD")
   fi
   if [ "$dry_run" = 1 ]; then
     printf '%q ' "${command[@]}"; echo
@@ -174,6 +224,7 @@ run_one() {
 export -f run_one
 export here tarball base_url jobs thinking tools model mode timeout_multiplier dry_run JEFF_RUN_API_KEY \
   JEFF_RUN_THINKING_FORMAT JEFF_RUN_MAX_OUTPUT_TOKENS JEFF_FIRST_RUN_APPROVAL JEFF_FIRST_DRIVER_BUILD JEFF_FIRST_THINKING_ROUTER \
+  JEFF_FIRST_JEFF_URL JEFF_FIRST_JEFF_STEP_ADAPTER JEFF_FIRST_JEFF_STEP_THRESHOLD JEFF_FIRST_JEFF_ROUTER_THRESHOLD \
   JEFF_RUN_TASK_SETS JEFF_RUN_TASK_INVENTORY
 
 # xargs keeps going after a failed task and exits non-zero at the end; each failure is printed above.
