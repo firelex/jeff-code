@@ -63,8 +63,9 @@ def make_trial(
     trace: bool = True,
     trace_build: str | None = None,
     mode: str = "record",
+    round_folder: str = "round-1",
 ) -> Path:
-    trial = run / stream / "round-1" / f"{task}-20261003-231031" / f"{task}__{trial_id}"
+    trial = run / stream / round_folder / f"{task}-20261003-231031" / f"{task}__{trial_id}"
     (trial / "agent" / "pi" / "sessions").mkdir(parents=True)
     config = {
         "task": {"path": task},
@@ -107,6 +108,15 @@ def test_good_trials_become_stage_3_rows_tagged_with_their_machine(tmp_path):
         ("sess-bbb", "qwen3.8-27b-nvfp4@spark-head", "tool", "read"),
     ]
     assert all(r["tool_description"] == "Read part or all of a file" for r in conversion.rows if r["level"] == "argument")
+
+
+def test_round_folders_without_a_dash_are_found(tmp_path):
+    # The xhigh collection (collect_rounds.sh, 2026-10-04) names its round folders round1, round2, ...
+    run = tmp_path / "runs-collect-xhigh"
+    make_trial(run, "b200-gpu0-s1", "fix-bug", "aaa", round_folder="round1")
+    make_trial(run, "b200-gpu0-s1", "fix-bug", "bbb", round_folder="round-2")
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
+    assert sorted({r["session"] for r in conversion.rows}) == ["sess-aaa", "sess-bbb"]
 
 
 def test_other_builds_twins_other_tasks_and_trials_without_a_trace_are_skipped_and_counted(tmp_path):

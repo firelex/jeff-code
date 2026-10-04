@@ -1,7 +1,7 @@
 """Stage 3 driver: Jeff training rows from our own record-mode collection runs (see record_rows.py for one trial).
 
 Input: one or more run folders. A run holds collection streams (one per machine or GPU), each with rounds of Harbor
-jobs; a trial folder is `<run>/<stream>/round-N/<task>-<time>/<task>__<id>/` with `config.json`, `result.json`
+jobs; a trial folder is `<run>/<stream>/round-N/<task>-<time>/<task>__<id>/` (or `roundN`) with `config.json`, `result.json`
 (missing while the trial runs or after the collection was stopped), `agent/jeff-first-trace.jsonl` and
 `agent/pi/sessions/*.jsonl`.
 
@@ -76,7 +76,8 @@ class Conversion:
 
 
 def find_trials(run: Path) -> list[Path]:
-    trials = sorted(config.parent for config in run.glob("*/round-*/*/*/config.json"))
+    # Round folders are round-N (imitation_stream.sh) or roundN (collect_rounds.sh, the xhigh collection).
+    trials = sorted(config.parent for config in run.glob("*/round*/*/*/config.json"))
     if not trials:
         raise ValueError(f"{run}: no trial folders (<stream>/round-N/<job>/<trial>/config.json)")
     return trials
