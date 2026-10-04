@@ -6,10 +6,24 @@ scout's full option lists at that moment (`lists`: `tools` and `arguments_by_too
 (`action.tool_calls`). The pi session file (agent/pi/sessions/*.jsonl: a "session" header line with the session id
 and working folder, then one line per message) holds every command with its full output.
 
-Each logged turn becomes one decision: the label is the option matched by the turn's first command that is not
-neutral (any kind of option, Run, Check and Install included), or "hand over" when it matches none (labels.py). Each bash call runs in a new shell in the session's
-folder, so paths resolve against it (and any `cd` earlier in the same command). Only the turn's first match is labelled: menus are logged only before each coding-model
-turn, so the points inside a stint (after a scout step) have no menu. Rows are tagged quality "exact".
+Each logged turn's first point is labelled with the option matched by the turn's first command that is not neutral
+(any kind of option, Run, Check and Install included), or "hand over" when it matches none (labels.py). Each bash call
+runs in a new shell in the session's folder, so paths resolve against it (and any `cd` earlier in the same command).
+Rows are tagged quality "exact".
+
+Two trace schemas (all lines of one session must have the same one):
+- "jeff-first-trace/4": menus are logged only before each coding-model turn, so the points inside a stint (after a
+  scout step) have no menu and only the turn's first point is labelled (`follow_stints` False).
+- "jeff-first-trace/5": pi also logs a "record_step" line after each call of a turn that another call of the same turn
+  follows (fields `turn`, `step`: the number of the turn's calls run, `calls_in_turn`, `command`), with the menu built
+  right after that call ran and the turn's calls so far credited to the scout. Stints are followed (`follow_stints`
+  True, as stage 1): when the turn's command at a point matches an option, the next point is before the turn's next
+  command that is not neutral, and its menu is the one logged after the matched call (step = the matched call's
+  number). Neutral commands between are not part of the stint (a live scout would not have run them). An unmatched
+  command ends the stint ("hand over"). Each step line is checked like a record line: its state covers the steps before
+  the turn plus `step` calls, its last logged step and `command` are the session's call, `calls_in_turn` is the turn's
+  number of calls. A missing step line a stint needs is an error, except in a cut trial, where that turn and every
+  later one of the session are dropped with a note.
 
 Checks (each raises ValueError naming the session and turn): every trace session has a session file; the record's
 tool calls equal the session's assistant message for that turn; the number of steps the record's state covers
@@ -171,10 +185,15 @@ def _command(call: dict) -> str:
     return f"{call['name']} {json.dumps(call['arguments'], separators=(',', ':'), ensure_ascii=False)}"
 
 
+SCHEMA_TURNS = "jeff-first-trace/4"
+SCHEMA_STEPS = "jeff-first-trace/5"
+
+
 @dataclass(frozen=True)
 class RecordSession:
     """One pi session of a trace, checked and ready to label: its rows' shared fields, the task text, its turns as
-    labels.py takes them, the record line of each logged turn (by 1-based turn number) and the session file."""
+    labels.py takes them, the record line of each logged turn (by 1-based turn number), the session file, the
+    record_step lines by (turn, step) and whether its schema logs them (see the module docstring)."""
 
     session_id: str
     meta: RowSource
@@ -182,6 +201,8 @@ class RecordSession:
     turns: list[LabelTurn]
     records: dict[int, dict]
     session: Session
+    step_records: dict[tuple[int, int], dict]
+    logs_steps: bool
 
 
 def record_sessions(
@@ -195,19 +216,33 @@ def record_sessions(
         session_id, session = _read_session(path, cut, notes)
         sessions[session_id] = session
     by_session: dict[str, dict[int, dict]] = {}
+    steps_by_session: dict[str, dict[tuple[int, int], dict]] = {}
+    schemas: dict[str, set[str]] = {}
     for line in trace:
         if line.get("kind") == "record":
             by_session.setdefault(line["session_id"], {})[line["turn"]] = line
+        elif line.get("kind") == "record_step":
+            if line["schema"] != SCHEMA_STEPS:
+                raise ValueError(f"{line['session_id']} turn {line['turn']}: a record_step line of schema {line['schema']}, not {SCHEMA_STEPS}")
+            steps_by_session.setdefault(line["session_id"], {})[(line["turn"], line["step"])] = line
+        else:
+            continue
+        schemas.setdefault(line["session_id"], set()).add(line["schema"])
     prepared: list[RecordSession] = []
     for session_id, records in by_session.items():
         if session_id not in sessions:
             raise ValueError(f"no pi session file holds the session {session_id} of the trace")
+        if len(schemas[session_id]) != 1 or not schemas[session_id] <= {SCHEMA_TURNS, SCHEMA_STEPS}:
+            raise ValueError(f"{session_id}: the trace's lines have the schemas {sorted(schemas[session_id])}; one of {SCHEMA_TURNS} or {SCHEMA_STEPS} is needed")
+        step_records = steps_by_session.get(session_id, {})
         session = sessions[session_id]
         cwd, assistants, results = session.cwd, session.assistants, session.results
         if cut:
             for turn in sorted(number for number in records if number > len(assistants)):
                 notes.append(f"{session_id} turn {turn}: the trial was cut before the session file had this turn; record line dropped")
                 del records[turn]
+            for key in [key for key in step_records if key[0] > len(assistants)]:
+                del step_records[key]
             if not records:
                 continue
         turns: list[LabelTurn] = []
@@ -235,9 +270,13 @@ def record_sessions(
         missing = sorted(set(records) - set(range(1, len(assistants) + 1)))
         if missing:
             raise ValueError(f"{session_id}: the trace has turns {missing} that the session file does not")
+        unknown = sorted(key for key in step_records if key[0] not in records)
+        if unknown:
+            raise ValueError(f"{session_id}: record_step lines (turn, step) {unknown} belong to no logged turn")
         first = records[min(records)]
         meta = RowSource(source=source, stage=3, quality=quality, task=first["task_id"], session=session_id)
-        prepared.append(RecordSession(session_id, meta, first["state"]["task"], turns, records, session))
+        logs_steps = schemas[session_id] == {SCHEMA_STEPS}
+        prepared.append(RecordSession(session_id, meta, first["state"]["task"], turns, records, session, step_records, logs_steps))
     return prepared, notes
 
 
@@ -263,18 +302,64 @@ def logged_menu(prepared: RecordSession, turn: int) -> Menu:
     return {"tools": lists["tools"], "arguments_by_tool": lists["arguments_by_tool"]}
 
 
+def own_steps(prepared: RecordSession) -> tuple[list[ShellStep], list[int]]:
+    """Every step of the session as the coding model took it, and for each turn (by index from 0) the number of steps
+    before it."""
+    steps: list[ShellStep] = []
+    before: list[int] = []
+    for turn in prepared.turns:
+        before.append(len(steps))
+        steps.extend(ShellStep(command.text, command.output, command.is_error, by_scout=False) for command in turn.commands)
+    return steps, before
+
+
+def check_step_line(prepared: RecordSession, line: dict, own_before: list[ShellStep]) -> None:
+    """A record_step line must describe the session file's steps (ValueError otherwise): the steps before its turn
+    that pi's context held (`own_before`: every step before the turn, compacted ones included) plus the turn's first
+    `step` calls, the last of which is `command`; `calls_in_turn` is the turn's number of calls."""
+    turn, step = line["turn"], line["step"]
+    where = f"{prepared.session_id} step {step} of turn {turn}"
+    commands = prepared.turns[turn - 1].commands
+    if line["calls_in_turn"] != len(commands):
+        raise ValueError(f"{where}: the line says the turn has {line['calls_in_turn']} calls, the session file has {len(commands)}")
+    if line["command"] != commands[step - 1].text:
+        raise ValueError(f"{where}: the line's command {line['command'][:80]!r} is not the session's {commands[step - 1].text[:80]!r}")
+    kept = len(own_before) - prepared.session.hidden_steps[turn - 1] + step
+    covered = len(line["state"]["recentSteps"]) + line["state"]["stepsLeftOut"]
+    if covered != kept:
+        raise ValueError(f"{where}: the logged state covers {covered} steps, the session file has {kept} steps in pi's context then")
+    if line["state"]["recentSteps"]:
+        last = commands[step - 1]
+        _check_last_step(line["state"]["recentSteps"][-1], ShellStep(last.text, last.output, last.is_error, by_scout=True), where)
+
+
 def record_rows(
     trace: list[dict], session_files: list[Path], *, cut: bool, source: str = "jeff-pi-record"
 ) -> tuple[list[Row], list[str]]:
-    """Rows for every record line of `trace` (lines of other kinds are ignored), and notes on turns given no row.
-    `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
+    """Rows for every record and record_step line of `trace` (lines of other kinds are ignored), and notes on turns
+    given no row. `cut`: the trial was cut (`trial_cut`), so its files may end early (see the module docstring)."""
     prepared_sessions, notes = record_sessions(trace, session_files, cut=cut, source=source, quality="exact")
     rows: list[Row] = []
     for prepared in prepared_sessions:
-        labeler = SessionLabeler(prepared.turns, follow_stints=False, drop_unmatched_information=False)
-        while (history := labeler.next_point()) is not None:
-            check_logged_state(prepared, labeler.current_turn, history)
-            labeler.give(logged_menu(prepared, labeler.current_turn))
+        labeler = SessionLabeler(prepared.turns, follow_stints=prepared.logs_steps, drop_unmatched_information=False)
+        own, own_before = own_steps(prepared)
+        while labeler.next_point() is not None:
+            turn = labeler.current_turn
+            taken = [index for t, index in labeler.next_point_keys() if t == turn - 1]
+            if not taken:
+                check_logged_state(prepared, turn, own[: own_before[turn - 1]])
+                labeler.give(logged_menu(prepared, turn))
+                continue
+            step = max(taken) + 1
+            line = prepared.step_records.get((turn, step))
+            if line is None:
+                if not cut:
+                    raise ValueError(f"{prepared.session_id} turn {turn}: no record_step line after step {step} of turn {turn}, which a stint needs")
+                notes.append(f"{prepared.session_id} turn {turn}: the trial was cut before the record_step line after step {step}; this turn and later ones dropped")
+                labeler.end_before_current_turn()
+                continue
+            check_step_line(prepared, line, own[: own_before[turn - 1]])
+            labeler.give({"tools": line["lists"]["tools"], "arguments_by_tool": line["lists"]["arguments_by_tool"]})
         hidden = prepared.session.hidden_steps
         for decision, point in enumerate(labeler.decisions):
             state = render_state(prepared.task, point.history[hidden[point.turn - 1] :])

@@ -20,7 +20,7 @@ from imitation.export_jeff import (
     to_example,
 )
 from imitation.rows import Choice, RowSource, rows_for_decision
-from imitation.stage3 import convert_runs, read_tasks
+from imitation.stage3 import CURRENT_TARBALL, convert_runs, read_tasks
 
 REPO = Path(__file__).resolve().parents[3]
 JEFF_FIRST_TS = REPO / "packages" / "coding-agent" / "src" / "core" / "jeff-first"
@@ -234,7 +234,7 @@ def assert_same_prompt(example: dict, content: str) -> None:
 
 def test_a_real_record_rows_question_and_state_equal_the_typescript_prompt(tmp_path):
     tasks = write_json(tmp_path / "tasks.json", {"training": ["dna-assembly"], "excluded_evaluation": [], "excluded_leak_twins": {}})
-    rows = convert_runs([FIXTURES / "runs-imitation-v5"], read_tasks(tasks)).rows
+    rows = convert_runs([FIXTURES / "runs-imitation-v5"], read_tasks(tasks), frozenset({CURRENT_TARBALL})).rows
     trace = next(FIXTURES.glob("runs-imitation-v5/*/round-1/*/*/agent/jeff-first-trace.jsonl"))
     records = {line["turn"]: line for line in map(json.loads, trace.read_text().splitlines())}
     assert [row["level"] for row in rows if row["turn"] == 2] == ["tool", "argument"]

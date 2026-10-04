@@ -6,6 +6,8 @@ import pytest
 from imitation.stage3 import CURRENT_TARBALL, convert_runs, main, model_format, read_tasks, stats_markdown, summarize
 
 FIXTURES = Path(__file__).parent / "fixtures" / "stage3"
+BUILDS = frozenset({CURRENT_TARBALL})
+STEP_BUILD = "jeff-pi-scout-13486e524.tgz"
 
 LISTS = {
     "tools": [
@@ -96,7 +98,7 @@ def test_good_trials_become_stage_3_rows_tagged_with_their_machine(tmp_path):
     run = tmp_path / "runs-v5"
     make_trial(run, "h100-gpu5", "fix-bug", "aaa")
     make_trial(run, "rtx", "fix-bug", "bbb", build="qwen3.8-27b-nvfp4@spark-head")
-    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)))
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
     assert {(r["stage"], r["quality"], r["source"]) for r in conversion.rows} == {(3, "exact", "own")}
     assert sorted((r["session"], r["machine"], r["level"], r["label"]) for r in conversion.rows) == [
         ("sess-aaa", "qwen3.8-27b-fp8@casdgx01-gpu5", "argument", "read-1"),
@@ -116,7 +118,7 @@ def test_other_builds_twins_other_tasks_and_trials_without_a_trace_are_skipped_a
     make_trial(run, "gpu0", "torch-tensor-parallelism", "other")
     make_trial(run, "gpu1", "fix-bug", "setup", trace=False, result={"exception_info": {"exception_type": "NonZeroAgentExitCodeError"}})
     make_trial(run, "gpu1", "fix-bug", "running", trace=False, result=None)
-    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)))
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
     assert {r["session"] for r in conversion.rows} == {"sess-keep"}
     assert conversion.skipped == {
         "older build jeff-pi-scout-adad96753.tgz": 2,
@@ -131,14 +133,14 @@ def test_an_evaluation_task_is_an_error(tmp_path):
     run = tmp_path / "runs-v5"
     make_trial(run, "gpu0", "fix-git", "eval")
     with pytest.raises(ValueError, match="evaluation task fix-git"):
-        convert_runs([run], read_tasks(write_tasks(tmp_path)))
+        convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
 
 
 def test_an_evaluation_task_on_an_older_build_is_still_an_error(tmp_path):
     run = tmp_path / "runs-v5"
     make_trial(run, "gpu0", "fix-git", "eval", tarball="jeff-pi-scout-adad96753.tgz")
     with pytest.raises(ValueError, match="evaluation task fix-git"):
-        convert_runs([run], read_tasks(write_tasks(tmp_path)))
+        convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
 
 
 @pytest.mark.parametrize(
@@ -154,13 +156,13 @@ def test_inconsistent_trials_are_errors(tmp_path, options, message):
     run = tmp_path / "runs-v5"
     make_trial(run, "gpu0", "fix-bug", "bad", **options)
     with pytest.raises(ValueError, match=message):
-        convert_runs([run], read_tasks(write_tasks(tmp_path)))
+        convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
 
 
 def test_a_run_folder_without_trials_is_an_error(tmp_path):
     (tmp_path / "empty").mkdir()
     with pytest.raises(ValueError, match="no trial folders"):
-        convert_runs([tmp_path / "empty"], read_tasks(write_tasks(tmp_path)))
+        convert_runs([tmp_path / "empty"], read_tasks(write_tasks(tmp_path)), BUILDS)
 
 
 def test_model_format_is_read_from_the_driver_build():
@@ -172,7 +174,7 @@ def test_model_format_is_read_from_the_driver_build():
 
 def test_a_real_record_trial_converts(tmp_path):
     # A real casdgx01 trial copied while it was still running (no result.json, so it counts as cut).
-    conversion = convert_runs([FIXTURES / "runs-imitation-v5"], read_tasks(write_tasks(tmp_path)))
+    conversion = convert_runs([FIXTURES / "runs-imitation-v5"], read_tasks(write_tasks(tmp_path)), BUILDS)
     assert [(r["turn"], r["level"], r["label"]) for r in conversion.rows] == [(1, "tool", "hand_over"), (2, "tool", "read"), (2, "argument", "read-1")]
     assert {r["machine"] for r in conversion.rows} == {"qwen3.8-27b-fp8@casdgx01-gpu1"}
     assert [trial["cut"] for trial in conversion.trials] == ["no result.json (the trial was stopped or is still running)"]
@@ -183,12 +185,12 @@ def test_summary_counts_sessions_decisions_labels_and_hand_over_by_machine_and_f
     make_trial(run, "gpu5", "fix-bug", "aaa")
     make_trial(run, "gpu6", "fix-bug", "bbb", build="qwen3.8-27b-fp8@casdgx01-gpu6")
     make_trial(run, "rtx", "fix-bug", "ccc", build="qwen3.8-27b-nvfp4@rtx-pro-6000")
-    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)))
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), BUILDS)
     summary = summarize(conversion)
     assert summary["sessions"] == 3 and summary["rows"] == 6 and summary["decisions"] == 3
     assert summary["tool_labels"] == {"read": 3}
     assert summary["hand_over_share"] == 0.0
-    assert summary["by_format"]["fp8"] == {"sessions": 2, "rows": 4, "decisions": 2, "hand_over_share": 0.0, "tool_labels": {"read": 2}}
+    assert summary["by_format"]["fp8"] == {"sessions": 2, "rows": 4, "decisions": 2, "stint_decisions": 0, "hand_over_share": 0.0, "tool_labels": {"read": 2}}
     assert summary["by_machine"]["qwen3.8-27b-nvfp4@rtx-pro-6000"]["sessions"] == 1
     assert summary["sessions_by_task"] == {"fix-bug": 3}
     text = stats_markdown(summary)
@@ -199,8 +201,103 @@ def test_cli_writes_rows_summary_and_stats(tmp_path):
     run = tmp_path / "runs-v5"
     make_trial(run, "gpu5", "fix-bug", "aaa")
     out = tmp_path / "out"
-    main([str(run), "--tasks", str(write_tasks(tmp_path)), "--rows", str(out / "rows.jsonl"), "--summary", str(out / "summary.json"), "--stats", str(out / "stats.md")])
+    main([str(run), "--tasks", str(write_tasks(tmp_path)), "--build", CURRENT_TARBALL, "--rows", str(out / "rows.jsonl"), "--summary", str(out / "summary.json"), "--stats", str(out / "stats.md")])
     rows = [json.loads(line) for line in (out / "rows.jsonl").read_text().splitlines()]
     assert [r["label"] for r in rows] == ["read", "read-1"]
     assert json.loads((out / "summary.json").read_text())["rows"] == 2
     assert (out / "stats.md").read_text().startswith("# Stage 3")
+
+
+def make_step_trial(run: Path, trial_id: str) -> Path:
+    """A schema-5 trial (record_step lines): turn 1 reads /app/main.py, then /app/notes.md, with the menu logged after
+    the first read offering the second."""
+    trial = make_trial(run, "gpu5", "fix-bug", trial_id, tarball=STEP_BUILD)
+    session = f"sess-{trial_id}"
+    header = {"type": "session", "version": 3, "id": session, "timestamp": "t", "cwd": "/app"}
+    calls = [
+        {"type": "toolCall", "id": "c1", "name": "bash", "arguments": {"command": "cat /app/main.py"}},
+        {"type": "toolCall", "id": "c2", "name": "bash", "arguments": {"command": "cat /app/notes.md"}},
+    ]
+    entries = [
+        header,
+        {"type": "message", "message": {"role": "user", "content": "Fix the bug in /app/main.py."}},
+        {"type": "message", "message": {"role": "assistant", "content": calls}},
+        {"type": "message", "message": {"role": "toolResult", "toolCallId": "c1", "content": [{"type": "text", "text": "see notes.md"}], "isError": False}},
+        {"type": "message", "message": {"role": "toolResult", "toolCallId": "c2", "content": [{"type": "text", "text": "n"}], "isError": False}},
+    ]
+    entries = [header] + [{**e, "id": f"e{n}", "parentId": None if n == 1 else f"e{n - 1}"} for n, e in enumerate(entries[1:], start=1)]
+    (trial / "agent" / "pi" / "sessions" / "s.jsonl").write_text("".join(json.dumps(e) + "\n" for e in entries))
+    first = {**record("fix-bug", session, 1, "qwen3.8-27b-fp8@casdgx01-gpu5", "cat /app/main.py"), "schema": "jeff-first-trace/5"}
+    first["action"]["tool_calls"] = [{"name": c["name"], "arguments": c["arguments"]} for c in calls]
+    notes = {"id": "read-1", "description": "Read the file /app/notes.md", "toolCall": {"name": "bash", "arguments": {"command": "cat /app/notes.md"}}}
+    step = {
+        "schema": "jeff-first-trace/5",
+        "kind": "record_step",
+        "task_id": "fix-bug",
+        "session_id": session,
+        "turn": 1,
+        "step": 1,
+        "calls_in_turn": 2,
+        "command": "cat /app/main.py",
+        "mode": "record",
+        "driver_build": "qwen3.8-27b-fp8@casdgx01-gpu5",
+        "state": {"task": "Fix the bug in /app/main.py.", "recentSteps": [{"command": "cat /app/main.py", "output": "see notes.md", "isError": False, "byScout": True}], "stepsLeftOut": 0},
+        "lists": {"tools": LISTS["tools"], "arguments_by_tool": {"read": [notes]}},
+    }
+    (trial / "agent" / "jeff-first-trace.jsonl").write_text(json.dumps(first) + "\n" + json.dumps(step) + "\n")
+    return trial
+
+
+def test_a_schema_5_trial_gives_stint_rows_and_the_summary_counts_them(tmp_path):
+    run = tmp_path / "runs-v6"
+    make_step_trial(run, "stint")
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), frozenset({STEP_BUILD}))
+    assert [(r["decision"], r["turn"], r["level"], r["label"]) for r in conversion.rows] == [
+        (0, 1, "tool", "read"),
+        (0, 1, "argument", "read-1"),
+        (1, 1, "tool", "read"),
+        (1, 1, "argument", "read-1"),
+    ]
+    summary = summarize(conversion)
+    assert summary["decisions"] == 2 and summary["stint_decisions"] == 1
+    assert "stint decisions: 1" in stats_markdown(summary)
+
+
+def test_only_the_given_builds_are_converted(tmp_path):
+    run = tmp_path / "runs-v6"
+    make_trial(run, "gpu0", "fix-bug", "old")
+    make_step_trial(run, "new")
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), frozenset({STEP_BUILD}))
+    assert {r["session"] for r in conversion.rows} == {"sess-new"}
+    assert conversion.skipped == {f"older build {CURRENT_TARBALL}": 1}
+    both = convert_runs([run], read_tasks(write_tasks(tmp_path)), frozenset({STEP_BUILD, CURRENT_TARBALL}))
+    assert {r["session"] for r in both.rows} == {"sess-new", "sess-old"}
+
+
+def test_the_cli_needs_the_builds(tmp_path):
+    run = tmp_path / "runs-v5"
+    make_trial(run, "gpu5", "fix-bug", "aaa")
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit):
+        main([str(run), "--tasks", str(write_tasks(tmp_path)), "--rows", str(out / "r"), "--summary", str(out / "s"), "--stats", str(out / "t")])
+
+
+def test_a_real_schema_5_trial_converts_end_to_end(tmp_path):
+    # Written by pi itself (createAgentSession in record mode, build 13486e524) with a fake coding model; only the
+    # session's working folder was renamed to /app. Turn 1 runs `ls`, then `cat main.py` (one record_step line after
+    # `ls`); turn 2 runs `cat notes.md`, rewrites main.py and runs it (record_step lines after its calls 1 and 2);
+    # turn 3 only answers.
+    run = FIXTURES / "runs-record-steps"
+    conversion = convert_runs([run], read_tasks(write_tasks(tmp_path)), frozenset({"jeff-pi-scout-13486e524.tgz"}))
+    assert [(r["decision"], r["turn"], r["level"], r["label"]) for r in conversion.rows] == [
+        (0, 1, "tool", "list"),
+        (0, 1, "argument", "list-1"),
+        (1, 1, "tool", "read"),  # inside turn 1, from the menu logged after `ls`
+        (1, 1, "argument", "read-1"),
+        (2, 2, "tool", "read"),
+        (2, 2, "argument", "read-2"),
+        (3, 2, "tool", "hand_over"),  # the rewrite of main.py acts: the stint ends
+        (4, 3, "tool", "hand_over"),
+    ]
+    assert "Step 1 (by you, the scout):\n$ ls -la '/app'\nmain.py\nnotes.md" in conversion.rows[2]["state"]
+    assert summarize(conversion)["stint_decisions"] == 2

@@ -9,13 +9,16 @@ Each trial is checked in this order:
 1. Its task (config.json `task.path`). An evaluation task (training-tasks.json "excluded_evaluation") is an error,
    whatever the build. `make-doom-for-mips` (a near-identical twin of an evaluation task) and any other task outside
    "training" are skipped and counted.
-2. Its build: only trials whose scout tarball (config.json `agent.kwargs.tarball`) is CURRENT_TARBALL, the build with
-   the current menus, are used; others are skipped and counted by tarball.
+2. Its build: only trials whose scout tarball (config.json `agent.kwargs.tarball`) is one of the builds given
+   (`--build`, the builds whose menus are current; CURRENT_TARBALL is the build of the first collection) are used;
+   others are skipped and counted by tarball.
 3. Its trace. No trace and no result.json: the trial is still running or was stopped before Qwen's first turn
    (skipped, counted). No trace and a result.json naming an exception: the agent failed before its first turn (skipped,
    counted by exception type). No trace and no exception is an error.
-4. It must have run in record mode (config env JEFF_FIRST_MODE), every trace line must be a record line of this task,
-   and every line's `driver_build` must equal the config's JEFF_FIRST_DRIVER_BUILD; anything else is an error.
+4. It must have run in record mode (config env JEFF_FIRST_MODE), every trace line must be a record or record_step
+   line of this task, and every line's `driver_build` must equal the config's JEFF_FIRST_DRIVER_BUILD; anything else
+   is an error. Traces of schema "jeff-first-trace/5" (record_step lines) give stint rows: several decisions in one
+   coding-model turn (see record_rows.py); schema 4 traces give one decision per turn.
 
 A trial without result.json, or one Harbor stopped at its time limit, is "cut" (record_rows.trial_cut): only its
 complete lines are used. Rows are record_rows' rows with stage 3, quality "exact", source "own", plus `machine`: the
@@ -23,7 +26,7 @@ trace's driver build, e.g. "qwen3.8-27b-fp8@casdgx01-gpu5" (model format after "
 
 Usage (from tools/jeff-first):
     uv run python -m imitation.stage3 RUN [RUN ...] --tasks ../../results/imitation/training-tasks.json \\
-        --rows stage3-rows.jsonl --summary stage3-summary.json --stats ../../results/imitation/stage3-stats.md
+        --build jeff-pi-scout-4abde3ece.tgz [--build ...] --rows stage3-rows.jsonl --summary stage3-summary.json --stats ../../results/imitation/stage3-stats.md
 """
 
 import argparse
@@ -67,6 +70,7 @@ class Conversion:
     rows: list[dict] = field(default_factory=list)
     skipped: Counter = field(default_factory=Counter)
     trials: list[dict] = field(default_factory=list)
+    builds: list[str] = field(default_factory=list)
 
 
 def find_trials(run: Path) -> list[Path]:
@@ -76,7 +80,7 @@ def find_trials(run: Path) -> list[Path]:
     return trials
 
 
-def convert_trial(trial: Path, tasks: Tasks, conversion: Conversion) -> None:
+def convert_trial(trial: Path, tasks: Tasks, builds: frozenset[str], conversion: Conversion) -> None:
     config = json.loads((trial / "config.json").read_text())
     task = config["task"]["path"]
     if task in tasks.evaluation:
@@ -88,7 +92,7 @@ def convert_trial(trial: Path, tasks: Tasks, conversion: Conversion) -> None:
         conversion.skipped["not a training task"] += 1
         return
     tarball = Path(config["agent"]["kwargs"]["tarball"]).name
-    if tarball != CURRENT_TARBALL:
+    if tarball not in builds:
         conversion.skipped[f"older build {tarball}"] += 1
         return
     if not (trial / "agent" / TRACE_NAME).exists():
@@ -108,7 +112,7 @@ def convert_trial(trial: Path, tasks: Tasks, conversion: Conversion) -> None:
     lines, notes = read_trace(trial)
     cut = trial_cut(trial)
     for line in lines:
-        if line["kind"] != "record" or line["task_id"] != task:
+        if line["kind"] not in ("record", "record_step") or line["task_id"] != task:
             raise ValueError(f"{trial}: a trace line of kind {line['kind']!r} for task {line['task_id']!r}, not a record line for {task}")
         if line["driver_build"] != build:
             raise ValueError(f"{trial}: a trace line's driver build {line['driver_build']!r} is not the config's {build!r}")
@@ -131,12 +135,21 @@ def convert_trial(trial: Path, tasks: Tasks, conversion: Conversion) -> None:
     )
 
 
-def convert_runs(runs: list[Path], tasks: Tasks) -> Conversion:
-    conversion = Conversion()
+def convert_runs(runs: list[Path], tasks: Tasks, builds: frozenset[str]) -> Conversion:
+    """Every trial of the runs; `builds`: the scout tarball names whose trials are converted."""
+    if not builds:
+        raise ValueError("no build given: name the scout tarballs whose trials to convert")
+    conversion = Conversion(builds=sorted(builds))
     for run in runs:
         for trial in find_trials(run):
-            convert_trial(trial, tasks, conversion)
+            convert_trial(trial, tasks, builds, conversion)
     return conversion
+
+
+def _stint_decisions(rows: list[dict]) -> int:
+    """Decisions taken inside a coding-model turn: after an earlier decision of the same session and turn."""
+    points = sorted({(row["session"], row["turn"], row["decision"]) for row in rows})
+    return sum(1 for before, after in zip(points, points[1:]) if before[:2] == after[:2])
 
 
 def _counts(rows: list[dict]) -> dict:
@@ -146,6 +159,7 @@ def _counts(rows: list[dict]) -> dict:
         "sessions": len({row["session"] for row in rows}),
         "rows": len(rows),
         "decisions": len(tool_rows),
+        "stint_decisions": _stint_decisions(rows),
         "hand_over_share": round(labels["hand_over"] / len(tool_rows), 4) if tool_rows else None,
         "tool_labels": dict(labels.most_common()),
     }
@@ -164,6 +178,7 @@ def summarize(conversion: Conversion) -> dict:
             notes[re.sub(r"^.*?(turn \d+: |line \d+: )", "", note).split(";")[0].split(" (")[0]] += 1
     return {
         **_counts(rows),
+        "builds": conversion.builds,
         "trials_converted": len(conversion.trials),
         "trials_cut": dict(Counter(trial["cut"] for trial in conversion.trials if trial["cut"]).most_common()),
         "skipped": dict(conversion.skipped.most_common()),
@@ -184,7 +199,7 @@ def stats_markdown(summary: dict) -> str:
     lines = [
         "# Stage 3 conversion statistics (own record-mode sessions)",
         "",
-        f"Build: `{CURRENT_TARBALL}` only. Rows: stage 3, quality \"exact\", source \"{SOURCE}\", each with its `machine`.",
+        "Builds: " + ", ".join(f"`{build}`" for build in summary["builds"]) + ". Rows: stage 3, quality \"exact\", source \"{SOURCE}\", each with its `machine`.",
         "",
         "## Trials",
         "",
@@ -196,7 +211,8 @@ def stats_markdown(summary: dict) -> str:
         "",
         "## Rows and decisions",
         "",
-        f"- Sessions with rows: {summary['sessions']}; rows: {summary['rows']}; decisions: {summary['decisions']}; "
+        f"- Sessions with rows: {summary['sessions']}; rows: {summary['rows']}; decisions: {summary['decisions']} "
+        f"(stint decisions: {summary['stint_decisions']}, taken after an earlier decision of the same turn); "
         f"hand-over share of decisions: {_share(summary['hand_over_share'])}.",
         "- Rows by level and page: " + ", ".join(f"{key} {count}" for key, count in summary["rows_by_level_and_page"].items()) + ".",
         "- Argument rows by tool: " + (", ".join(f"{key} {count}" for key, count in summary["argument_rows_by_tool"].items()) or "none") + ".",
@@ -221,11 +237,13 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("runs", type=Path, nargs="+", help="Run folders (each holds <stream>/round-N/<job>/<trial>/)")
     parser.add_argument("--tasks", type=Path, required=True, help="results/imitation/training-tasks.json")
+    parser.add_argument("--build", action="append", required=True, help=f"A scout tarball name whose trials are converted (repeatable), e.g. {CURRENT_TARBALL}")
     parser.add_argument("--rows", type=Path, required=True, help="Output: the rows, one JSON object per line")
     parser.add_argument("--summary", type=Path, required=True, help="Output: the counts as JSON")
     parser.add_argument("--stats", type=Path, required=True, help="Output: the counts as a Markdown statistics file")
     args = parser.parse_args(argv)
-    conversion = convert_runs(args.runs, read_tasks(args.tasks))
+    builds = frozenset(args.build)
+    conversion = convert_runs(args.runs, read_tasks(args.tasks), builds)
     summary = summarize(conversion)
     for path in (args.rows, args.summary, args.stats):
         path.parent.mkdir(parents=True, exist_ok=True)

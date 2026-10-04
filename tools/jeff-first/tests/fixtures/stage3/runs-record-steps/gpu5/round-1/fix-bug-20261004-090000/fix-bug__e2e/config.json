@@ -1,0 +1,1 @@
+{"task": {"path": "fix-bug"}, "trial_name": "fix-bug__e2e", "agent": {"kwargs": {"tarball": "/home/u/jeff-first/collect/jeff-pi-scout-13486e524.tgz"}, "env": {"JEFF_FIRST_MODE": "record", "JEFF_FIRST_TASK_ID": "fix-bug", "JEFF_FIRST_DRIVER_BUILD": "qwen3.8-27b-fp8@casdgx01-gpu5"}}}

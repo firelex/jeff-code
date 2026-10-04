@@ -341,3 +341,141 @@ def test_a_branched_session_file_is_an_error(tmp_path):
     path.write_text("".join(json.dumps(line) + "\n" for line in lines))
     with pytest.raises(ValueError, match="branch"):
         record_rows([record(1, [call("ls -la /app")])], [path], cut=False)
+
+
+# Schema 5: a "record_step" line after each step of a turn that another call of the turn follows (record.ts).
+STEP_LISTS = {
+    "tools": [{"id": "read", "description": "Read a file"}, {"id": "hand_over", "description": "Hand over to the coding model"}],
+    "arguments_by_tool": {
+        "read": [
+            option("read", 1, "Read the file /app/notes.md", "cat /app/notes.md"),
+            option("read", 2, "Read the file /app/main.py", "cat /app/main.py"),
+        ]
+    },
+}
+
+
+def record5(turn, tool_calls, recent=()):
+    return {**record(turn, tool_calls, recent=recent), "schema": "jeff-first-trace/5"}
+
+
+def record_step(turn, step, calls_in_turn, command, recent, lists=STEP_LISTS):
+    return {
+        "schema": "jeff-first-trace/5",
+        "kind": "record_step",
+        "task_id": "fix-bug",
+        "session_id": "sess-1",
+        "turn": turn,
+        "step": step,
+        "calls_in_turn": calls_in_turn,
+        "command": command,
+        "mode": "record",
+        "state": {"task": "Fix the bug in /app/main.py.", "recentSteps": list(recent), "stepsLeftOut": 0},
+        "lists": lists,
+    }
+
+
+def scout_shape(command, output):
+    return {"command": command, "output": output, "isError": False, "byScout": True}
+
+
+TWO_STEPS = [
+    assistant(bash("c1", "ls /app"), bash("c2", "cat /app/main.py")),
+    result("c1", "main.py\nnotes.md"),
+    result("c2", "print(1/0)"),
+    assistant(bash("c3", "cat > /app/main.py <<'EOF'\nprint(1)\nEOF")),
+    result("c3", ""),
+]
+
+
+def two_step_trace(step_line=True):
+    lines = [record5(1, [call("ls /app"), call("cat /app/main.py")])]
+    if step_line:
+        lines.append(record_step(1, 1, 2, "ls /app", [scout_shape("ls /app", "main.py\nnotes.md")]))
+    lines.append(
+        record5(2, [call("cat > /app/main.py <<'EOF'\nprint(1)\nEOF")], recent=[new_shape("ls /app", "main.py\nnotes.md"), new_shape("cat /app/main.py", "print(1/0)")])
+    )
+    return lines
+
+
+def test_schema_5_labels_a_stint_with_the_menu_logged_after_each_step(tmp_path):
+    folder = write_session(tmp_path, TWO_STEPS)
+    rows, notes = record_rows(two_step_trace(), sorted(folder.glob("*.jsonl")), cut=False)
+    assert notes == []
+    assert [(r.decision, r.turn, r.level, r.label) for r in rows] == [
+        (0, 1, "tool", "list"),
+        (0, 1, "argument", "list-1"),
+        (1, 1, "tool", "read"),
+        (1, 1, "argument", "read-2"),  # read-2 exists only in the menu logged after step 1
+        (2, 2, "tool", "hand_over"),
+    ]
+    # The stint's step shows the option's own command, by the scout, with the coding model's real output.
+    assert rows[2].state == (
+        "Task:\nFix the bug in /app/main.py.\n\nSteps so far, oldest first:\n\n"
+        "Step 1 (by you, the scout):\n$ ls -la /app\nmain.py\nnotes.md"
+    )
+    assert rows[4].state == (
+        "Task:\nFix the bug in /app/main.py.\n\nSteps so far, oldest first:\n\n"
+        "Step 1 (by you, the scout):\n$ ls -la /app\nmain.py\nnotes.md\n\n"
+        "Step 2 (by you, the scout):\n$ cat /app/main.py\nprint(1/0)"
+    )
+
+
+def test_schema_5_ends_the_stint_at_an_unmatched_command(tmp_path):
+    entries = [
+        assistant(bash("c1", "ls /app"), bash("c2", "rm /app/notes.md"), bash("c3", "cat /app/main.py")),
+        result("c1", "main.py\nnotes.md"),
+        result("c2", ""),
+        result("c3", "x"),
+    ]
+    folder = write_session(tmp_path, entries)
+    trace = [
+        record5(1, [call("ls /app"), call("rm /app/notes.md"), call("cat /app/main.py")]),
+        record_step(1, 1, 3, "ls /app", [scout_shape("ls /app", "main.py\nnotes.md")]),
+        record_step(1, 2, 3, "rm /app/notes.md", [scout_shape("ls /app", "main.py\nnotes.md"), scout_shape("rm /app/notes.md", "")]),
+    ]
+    rows, _ = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
+    assert [(r.decision, r.label) for r in rows] == [(0, "list"), (0, "list-1"), (1, "hand_over")]
+
+
+def test_schema_4_traces_keep_one_decision_per_turn(tmp_path):
+    folder = write_session(tmp_path, TWO_STEPS)
+    recent = [new_shape("ls /app", "main.py\nnotes.md"), new_shape("cat /app/main.py", "print(1/0)")]
+    trace = [record(1, [call("ls /app"), call("cat /app/main.py")]), record(2, [call("cat > /app/main.py <<'EOF'\nprint(1)\nEOF")], recent=recent)]
+    rows, _ = record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
+    assert [(r.turn, r.label) for r in rows] == [(1, "list"), (1, "list-1"), (2, "hand_over")]
+
+
+def test_schema_5_without_the_step_line_a_stint_needs_is_an_error_unless_the_trial_was_cut(tmp_path):
+    folder = write_session(tmp_path, TWO_STEPS)
+    files = sorted(folder.glob("*.jsonl"))
+    with pytest.raises(ValueError, match=r"no record_step line after step 1 of turn 1"):
+        record_rows(two_step_trace(step_line=False), files, cut=False)
+    rows, notes = record_rows(two_step_trace(step_line=False), files, cut=True)
+    assert rows == []
+    assert notes == ["sess-1 turn 1: the trial was cut before the record_step line after step 1; this turn and later ones dropped"]
+
+
+def test_schema_5_step_line_that_is_not_the_sessions_step_is_an_error(tmp_path):
+    folder = write_session(tmp_path, TWO_STEPS)
+    files = sorted(folder.glob("*.jsonl"))
+    wrong_command = two_step_trace()
+    wrong_command[1] = record_step(1, 1, 2, "ls /tmp", [scout_shape("ls /app", "main.py\nnotes.md")])
+    with pytest.raises(ValueError, match="step 1 of turn 1"):
+        record_rows(wrong_command, files, cut=False)
+    wrong_state = two_step_trace()
+    wrong_state[1] = record_step(1, 1, 2, "ls /app", [])
+    with pytest.raises(ValueError, match="covers 0 steps"):
+        record_rows(wrong_state, files, cut=False)
+    wrong_count = two_step_trace()
+    wrong_count[1] = record_step(1, 1, 3, "ls /app", [scout_shape("ls /app", "main.py\nnotes.md")])
+    with pytest.raises(ValueError, match="3 calls"):
+        record_rows(wrong_count, files, cut=False)
+
+
+def test_a_session_whose_lines_mix_schemas_is_an_error(tmp_path):
+    folder = write_session(tmp_path, TWO_STEPS)
+    trace = two_step_trace()
+    trace[0] = record(1, [call("ls /app"), call("cat /app/main.py")])
+    with pytest.raises(ValueError, match="schema"):
+        record_rows(trace, sorted(folder.glob("*.jsonl")), cut=False)
