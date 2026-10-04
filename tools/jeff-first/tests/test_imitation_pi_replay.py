@@ -8,7 +8,9 @@ from imitation.pi_replay import (
     COMMAND_CAP_SECONDS,
     PiContainer,
     PiRan,
-    batch_seconds,
+    SessionTiming,
+    agent_file_prefixes,
+    session_timing,
     command_script,
     menu_difference,
     pi_output_differs,
@@ -125,6 +127,12 @@ class FakeContainer:
     def sleep(self, seconds):
         self.slept.append(round(seconds, 3))
 
+    def settle(self, seconds):
+        self.log.append(f"settle {seconds:g}")
+
+    def write_files(self, files):
+        self.log.append(f"files {sorted(files.items())}")
+
 
 SESSION = [
     assistant(bash("c1", "ls -la /app"), bash("c2", "cat /app/main.py")),
@@ -139,6 +147,12 @@ TRACE = [
 ]
 
 
+def run(prepared_session, batches, container, thinking=None, think_waits=False, files=None):
+    timing = SessionTiming(batches, thinking or [0.0] * len(batches))
+    agent_files = (lambda turn: files(turn)) if files else (lambda turn: {})
+    return replay_record_session(prepared_session, timing, container, machine="m", think_waits=think_waits, agent_files=agent_files)
+
+
 def prepared(tmp_path, entries=SESSION, trace=TRACE):
     path = write_session(tmp_path, entries)
     sessions, notes = record_sessions(trace, [path], cut=False, source="own", quality="exact-replayed")
@@ -149,7 +163,10 @@ def prepared(tmp_path, entries=SESSION, trace=TRACE):
 def test_menus_are_built_before_each_turn_and_after_each_stint_step(tmp_path):
     # Points: before turn 1 (List), after ls inside turn 1 (Read: a stint), before turn 2 (hand over: it writes).
     container = FakeContainer(outputs={"ls -la /app": ("main.py\n", 0), "cat /app/main.py": ("print(1/0)\n", 0)}, menus=[LISTS, REPLAYED, LISTS])
-    replay = replay_record_session(prepared(tmp_path), [0.0, 0.0], container, machine="qwen3.8-27b-fp8@casdgx01-gpu5")
+    timing = SessionTiming([0.0, 0.0], [0.0, 0.0])
+    replay = replay_record_session(
+        prepared(tmp_path), timing, container, machine="qwen3.8-27b-fp8@casdgx01-gpu5", think_waits=False, agent_files=lambda turn: {}
+    )
     assert container.log == ["menu", "run ls -la /app", "menu", "run cat /app/main.py", "menu"]
     # Before a turn the menu is built from the coding model's own steps (what pi's live scout saw); inside a turn the
     # stint step shows the scout option's command.
@@ -174,7 +191,7 @@ def test_menus_are_built_before_each_turn_and_after_each_stint_step(tmp_path):
 
 def test_each_before_turn_menu_is_compared_with_the_logged_one(tmp_path):
     container = FakeContainer(menus=[LISTS, REPLAYED, REPLAYED])
-    replay = replay_record_session(prepared(tmp_path), [0.0, 0.0], container, machine="m")
+    replay = run(prepared(tmp_path), [0.0, 0.0], container)
     assert [(check.turn, check.equal) for check in replay.menu_checks] == [(1, True), (2, False)]
     assert replay.menu_checks[1].difference == {"read": {"added": ["Read the file /app/notes.txt"], "removed": []}}
 
@@ -189,7 +206,7 @@ def test_an_unmatched_acting_command_ends_the_stint_with_hand_over(tmp_path):
     entries = [assistant(bash("c1", "ls -la /app"), bash("c2", "python3 /app/main.py")), result("c1", "main.py"), result("c2", "1")]
     trace = [record(1, [tool_call("ls -la /app"), tool_call("python3 /app/main.py")])]
     container = FakeContainer()
-    replay = replay_record_session(prepared(tmp_path, entries, trace), [0.0], container, machine="m")
+    replay = run(prepared(tmp_path, entries, trace), [0.0], container)
     assert [(r.decision, r.level, r.label) for r in replay.rows] == [(0, "tool", "list"), (0, "argument", "list-1"), (1, "tool", "hand_over")]
     assert [point.stint for point in replay.points] == [False, True]
     assert container.log == ["menu", "run ls -la /app", "menu"]
@@ -212,13 +229,13 @@ def test_a_command_runs_under_its_own_timeout_or_the_cap(tmp_path):
         for n, (command, extra) in enumerate([("make test", {"timeout": 5000}), ("ls", {}), ("ls -la", {})], start=2)
     ]
     container = FakeContainer()
-    replay_record_session(prepared(tmp_path, entries, trace), [0.0] * 4, container, machine="m")
+    run(prepared(tmp_path, entries, trace), [0.0] * 4, container)
     assert container.timeouts == [600, COMMAND_CAP_SECONDS, COMMAND_CAP_SECONDS]
 
 
 def test_a_turn_that_ran_shorter_than_in_the_session_waits_the_rest(tmp_path):
     container = FakeContainer(seconds=0.5)
-    replay_record_session(prepared(tmp_path), [3.0, 0.0], container, machine="m")
+    run(prepared(tmp_path), [3.0, 0.0], container)
     # Both commands of turn 1 took 0.5 s here; the session spent 3 s on the turn's commands.
     assert container.slept == [2.0]
 
@@ -227,7 +244,7 @@ def test_replayed_outputs_are_compared_as_pi_shows_them(tmp_path):
     entries = [assistant(bash("c1", "cat /app/x")), result("c1", "cat: /app/x: No such file or directory\n\nCommand exited with code 1", True), assistant(bash("c2", "ls")), result("c2", "(no output)")]
     trace = [record(1, [tool_call("cat /app/x")]), record(2, [tool_call("ls")], recent=[new_shape("cat /app/x", "cat: /app/x: No such file or directory\n\nCommand exited with code 1")])]
     container = FakeContainer(outputs={"cat /app/x": ("cat: /app/x: No such file or directory\n", 1)})
-    replay = replay_record_session(prepared(tmp_path, entries, trace), [0.0, 0.0], container, machine="m")
+    replay = run(prepared(tmp_path, entries, trace), [0.0, 0.0], container)
     assert [(c.command, c.mismatch, c.information) for c in replay.commands] == [("cat /app/x", False, True)]
 
 
@@ -235,7 +252,7 @@ def test_a_mismatch_in_digits_only_is_told_apart(tmp_path):
     entries = [assistant(bash("c1", "date")), result("c1", "Sat Oct  4 03:05:00 UTC 2026"), assistant(bash("c2", "ls")), result("c2", "a")]
     trace = [record(1, [tool_call("date")]), record(2, [tool_call("ls")], recent=[new_shape("date", "Sat Oct  4 03:05:00 UTC 2026")])]
     container = FakeContainer(outputs={"date": ("Sat Oct  4 05:49:12 UTC 2026\n", 0)})
-    replay = replay_record_session(prepared(tmp_path, entries, trace), [0.0, 0.0], container, machine="m")
+    replay = run(prepared(tmp_path, entries, trace), [0.0, 0.0], container)
     assert [(c.mismatch, c.mismatch_beyond_digits) for c in replay.commands] == [(True, False)]
 
 
@@ -271,7 +288,7 @@ def test_compacted_steps_are_left_out_of_menus_and_states(tmp_path):
         record(3, [tool_call("ls")], recent=[new_shape("cat /app/main.py", "print(1/0)")]),
     ]
     container = FakeContainer()
-    replay = replay_record_session(prepared(tmp_path, entries, trace), [0.0] * 3, container, machine="m")
+    replay = run(prepared(tmp_path, entries, trace), [0.0] * 3, container)
     assert container.menu_steps[2] == [("cat /app/main.py", False)]
     assert "ls -la" not in replay.rows[-1].state
 
@@ -283,17 +300,63 @@ def test_a_session_is_excluded_when_more_than_a_tenth_of_its_logged_menus_differ
         session_excluded(equal=0, differing=0)
 
 
-def test_batch_seconds_run_from_the_assistant_message_to_its_last_tool_result(tmp_path):
+def test_session_timing_holds_each_turns_command_time_and_thinking_time(tmp_path):
     times = [
         "2026-10-03T22:00:00.000Z",  # user
-        "2026-10-03T22:00:01.000Z",  # assistant 1
+        "2026-10-03T22:00:01.000Z",  # assistant 1 (written when the model's reply ended)
         "2026-10-03T22:00:03.500Z",  # its results
         "2026-10-03T22:00:03.500Z",
         "2026-10-03T22:00:10.000Z",  # assistant 2
         "2026-10-03T22:00:10.250Z",
     ]
     path = write_session(tmp_path, SESSION, times)
-    assert batch_seconds(path) == [2.5, 0.25]
+    timing = session_timing(path)
+    assert timing.batches == [2.5, 0.25]
+    # The model's reply time: from the entry before the assistant message to the message.
+    assert timing.thinking == [1.0, 6.5]
+
+
+def test_with_think_waits_background_programs_get_the_models_thinking_time_before_a_turns_commands(tmp_path):
+    entries = [assistant(bash("c1", "apt-get install -y gcc > /tmp/apt.log 2>&1 &")), result("c1", "(no output)"), assistant(bash("c2", "which gcc")), result("c2", "/usr/bin/gcc"), assistant(bash("c3", "ls")), result("c3", "a")]
+    trace = [
+        record(1, [tool_call("apt-get install -y gcc > /tmp/apt.log 2>&1 &")]),
+        record(2, [tool_call("which gcc")], recent=[new_shape("apt-get install -y gcc > /tmp/apt.log 2>&1 &", "(no output)")]),
+        record(3, [tool_call("ls")], recent=[new_shape("apt-get install -y gcc > /tmp/apt.log 2>&1 &", "(no output)"), new_shape("which gcc", "/usr/bin/gcc")]),
+    ]
+    container = FakeContainer()
+    run(prepared(tmp_path, entries, trace), [0.0] * 3, container, thinking=[1.0, 40.0, 3.0], think_waits=True)
+    # The menu before turn 2 shows the disk right after turn 1; the model then thought for 40 s before `which gcc`.
+    assert container.log == ["menu", "settle 1", "run apt-get install -y gcc > /tmp/apt.log 2>&1 &", "menu", "settle 40", "run which gcc", "menu"]
+
+
+def test_agent_files_are_written_as_they_were_before_each_turns_menu(tmp_path):
+    container = FakeContainer()
+    run(prepared(tmp_path), [0.0, 0.0], container, files=lambda turn: {"/logs/agent/pi.txt": f"up to turn {turn}"})
+    assert container.log[0] == "files [('/logs/agent/pi.txt', 'up to turn 1')]"
+    assert container.log[-2:] == ["files [('/logs/agent/pi.txt', 'up to turn 2')]", "menu"]
+
+
+def test_agent_file_prefixes_end_before_the_turns_assistant_message():
+    pi_log = "".join(
+        json.dumps(line) + "\n"
+        for line in [
+            {"type": "session"},
+            {"type": "turn_start"},
+            {"type": "message_start", "message": {"role": "assistant"}},
+            {"type": "turn_end"},
+            {"type": "turn_start"},
+            {"type": "message_start", "message": {"role": "assistant"}},
+        ]
+    )
+    session_file = "".join(
+        json.dumps(line) + "\n"
+        for line in [{"type": "session"}, {"type": "message", "message": {"role": "user"}}, {"type": "message", "message": {"role": "assistant"}}, {"type": "message", "message": {"role": "toolResult"}}, {"type": "message", "message": {"role": "assistant"}}]
+    )
+    prefixes = agent_file_prefixes({"/logs/agent/pi.txt": ("pi-log", pi_log), "/logs/agent/pi/sessions/s.jsonl": ("session", session_file)})
+    assert prefixes(1) == {"/logs/agent/pi.txt": "".join(pi_log.splitlines(keepends=True)[:2]), "/logs/agent/pi/sessions/s.jsonl": "".join(session_file.splitlines(keepends=True)[:2])}
+    assert prefixes(2)["/logs/agent/pi.txt"] == "".join(pi_log.splitlines(keepends=True)[:5])
+    with pytest.raises(ValueError, match="turn 3"):
+        prefixes(3)
 
 
 def test_setup_commands_are_the_harbor_install_commands_of_the_trial_log():
@@ -347,5 +410,5 @@ def test_a_truncated_output_is_saved_where_pi_saved_the_full_output(tmp_path):
     entries = [assistant(bash("c1", "seq 4000")), result("c1", shown), assistant(bash("c2", "ls")), result("c2", "a")]
     trace = [record(1, [tool_call("seq 4000")]), record(2, [tool_call("ls")], recent=[new_shape("seq 4000", shown)])]
     container = FakeContainer()
-    replay_record_session(prepared(tmp_path, entries, trace), [0.0, 0.0], container, machine="m")
+    run(prepared(tmp_path, entries, trace), [0.0, 0.0], container)
     assert container.full_output_paths == ["/tmp/pi-bash-bade5f4c3e5e6376.log"]

@@ -22,7 +22,12 @@ For each trial (see `replay_trial`):
    between them. When a turn's calls end sooner than the session spent on them (from the assistant message to its
    last tool result, `batch_seconds`), the replay waits the rest, so background programs get the same start-up time.
    When pi cut a call's output and saved all of it in a file (/tmp/pi-bash-<id>.log, named in its truncation notice),
-   the replay saves its own output at that path, so the file exists later as it did in the session.
+   the replay saves its own output at that path, so the file exists later as it did in the session. Harbor's agent
+   folder (/logs/agent: pi's event output pi.txt and pi's session file) is written before each turn's menu as it was
+   at that moment (the lines before the turn's assistant message). With --think-waits, before a turn's first command
+   the replay also gives programs the session left running in the background up to the model's thinking time of that
+   turn, for as long as they keep the container busy (`PiContainer.settle`): in the session they ran on while the
+   model wrote its reply (an `apt-get install ... &` finished, a mail server delivered mail).
 3. Points (labels.py SessionLabeler with stints followed, as stage 1): before each coding-model turn, and after each
    stint step inside a turn. The first command matching a menu option is a row; its recorded output joins the
    history as the scout's step (shown with the option's own command); the next matching command is the next row,
@@ -54,7 +59,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 from imitation.labels import SessionLabeler, gathers_information
 from imitation.record_rows import (
@@ -84,6 +89,9 @@ PI_AGENT_DIR = "/tmp/harbor-pi-agent"
 SESSION_DIR = "/logs/agent/pi/sessions"
 # Seconds the host waits for a docker command beyond the command's own time limit before it calls the replay stuck.
 DOCKER_SLACK_SECONDS = 60.0
+# settle(): the container counts as busy while it uses more than this share of one CPU, measured over each step.
+SETTLE_BUSY_SHARE = 0.05
+SETTLE_STEP_SECONDS = 1.0
 # The most bytes of one command's replayed output kept for the comparison (pi shows at most 50 KB of its end).
 OUTPUT_KEEP_BYTES = 1_000_000
 # pi's bash tool shows the last 2,000 lines or 50 KB of an output and then this notice (tools/bash.ts).
@@ -116,6 +124,19 @@ class Container(Protocol):
     def menu(self, task: str, steps: list[ShellStep]) -> Menu: ...
 
     def sleep(self, seconds: float) -> None: ...
+
+    def settle(self, seconds: float) -> None: ...
+
+    def write_files(self, files: dict[str, str]) -> None: ...
+
+
+@dataclass(frozen=True)
+class SessionTiming:
+    """Per assistant message of a pi session, in order: the seconds its tool calls took (from the message to its last
+    tool result) and the seconds the model took to write it (from the entry before it to the message)."""
+
+    batches: list[float]
+    thinking: list[float]
 
 
 @dataclass(frozen=True)
@@ -235,24 +256,77 @@ def _time(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-def batch_seconds(path: Path) -> list[float]:
-    """Per assistant message of a pi session file, in order: seconds from the message to its last tool result (0 when
-    it has none). pi writes a turn's tool results when all its calls have ended."""
+def session_timing(path: Path) -> SessionTiming:
+    """The SessionTiming of a pi session file, from its entries' timestamps (pi writes an assistant message when the
+    model's reply has ended, and a turn's tool results when all its calls have ended)."""
     lines, _ = _json_lines(path, None)
-    seconds: list[float] = []
+    batches: list[float] = []
+    thinking: list[float] = []
     started: datetime | None = None
+    previous: datetime | None = None
     for entry in lines[1:]:
         if entry["type"] != "message":
             continue
         role = entry["message"]["role"]
+        moment = _time(entry["timestamp"])
         if role == "assistant":
-            started = _time(entry["timestamp"])
-            seconds.append(0.0)
+            if previous is None:
+                raise ValueError(f"{path}: an assistant message before any other message")
+            started = moment
+            batches.append(0.0)
+            thinking.append((moment - previous).total_seconds())
         elif role == "toolResult":
             if started is None:
                 raise ValueError(f"{path}: a tool result before any assistant message")
-            seconds[-1] = (_time(entry["timestamp"]) - started).total_seconds()
-    return seconds
+            batches[-1] = (moment - started).total_seconds()
+        previous = moment
+    return SessionTiming(batches, thinking)
+
+
+PI_LOG_ASSISTANT_START = '{"type":"message_start","message":{"role":"assistant"'
+
+
+def _assistant_lines(kind: str, lines: list[str]) -> list[int]:
+    """The indexes of the lines that start an assistant message. pi's event output may hold other text (pi's stderr
+    goes there too), so its lines are matched by their start, as pi writes them; a session file's lines are entries,
+    and only its last line may be cut (a stopped trial)."""
+    if kind == "pi-log":
+        return [index for index, line in enumerate(lines) if line.replace(" ", "").startswith(PI_LOG_ASSISTANT_START)]
+    if kind != "session":
+        raise ValueError(f"unknown agent file kind {kind!r}")
+    found: list[int] = []
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            if index == len(lines) - 1:
+                continue
+            raise
+        if entry["type"] == "message" and entry["message"]["role"] == "assistant":
+            found.append(index)
+    return found
+
+
+def agent_file_prefixes(files: dict[str, tuple[str, str]]) -> Callable[[int], dict[str, str]]:
+    """For the files Harbor's agent folder held while pi ran (path -> (kind, final text)): a function giving each
+    file as it was before a turn's model call, its lines before the turn's assistant message ("pi-log": pi's JSON event
+    output, /logs/agent/pi.txt; "session": pi's session file)."""
+    starts: dict[str, tuple[list[str], list[int]]] = {}
+    for path, (kind, text) in files.items():
+        lines = text.splitlines(keepends=True)
+        starts[path] = (lines, _assistant_lines(kind, lines))
+
+    def before(turn: int) -> dict[str, str]:
+        prefixes: dict[str, str] = {}
+        for path, (lines, assistant_lines) in starts.items():
+            if turn > len(assistant_lines):
+                raise ValueError(f"{path} has no assistant message for turn {turn}")
+            prefixes[path] = "".join(lines[: assistant_lines[turn - 1]])
+        return prefixes
+
+    return before
 
 
 def setup_commands(trial_log: str) -> list[str]:
@@ -292,11 +366,23 @@ def _timeout(arguments: dict) -> float:
     return min(float(value), COMMAND_CAP_SECONDS)
 
 
-def replay_record_session(prepared: RecordSession, batches: list[float], container: Container, *, machine: str) -> PiReplay:
+def replay_record_session(
+    prepared: RecordSession,
+    timing: SessionTiming,
+    container: Container,
+    *,
+    machine: str,
+    think_waits: bool,
+    agent_files: Callable[[int], dict[str, str]],
+) -> PiReplay:
     """Label every point of one session with menus (logged before a turn, built in the container inside a turn) and
-    check fidelity; see the module docstring. `batches`: batch_seconds of the session file."""
+    check fidelity; see the module docstring. `timing`: session_timing of the session file. With `think_waits`, before
+    a turn's first command the container settles for up to the model's thinking time of that turn (background programs
+    ran on while the model wrote its reply). `agent_files`: the files of Harbor's agent folder as they were before a
+    turn (written before each before-turn menu)."""
     session = prepared.session
-    if len(batches) != len(session.assistants):
+    batches = timing.batches
+    if len(batches) != len(session.assistants) or len(timing.thinking) != len(session.assistants):
         raise ValueError(f"{prepared.session_id}: {len(batches)} batch times for {len(session.assistants)} assistant messages")
     calls = [_calls(message) for message in session.assistants]
     real: list[ShellStep] = []
@@ -319,6 +405,8 @@ def replay_record_session(prepared: RecordSession, batches: list[float], contain
             turn_index, index = order[done]
             command = prepared.turns[turn_index].commands[index]
             limit = _timeout(calls[turn_index][index]["arguments"])
+            if think_waits and index == 0:
+                container.settle(min(timing.thinking[turn_index], COMMAND_CAP_SECONDS))
             notice = None if command.output is None else TRUNCATION_NOTICE.search(command.output)
             ran = container.run(command.text, limit, None if notice is None else notice.group(1))
             batch_ran += ran.seconds
@@ -352,6 +440,9 @@ def replay_record_session(prepared: RecordSession, batches: list[float], contain
         if stint:
             menu = container.menu(prepared.task, history[hidden[turn - 1] :])
         else:
+            files = agent_files(turn)
+            if files:
+                container.write_files(files)
             own = real[: real_before[turn - 1]]
             check_logged_state(prepared, turn, own)
             menu = logged_menu(prepared, turn)
@@ -391,6 +482,8 @@ class PiContainer:
         self.memory = memory
         self.scout = scout
         self.count = 0
+        self.written: dict[str, str] = {}
+        self.id = ""
         self.cwd = ""
         self.env: dict[str, str] = {}
         self.menu_env: dict[str, str] = {}
@@ -423,6 +516,7 @@ class PiContainer:
             600,
         )  # fmt: skip
         state = self._checked(["inspect", "-f", "{{.State.Running}}", self.name], 60).strip()
+        self.id = self._checked(["inspect", "-f", "{{.Id}}", self.name], 60).strip()
         if state != "true":
             raise RuntimeError(f"the container {self.name} of {self.image} is not running after start (state {state})")
         self._checked(["exec", "-u", "root", self.name, "sh", "-c", "command -v bash >/dev/null && command -v timeout >/dev/null"], 60)
@@ -483,6 +577,38 @@ class PiContainer:
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
 
+    def _cpu_usec(self) -> int:
+        stat = Path(f"/sys/fs/cgroup/system.slice/docker-{self.id}.scope/cpu.stat").read_text()
+        return int(stat.split("usage_usec ", 1)[1].split()[0])
+
+    def settle(self, seconds: float) -> None:
+        """Wait up to `seconds` while programs the session left running in the background keep the container busy
+        (more than SETTLE_BUSY_SHARE of one CPU over each SETTLE_STEP_SECONDS); return at once when nothing but the
+        container's own `sleep infinity` runs, or as soon as the container is idle."""
+        waited = 0.0
+        while waited < seconds:
+            processes = self._checked(["top", self.name, "-eo", "pid"], 60).split("\n")[1:]
+            if len([line for line in processes if line.strip()]) <= 1:
+                return
+            before = self._cpu_usec()
+            step = min(SETTLE_STEP_SECONDS, seconds - waited)
+            time.sleep(step)
+            waited += step
+            if self._cpu_usec() - before < SETTLE_BUSY_SHARE * step * 1_000_000:
+                return
+
+    def write_files(self, files: dict[str, str]) -> None:
+        """Write each file; a file that only grew since the last write gets just its new end appended."""
+        for path, text in files.items():
+            previous = self.written.get(path)
+            if previous is not None and text.startswith(previous):
+                if len(text) > len(previous):
+                    self._checked(["exec", "-i", "-u", "root", self.name, "bash", "-c", f"cat >> {shlex.quote(path)}"], 120, text[len(previous) :])
+            else:
+                folder = shlex.quote(str(Path(path).parent))
+                self._checked(["exec", "-i", "-u", "root", self.name, "bash", "-c", f"mkdir -p {folder} && cat > {shlex.quote(path)}"], 120, text)
+            self.written[path] = text
+
     def remove(self) -> None:
         self._checked(["rm", "-f", self.name], 300)
 
@@ -542,7 +668,7 @@ class TrialReplay:
     seconds: float
 
 
-def replay_trial(trial: Trial, task_table: dict, scout: Path, tarball: Path) -> TrialReplay:
+def replay_trial(trial: Trial, task_table: dict, scout: Path, tarball: Path, think_waits: bool) -> TrialReplay:
     """Replay one trial's sessions in a fresh container, removed afterwards whatever happens. Errors name the trial."""
     started = time.monotonic()
     try:
@@ -579,7 +705,15 @@ def replay_trial(trial: Trial, task_table: dict, scout: Path, tarball: Path) -> 
                     "PI_REASONING_LEVEL": kwargs["thinking"],
                 }
                 container.configure(session.session.cwd, pi_env, agent_env, config["agent"]["env"]["JEFF_FIRST_RUN_APPROVAL"])
-                replays.append(replay_record_session(session, batch_seconds(path)[: len(session.session.assistants)], container, machine=trial.machine))
+                full = session_timing(path)
+                count = len(session.session.assistants)
+                timing = SessionTiming(full.batches[:count], full.thinking[:count])
+                agent_files = agent_file_prefixes(
+                    {f"{SESSION_DIR}/{path.name}": ("session", path.read_text()), "/logs/agent/pi.txt": ("pi-log", (trial.folder / "agent" / "pi.txt").read_text())}
+                )
+                replays.append(
+                    replay_record_session(session, timing, container, machine=trial.machine, think_waits=think_waits, agent_files=agent_files)
+                )
             finally:
                 container.remove()
     except Exception as error:
@@ -627,6 +761,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--parallel", type=int, required=True)
     parser.add_argument("--only", nargs="*", help="replay only these trial folder names")
+    parser.add_argument(
+        "--think-waits",
+        action="store_true",
+        help="before a turn's first command, let background programs run for up to the model's thinking time while they keep the container busy",
+    )
     args = parser.parse_args(argv)
     if args.tarball.name != CURRENT_TARBALL:
         raise ValueError(f"--tarball must be {CURRENT_TARBALL}, the build the sessions ran")
@@ -647,7 +786,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"{len(kept)} trials to replay, skipped {dict(skipped)}, {args.parallel} at a time", flush=True)
     stopped = False
     with ThreadPoolExecutor(args.parallel) as pool:
-        running: dict[Future, Trial] = {pool.submit(replay_trial, trial, task_table, args.scout, args.tarball): trial for trial in kept}
+        running: dict[Future, Trial] = {pool.submit(replay_trial, trial, task_table, args.scout, args.tarball, args.think_waits): trial for trial in kept}
         while running:
             finished, _ = wait(running, return_when=FIRST_COMPLETED)
             for future in finished:
