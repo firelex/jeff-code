@@ -77,8 +77,9 @@ def trial_cut(trial: Path) -> str | None:
 
 
 def _json_lines(path: Path, cut: str | None) -> tuple[list[dict], list[str]]:
-    """The JSON lines of a file; in a cut trial an unparsable last line is dropped with a note."""
-    numbered = [(number, text) for number, text in enumerate(path.read_text().splitlines(), start=1) if text.strip()]
+    """The JSON lines of a file; in a cut trial an unparsable last line is dropped with a note. Only "\n" ends a line:
+    str.splitlines would also split at U+2028, U+2029 or U+0085, which JSON.stringify writes unescaped in strings."""
+    numbered = [(number, text) for number, text in enumerate(path.read_text().split("\n"), start=1) if text.strip()]
     lines: list[dict] = []
     notes: list[str] = []
     for position, (number, text) in enumerate(numbered):

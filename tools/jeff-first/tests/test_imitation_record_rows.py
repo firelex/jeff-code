@@ -228,6 +228,16 @@ def test_any_other_unparsable_trace_line_is_an_error(tmp_path, text, exception_t
         read_trace(trial)
 
 
+@pytest.mark.parametrize("separator", [" ", " ", "\x85"])
+def test_a_line_separator_inside_a_json_string_does_not_split_the_line(tmp_path, separator):
+    # JSON.stringify writes U+2028, U+2029 and U+0085 unescaped; only "\n" ends a JSON line (seen in a SWE-rebench
+    # trace: a command output holding U+2028).
+    line = record(1, [])
+    line["state"]["task"] = f"before{separator}after"
+    lines, notes = read_trace(write_trial(tmp_path, json.dumps(line, ensure_ascii=False) + "\n" + GOOD))
+    assert lines == [line, record(1, [])] and notes == []
+
+
 def test_a_whole_trace_reads_without_notes(tmp_path):
     lines, notes = read_trace(write_trial(tmp_path, GOOD + GOOD, exception_type="AgentTimeoutError"))
     assert lines == [record(1, []), record(1, [])] and notes == []
