@@ -336,8 +336,9 @@ def recorded_turns(trial):
     lines = [finals[turn] for turn in sorted(finals) if finals[turn]["stop_reason"] not in ("error", "aborted")]
     assistants = [e for e in entries if e["type"] == "message" and e["message"]["role"] == "assistant"
                   and e["message"]["stopReason"] not in ("error", "aborted")]
-    if cut is not None and len(lines) == len(assistants) + 1:
-        lines = lines[:-1]  # the trace line of a reply the stopped session never saved
+    ended_early = cut is not None or json.loads((trial / "result.json").read_text())["exception_info"] is not None
+    if ended_early and len(lines) == len(assistants) + 1:
+        lines = lines[:-1]  # the trace line of a reply the stopped or crashed session never saved
     if len(lines) != len(assistants):
         raise ValueError(f"{trial}: {len(assistants)} assistant replies but {len(lines)} qwen_request lines")
     calls = [part for e in entries if e["type"] == "message" and e["message"]["role"] == "assistant"

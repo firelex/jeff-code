@@ -316,6 +316,14 @@ def test_prompt_check_per_level():
         rl.check_prompt("t", "xhigh", 1)
 
 
+def test_a_crashed_agent_may_leave_one_traced_reply_unsaved(tmp_path):
+    # Seen 2026-10-04: pi exited (NonZeroAgentExitCodeError) after tracing turn 24 and before saving its reply.
+    trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 100), _line(2, "toolUse", 200)])
+    (trial / "result.json").write_text(json.dumps({"exception_info": {"exception_type": "NonZeroAgentExitCodeError"}}))
+    turns, _ = rl.recorded_turns(trial)
+    assert [t["turn"] for t in turns] == [1]
+
+
 def test_recorded_turns_mismatch_raises(tmp_path):
     trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 999)])
     with pytest.raises(ValueError):
