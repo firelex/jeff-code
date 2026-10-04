@@ -88,19 +88,30 @@ LENGTH_RATIO_MIN = 0.8
 MIN_CHARS = 20
 
 
-def judge_messages(task, steps, reference, alternative, question):
+def shown_step(pieces, step_chars):
+    """A step's pieces for the judge, each cut at `step_chars` characters. A cut piece says so in plain words, so the
+    judge does not read the cut as a broken command (the first calibrations cut at 2,500 without a note; 8,000 with
+    the note since 2026-10-04 ~22:15)."""
+    shown = []
+    for piece in pieces:
+        if len(piece) > step_chars:
+            piece = (piece[:step_chars] + f"\n[This command was shortened for display here: {len(piece) - step_chars} "
+                     "more characters were left out. The real command is complete; do not count the shortening as "
+                     "a mistake.]")
+        shown.append(piece)
+    return "\n\n".join(shown)
+
+
+def judge_messages(task, steps, reference, alternative, question, step_chars):
     """System and user message: the same context blocks as routing_labels.judge_messages (task, last steps, Step 1,
-    Step 2, with the same cuts), then the owner's question."""
+    Step 2; the steps cut at `step_chars`, see shown_step), then the owner's question."""
     shown = "\n\n".join(
         f"Command:\n{cmd[:1500]}\nEnd of output:\n{out[-600:] or '(no output)'}" for cmd, out in steps
     ) or "(none yet)"
 
-    def step(pieces):
-        return "\n\n".join(piece[:2500] for piece in pieces)
-
     user = (
         f"TASK:\n{task[:3000]}\n\nMOST RECENT STEPS (oldest first):\n{shown}\n\n"
-        f"STEP 1:\n{step(reference)}\n\nSTEP 2:\n{step(alternative)}\n\n{QUESTIONS[question]}"
+        f"STEP 1:\n{shown_step(reference, step_chars)}\n\nSTEP 2:\n{shown_step(alternative, step_chars)}\n\n{QUESTIONS[question]}"
     )
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
 
@@ -164,6 +175,7 @@ class Rejudger:
     def __init__(self, options):
         self.options = options
         self.question = options.question
+        self.step_chars = options.step_chars
         self.maps = [tuple(item.split("=", 1)) for item in options.path_map]
         self.judge_client = JudgeClient(options.judge_url, options.judge_model)
         self.builders = [Builder(options.node, options.builder) for _ in range(options.builders)]
@@ -190,13 +202,14 @@ class Rejudger:
 
     async def judge(self, turn, task, steps, reference, alternative, key):
         messages = judge_messages(task, steps, step_pieces(reference["commands"], reference["final_text"]),
-                                  step_pieces(alternative["commands"], alternative["final_text"]), self.question)
+                                  step_pieces(alternative["commands"], alternative["final_text"]), self.question,
+                                  self.step_chars)
         async with self.slots:
             reply = await self.judge_client.ask(messages, f"{turn['id']} {key}")
         self.calls += 1
         self.call_seconds += reply["seconds"]
         verdict, reason = parse_verdict(reply["content"])
-        return {"key": key, "question": self.question, "model": f"{reply['model']} ({reply['backend']}, thinking off)",
+        return {"key": key, "question": self.question, "step_chars": self.step_chars, "model": f"{reply['model']} ({reply['backend']}, thinking off)",
                 "verdict": verdict, "reason": reason, "reply": reply["content"],
                 "prompt_tokens": reply["usage"].get("prompt_tokens"),
                 "completion_tokens": reply["usage"].get("completion_tokens"),
@@ -402,6 +415,8 @@ def main():
         p.add_argument("--labels", required=True, nargs="+" if name == "calibrate" else None)
         p.add_argument("--out", required=True)
         p.add_argument("--question", required=True, choices=sorted(QUESTIONS), help="which of the owner's questions")
+        p.add_argument("--step-chars", type=int, required=True,
+                       help="each command of a step is cut at this many characters for the judge, with a note")
         p.add_argument("--judge-url", required=True)
         p.add_argument("--judge-model", required=True)
         p.add_argument("--node", required=True)
