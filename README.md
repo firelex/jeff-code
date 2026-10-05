@@ -134,9 +134,9 @@ many parallel sessions, run one server per GPU behind [tools/jeff-first/jeff_poo
 GGUF versions for llama.cpp are on Hugging Face (`-gguf`); run the router on the Q8_0 base, since about 6% of its
 decisions change at Q4_K_M.
 
-**2. Pi with Qwen.** Build the repository (`npm install && npm run build`) and add Qwen to `~/.pi/agent/models.json`
+**2. Jeff-Code with Qwen.** Build the repository (`npm install && npm run build`) and add Qwen to `~/.jeff/agent/models.json`
 as an OpenAI-compatible model with `"reasoning": true`, `"compat": {"thinkingFormat": "qwen-chat-template"}` and
-`"maxTokens": 32768` (see [Pi's model docs](packages/coding-agent/docs/models.md)).
+`"maxTokens": 32768` (see [the model docs](packages/coding-agent/docs/models.md)).
 
 **3. Switch Jeff on** with the settings the evaluation used:
 
@@ -152,7 +152,7 @@ export JEFF_FIRST_RUN_APPROVAL=all                       # all, seen or never: m
 export JEFF_FIRST_DRIVER_BUILD=qwen3.8-27b               # the exact Qwen build, written to the trace
 export JEFF_FIRST_TRACE_FILE=$HOME/jeff-code/trace.jsonl # its folder must exist
 export JEFF_FIRST_TASK_ID=my-project
-./pi-test.sh
+./jeff-test.sh
 ```
 
 Every setting is required in `jeff` mode, and a missing or invalid one stops Jeff-Code with an error starting with
