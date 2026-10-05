@@ -19,6 +19,8 @@ followon writes follow-on queues (QUEUE_NAME-HOST.json): for each benchmark in t
 finish  records a session's end (its run_phase0.sh exit status); prints "complete" when it was the block's last session.
 rerun   (see eval_rerun.py) blocks may hold fewer arms and carry server_pin: such a block opens only on that server.
 close   no session of the queue starts at or after TIME (claims then exit 4).
+reopen  removes a close.
+take    moves the last N unstarted blocks out of a queue into a file (for append on the other host).
 cut     marks the queue's still-running sessions as cut (status LABEL, cut.txt in the folder) and prints their folders.
 upcoming prints the tasks of the next N blocks not yet started, one per line (for image prefetching).
 take-unfit removes the unstarted blocks whose longest possible session no longer ends by --deadline and prints them as
@@ -194,6 +196,27 @@ def close(args: argparse.Namespace) -> None:
         state["no_starts_after"] = args.time
         queue.save()
         print(f"{args.queue}: no session starts at or after {args.time}")
+
+
+def reopen(args: argparse.Namespace) -> None:
+    queue = Locked(args.queue)
+    with queue as state:
+        was = state.pop("no_starts_after", None)
+        queue.save()
+        print(f"{args.queue}: reopened (no_starts_after was {was})")
+
+
+def take(args: argparse.Namespace) -> None:
+    """Takes the last N unstarted blocks out of the queue into OUT (append format), to run them on the other host."""
+    queue = Locked(args.queue)
+    with queue as state:
+        unstarted = [b for b in state["blocks"] if b["server"] is None]
+        moving = unstarted[len(unstarted) - min(args.n, len(unstarted)) :]
+        ids = {b["block"] for b in moving}
+        state["blocks"] = [b for b in state["blocks"] if b["block"] not in ids]
+        Path(args.out).write_text(json.dumps({"tasks": {b["task"]: state["tasks"][b["task"]] for b in moving}, "blocks": moving}))
+        queue.save()
+        print(f"took {len(moving)} of {len(unstarted)} unstarted blocks: {sorted(ids)}")
 
 
 def cut(args: argparse.Namespace) -> None:
@@ -377,6 +400,12 @@ def main() -> None:
     cl = sub.add_parser("close")
     cl.add_argument("queue")
     cl.add_argument("time")
+    ro = sub.add_parser("reopen")
+    ro.add_argument("queue")
+    tk = sub.add_parser("take")
+    tk.add_argument("queue")
+    tk.add_argument("out")
+    tk.add_argument("n", type=int)
     cu = sub.add_parser("cut")
     cu.add_argument("queue")
     cu.add_argument("eval_dir")
@@ -408,6 +437,10 @@ def main() -> None:
         followon(args)
     elif args.command == "close":
         close(args)
+    elif args.command == "reopen":
+        reopen(args)
+    elif args.command == "take":
+        take(args)
     elif args.command == "cut":
         cut(args)
     elif args.command == "upcoming":
