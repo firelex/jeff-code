@@ -1,7 +1,7 @@
 """Offline score of a trained Jeff variant: the time it would save and how often its cheaper choices are wrong,
 predicted from held-out labelled Qwen turns instead of running the benchmarks.
 
-Jeff makes three decisions in Jeff-pi, each with a probability threshold (the run-time rules, quoted from the code):
+Jeff makes three decisions in Jeff-Code, each with a probability threshold (the run-time rules, quoted from the code):
 - step (chooser.ts JeffChooser): on each page of the scout's menu Jeff's most likely option is taken when its
   probability is at least the step threshold, otherwise the scout hands over ("hand_over" on a tool page, "none_of_these"
   on an argument page). The scout stops after STEP_CAP steps in a row (scout.ts).
@@ -29,7 +29,7 @@ Subcommands:
   reports how many were cut (BUNDLE/cut/fit-report.json, which must exist and match the bundle). A question that
   cannot be cut to fit (its options alone are too long; fit-examples --unfittable leave-out leaves it out of the cut
   files and lists it) is one Jeff abstains on at run time (owner ruling 2026-10-04): it has no prediction and is
-  scored as Jeff-pi without Jeff (step: hand over; router: xhigh; trim: the whole output): no saving, not wrong,
+  scored as Jeff-Code without Jeff (step: hand over; router: xhigh; trim: the whole output): no saving, not wrong,
   counted under "abstained".
 - predict: every option's probability for every question of one decision, from a running jeff-serve (POST
   /v1/systemone, one request at a time; busy answers are retried). A question over Jeff's limit (not cut) is an error. Writes predictions in jeff.evaluate's format (id,
@@ -934,7 +934,7 @@ def markdown(result, meta):
         f"{d} {'-' if a is None else pct(a)}" for d, a in result["accuracy"].items()) + ".\n")
     out.append("Questions cut to fit Jeff's 8,192-token limit (as the run time cuts them; scored like the others): "
                + ", ".join(f"{d} {n}" for d, n in result["cut_to_fit"].items()) + ". Questions Jeff abstains on "
-               "(they cannot be cut to fit: the options alone are too long; scored as Jeff-pi without Jeff: step hand "
+               "(they cannot be cut to fit: the options alone are too long; scored as Jeff-Code without Jeff: step hand "
                "over, router xhigh, trim the whole output; no saving, not wrong; the 'abstained' columns count "
                "them): " + ", ".join(f"{d} {n}" for d, n in result["abstained"].items()) + ".\n")
     out.append(TIME_NOTE)

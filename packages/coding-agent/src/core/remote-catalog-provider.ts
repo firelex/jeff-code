@@ -5,7 +5,7 @@ import {
 	type ModelsStoreEntry,
 	type ModelType,
 	type Provider,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { VERSION } from "../config.ts";
 import { fetchWithRetry } from "../utils/management-http.ts";
 import { getPiUserAgent } from "../utils/pi-user-agent.ts";

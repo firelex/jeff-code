@@ -3,7 +3,7 @@
  * Used by tool renderers and bash-execution.ts for consistent behavior.
  */
 
-import { type Component, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { type Component, Text, truncateToWidth } from "@jeffhub/jeff-code-tui";
 
 export interface VisualTruncateResult {
 	/** The visual lines to display */

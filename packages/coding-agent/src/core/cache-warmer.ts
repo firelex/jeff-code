@@ -6,8 +6,8 @@ import {
 	type ModelsSimpleStreamOptions,
 	type SimpleStreamOptions,
 	type Usage,
-} from "@earendil-works/pi-ai";
-import { getProviderEnvValue } from "@earendil-works/pi-ai/utils/provider-env";
+} from "@jeffhub/jeff-code-ai";
+import { getProviderEnvValue } from "@jeffhub/jeff-code-ai/utils/provider-env";
 import type { ModelRuntime } from "./model-runtime.ts";
 import type { SessionEntry, SessionManager, UsageEntry } from "./session-manager.ts";
 import type { CacheWarmingMode } from "./settings-manager.ts";
@@ -39,7 +39,7 @@ export function getCacheWarmingDelayMs(ttlMs: number): number | undefined {
 export function getPromptCacheTtlMs(model: Model<Api>, options: SimpleStreamOptions | undefined): number | undefined {
 	const retention =
 		options?.cacheRetention ??
-		(getProviderEnvValue("PI_CACHE_RETENTION", options?.env) === "long" ? "long" : "short");
+		(getProviderEnvValue("JEFF_CACHE_RETENTION", options?.env) === "long" ? "long" : "short");
 	if (retention === "none") return undefined;
 	const seconds = model.promptCache?.[retention];
 	return seconds === undefined ? undefined : seconds * 1000;
@@ -101,12 +101,12 @@ export interface CacheWarmingDecision {
 	expectedSavings: number;
 	/** False when the prompt size or the model's prices are unknown. */
 	economicsAvailable: boolean;
-	/** Pi's decision: "warm" when `expectedSavings` is at least $0.05. */
+	/** Jeff-Code's decision: "warm" when `expectedSavings` is at least $0.05. */
 	action: CacheWarmingAction;
 }
 
 /**
- * Fired before each refresh with pi's decision filled in. Everything else an
+ * Fired before each refresh with Jeff-Code's decision filled in. Everything else an
  * extension might want (model, idle state, context size) is on the context.
  */
 export interface CacheWarmingDecisionEvent
@@ -165,7 +165,7 @@ export class CacheWarmer {
 	private readonly models: Pick<ModelRuntime, "streamSimple">;
 	private readonly sessionManager: Pick<SessionManager, "appendUsage" | "getBranch">;
 	private readonly getMode: () => CacheWarmingMode;
-	/** Lets extensions override `event.action`; failures fall back to pi's decision. */
+	/** Lets extensions override `event.action`; failures fall back to Jeff-Code's decision. */
 	private readonly decide: (event: CacheWarmingDecisionEvent) => Promise<CacheWarmingAction>;
 	/** Called with the persisted usage entry after each successful refresh. */
 	onWarmed?: (entry: UsageEntry) => void;
@@ -313,7 +313,7 @@ export class CacheWarmer {
 				action,
 			});
 		} catch {
-			// Extension failures fall back to pi's own decision.
+			// Extension failures fall back to Jeff-Code's own decision.
 		}
 		if (!this.validateRun(run) || this.refreshDeadlineMissed(run)) return;
 		const extensionOverride = action !== decision.action;
@@ -432,7 +432,7 @@ function formatCacheWarmingDecisionTime(nextWarmAt: number | undefined, now: num
 /** One-line status for `/session`. */
 export function formatCacheWarmingStatus(status: CacheWarmingStatus, now = Date.now()): string {
 	const decision = status.decision;
-	// A decision is attached once pi (or an extension) acted on it; "inactive"
+	// A decision is attached once Jeff-Code (or an extension) acted on it; "inactive"
 	// without one never got that far.
 	if (!decision || (status.state === "inactive" && !decision.economicsAvailable && !status.extensionOverride)) {
 		return `Inactive (${status.reason ?? "unknown reason"})`;

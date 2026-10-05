@@ -1,4 +1,4 @@
-import { setKeybindings } from "@earendil-works/pi-tui";
+import { setKeybindings } from "@jeffhub/jeff-code-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import {

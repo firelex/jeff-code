@@ -5,7 +5,7 @@ const src = (path: string): string => fileURLToPath(new URL(path, import.meta.ur
 
 /**
  * Exact matches for bare specifiers, plus one rule per package for subpath exports such as
- * `@earendil-works/pi-ai/utils/uuid`. A prefix alias would rewrite those onto `index.ts/utils/uuid`.
+ * `@jeffhub/jeff-code-ai/utils/uuid`. A prefix alias would rewrite those onto `index.ts/utils/uuid`.
  */
 export default defineConfig({
 	test: {
@@ -16,12 +16,12 @@ export default defineConfig({
 	resolve: {
 		conditions: ["source"],
 		alias: [
-			{ find: /^@earendil-works\/pi-agent-core$/, replacement: src("../agent/src/index.ts") },
-			{ find: /^@earendil-works\/pi-agent-core\/(.+)$/, replacement: `${src("../agent/src/")}$1.ts` },
-			{ find: /^@earendil-works\/pi-ai$/, replacement: src("../ai/src/index.ts") },
-			{ find: /^@earendil-works\/pi-ai\/(.+)$/, replacement: `${src("../ai/src/")}$1.ts` },
-			{ find: /^@earendil-works\/pi-telemetry$/, replacement: src("../telemetry/src/index.ts") },
-			{ find: /^@earendil-works\/pi-protocol$/, replacement: src("../protocol/src/index.ts") },
+			{ find: /^@jeffhub\/jeff-code-agent-core$/, replacement: src("../agent/src/index.ts") },
+			{ find: /^@jeffhub\/jeff-code-agent-core\/(.+)$/, replacement: `${src("../agent/src/")}$1.ts` },
+			{ find: /^@jeffhub\/jeff-code-ai$/, replacement: src("../ai/src/index.ts") },
+			{ find: /^@jeffhub\/jeff-code-ai\/(.+)$/, replacement: `${src("../ai/src/")}$1.ts` },
+			{ find: /^@jeffhub\/jeff-code-telemetry$/, replacement: src("../telemetry/src/index.ts") },
+			{ find: /^@jeffhub\/jeff-code-protocol$/, replacement: src("../protocol/src/index.ts") },
 		],
 	},
 	ssr: { resolve: { conditions: ["source"] } },

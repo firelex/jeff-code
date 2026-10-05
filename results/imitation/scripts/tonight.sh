@@ -32,7 +32,7 @@
 # run when its output exists (delete it by hand to redo a step).
 set -euo pipefail
 
-REPO=/Users/mattsinalco/mathias/apps/jeff-pi
+REPO=/Users/mattsinalco/mathias/apps/jeff-code
 JEFF_DEV=/Users/mattsinalco/mathias/apps/jeff-dev
 T=${TONIGHT:-/private/tmp/claude-501/imitation/tonight}
 B200=mstrasser@85.13.211.160

@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-protocol",
+	"name": "@jeffhub/jeff-code-protocol",
 	"version": "0.99.2",
-	"description": "Transport-neutral CBOR protocol for remote pi sessions",
+	"description": "Transport-neutral CBOR protocol for remote Jeff-Code sessions",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -22,7 +22,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"keywords": [
-		"pi",
+		"jeff-code",
 		"protocol",
 		"cbor",
 		"binary",
@@ -32,14 +32,14 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/protocol"
 	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/chord": "^0.99.2",
+		"@jeffhub/jeff-code-chord": "^0.99.2",
 		"typebox": "1.3.27"
 	},
 	"devDependencies": {

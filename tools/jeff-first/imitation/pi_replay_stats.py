@@ -3,7 +3,7 @@
 Counts: trials and sessions (replayed, failed, excluded for menu fidelity), rows, decisions, stint decisions and
 rows (points inside a coding-model turn, after a scout step), labels at the tool level, hand-over share, and the
 fidelity numbers: before-turn menus built in the container that equal the logged ones, and replayed command outputs
-that differ from pi's recorded ones.
+that differ from Jeff-Code's recorded ones.
 
 Usage (from tools/jeff-first):
     uv run python -m imitation.pi_replay_stats OUT_DIR [SECOND_PASS_DIR ...] --rows stage3-rows.jsonl --summary summary.json \
@@ -27,7 +27,7 @@ def _lines(folder: Path, name: str) -> list[dict]:
 
 
 def _outputs(commands: list[dict]) -> dict:
-    """Replayed outputs against pi's recorded ones, compared again with pi_replay.pi_output_differs (so a run made
+    """Replayed outputs against Jeff-Code's recorded ones, compared again with pi_replay.pi_output_differs (so a run made
     before a fix to the comparison is counted with the fixed one)."""
     compared = [command for command in commands if command["recorded_output"] is not None]
 
@@ -173,7 +173,7 @@ def stats_markdown(summary: dict) -> str:
         + (", ".join(f"{key} {count}" for key, count in summary["menu_difference_kinds"].items()) or "none")
         + ".",
         f"- Commands replayed: {outputs['commands']}; with a recorded output to compare: {outputs['compared']}. Outputs "
-        f"that differ from pi's recorded output (whitespace ignored): {outputs['mismatches']} "
+        f"that differ from Jeff-Code's recorded output (whitespace ignored): {outputs['mismatches']} "
         f"({_share(outputs['mismatches'], outputs['compared'])}); still differing with digits ignored: "
         f"{outputs['mismatches_beyond_digits']} ({_share(outputs['mismatches_beyond_digits'], outputs['compared'])}). Information "
         f"commands: {outputs['information_mismatches']} of {outputs['information_compared']} differ. Stopped at a time "

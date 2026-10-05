@@ -1,14 +1,14 @@
 # Sessions and Context
 
-Pi saves a conversation as a session. The active branch of that session supplies conversation history for the next model request. Use session commands to continue work, explore another branch, or reduce the amount of history sent to the model.
+Jeff-Code saves a conversation as a session. The active branch of that session supplies conversation history for the next model request. Use session commands to continue work, explore another branch, or reduce the amount of history sent to the model.
 
 ## Continue or switch sessions
 
-Pi saves sessions automatically unless you start it with `--no-session`.
+Jeff-Code saves sessions automatically unless you start it with `--no-session`.
 
 ```bash
-pi --continue
-pi --resume
+jeff --continue
+jeff --resume
 ```
 
 `--continue` opens the most recent session for the current working directory. `--resume` opens the session picker. In interactive mode, `/resume` opens the same picker and `/new` starts a new session.
@@ -19,7 +19,7 @@ The session picker lets you search, rename, and delete sessions. It can also sho
 
 ## Choose how to branch
 
-Pi stores entries as a tree, so returning to an earlier point does not erase the branch you leave.
+Jeff-Code stores entries as a tree, so returning to an earlier point does not erase the branch you leave.
 
 | Action | Result | Use it when |
 |---|---|---|
@@ -29,15 +29,15 @@ Pi stores entries as a tree, so returning to an earlier point does not erase the
 
 In `/tree`, select a user message to put its text back in the editor. Edit and submit it to create another branch. Selecting an assistant response or another entry continues after that entry with an empty editor.
 
-When you leave a branch, Pi can summarize it and attach that summary to the branch you enter. This preserves relevant work from the abandoned path without including every message from it.
+When you leave a branch, Jeff-Code can summarize it and attach that summary to the branch you enter. This preserves relevant work from the abandoned path without including every message from it.
 
 For the persisted tree and entry types, see [Session Format](session-format.md).
 
 ## Manage conversation context
 
-The model receives the active branch, not every branch in the session file. Pi combines that history with the system prompt, discovered context files, available tools, and loaded skill descriptions. [How Pi Works](how-pi-works.md#context) describes how those inputs are assembled.
+The model receives the active branch, not every branch in the session file. Jeff-Code combines that history with the system prompt, discovered context files, available tools, and loaded skill descriptions. [How Jeff-Code Works](how-jeff-code-works.md#context) describes how those inputs are assembled.
 
-The footer shows current context usage. When the active context approaches the model's limit, Pi normally compacts older history automatically. Compaction adds a summary and keeps recent messages. It does not delete the original session entries.
+The footer shows current context usage. When the active context approaches the model's limit, Jeff-Code normally compacts older history automatically. Compaction adds a summary and keeps recent messages. It does not delete the original session entries.
 
 Run `/compact` to compact manually. You can add instructions when the summary should preserve a particular topic or decision. Configure automatic compaction and retained history through [Settings](settings.md#compaction).
 
@@ -47,20 +47,20 @@ See [Compaction Reference](compaction.md) for thresholds, retained boundaries, b
 
 ## Control session storage
 
-By default, Pi stores sessions under `~/.pi/agent/sessions/`, grouped by working directory. Use `--session-dir`, `PI_CODING_AGENT_SESSION_DIR`, or the `sessionDir` setting to choose another location. The CLI option has highest precedence.
+By default, Jeff-Code stores sessions under `~/.jeff/agent/sessions/`, grouped by working directory. Use `--session-dir`, `JEFF_CODING_AGENT_SESSION_DIR`, or the `sessionDir` setting to choose another location. The CLI option has highest precedence.
 
-Use `--no-session` for an ephemeral run. An ephemeral session cannot be resumed after Pi exits.
+Use `--no-session` for an ephemeral run. An ephemeral session cannot be resumed after Jeff-Code exits.
 
 Use `--session` when you already know the session path or ID. Use `--fork` to create a new session from an existing session before interactive mode starts.
 
 ## Export or share a session
 
-Use `/export` to write the current session as HTML or JSONL. Use `/share` to upload it and get a viewer link. Pi uses a Radius artifact when Radius authentication is configured; otherwise, it uses a private GitHub gist.
+Use `/export` to write the current session as HTML or JSONL. Use `/share` to upload it and get a viewer link. Jeff-Code uses a Radius artifact when Radius authentication is configured; otherwise, it uses a private GitHub gist.
 
 Review exported or shared sessions first. They can contain prompts, model responses, tool arguments, command output, file contents, and extension messages.
 
 ## Report a bug
 
-Run `/bug [description]` to prepare a private report for the Pi developers. You can include the session transcript, omit it, or ask the current model to summarize the problem. Review any transcript or generated summary because it can contain sensitive conversation data.
+Run `/bug [description]` to prepare a private report for the Jeff-Code developers. You can include the session transcript, omit it, or ask the current model to summarize the problem. Review any transcript or generated summary because it can contain sensitive conversation data.
 
-The report includes environment and provider configuration without credential values, plus recorded error diagnostics. Upload it through `radius.pi.dev` or export the same report as a zip to inspect and share yourself. Uploads do not require a login; Radius authentication attributes the report to your account so the developers can follow up. If an upload fails, Pi offers to export the zip.
+The report includes environment and provider configuration without credential values, plus recorded error diagnostics. Upload it through `radius.pi.dev` or export the same report as a zip to inspect and share yourself. Uploads do not require a login; Radius authentication attributes the report to your account so the developers can follow up. If an upload fails, Jeff-Code offers to export the zip.

@@ -5,18 +5,18 @@
  * Uses `ctx.ui.setTitle()` to update the terminal title via the extension API.
  *
  * Usage:
- *   pi --extension examples/extensions/titlebar-spinner.ts
+ *   jeff --extension examples/extensions/titlebar-spinner.ts
  */
 
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@jeffhub/jeff-code";
 
 const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 function getBaseTitle(pi: ExtensionAPI): string {
 	const cwd = path.basename(process.cwd());
 	const session = pi.getSessionName();
-	return session ? `π - ${session} - ${cwd}` : `π - ${cwd}`;
+	return session ? `Jeff-Code - ${session} - ${cwd}` : `Jeff-Code - ${cwd}`;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -38,7 +38,7 @@ export default function (pi: ExtensionAPI) {
 			const frame = BRAILLE_FRAMES[frameIndex % BRAILLE_FRAMES.length];
 			const cwd = path.basename(process.cwd());
 			const session = pi.getSessionName();
-			const title = session ? `${frame} π - ${session} - ${cwd}` : `${frame} π - ${cwd}`;
+			const title = session ? `${frame} Jeff-Code - ${session} - ${cwd}` : `${frame} Jeff-Code - ${cwd}`;
 			ctx.ui.setTitle(title);
 			frameIndex++;
 		}, 80);

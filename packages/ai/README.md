@@ -1,4 +1,4 @@
-# @earendil-works/pi-ai
+# @jeffhub/jeff-code-ai
 
 Unified LLM API with provider collections, automatic auth resolution, token and cost tracking, and simple context persistence and hand-off to other models mid-session.
 
@@ -99,18 +99,18 @@ Unified LLM API with provider collections, automatic auth resolution, token and 
 ## Installation
 
 ```bash
-npm install @earendil-works/pi-ai
+npm install @jeffhub/jeff-code-ai
 ```
 
-TypeBox exports are re-exported from `@earendil-works/pi-ai`: `Type`, `Static`, and `TSchema`.
+TypeBox exports are re-exported from `@jeffhub/jeff-code-ai`: `Type`, `Static`, and `TSchema`.
 
 ## Quick Start
 
 You build a `Models` collection of providers and stream through it. The quickest start registers every built-in provider; apps that care about bundle size register individual providers instead (see [Provider Factories](#provider-factories) and [Bundling and Tree Shaking](#bundling-and-tree-shaking)).
 
 ```typescript
-import { Type, type Context, type Tool } from '@earendil-works/pi-ai';
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { Type, type Context, type Tool } from '@jeffhub/jeff-code-ai';
+import { builtinModels } from '@jeffhub/jeff-code-ai/providers/all';
 
 // A Models collection with every built-in provider registered
 const models = builtinModels();
@@ -245,10 +245,10 @@ Providers internally share **API implementations** (the wire protocols): Anthrop
 For apps that only need specific providers, there is one factory per built-in provider, each a subpath import that pulls only that provider's catalog:
 
 ```typescript
-import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
-import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
-import { openrouterProvider } from '@earendil-works/pi-ai/providers/openrouter';
-import { amazonBedrockProvider } from '@earendil-works/pi-ai/providers/amazon-bedrock';
+import { anthropicProvider } from '@jeffhub/jeff-code-ai/providers/anthropic';
+import { openaiProvider } from '@jeffhub/jeff-code-ai/providers/openai';
+import { openrouterProvider } from '@jeffhub/jeff-code-ai/providers/openrouter';
+import { amazonBedrockProvider } from '@jeffhub/jeff-code-ai/providers/amazon-bedrock';
 // ...one module per provider in the Supported Providers list
 
 const models = createModels();
@@ -263,7 +263,7 @@ Provider factories import their model catalog and a lazy API wrapper. They do no
 For apps that want everything (as in Quick Start):
 
 ```typescript
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { builtinModels } from '@jeffhub/jeff-code-ai/providers/all';
 
 const models = builtinModels(); // a Models collection with every built-in provider registered
 ```
@@ -304,7 +304,7 @@ const everything = models.getAllModels();                               // AnyMo
 The model's `type` decides which operation accepts it: chat models stream, `type: "image"` models generate images, and `type: "classifier"` models classify structured state. `type` is optional on chat models, so a model without `type` is a chat model. Do not compare `type` directly; narrow mixed lists with `isModelType()` or read the effective type with `getModelType()`:
 
 ```typescript
-import { isModelType } from '@earendil-works/pi-ai';
+import { isModelType } from '@jeffhub/jeff-code-ai';
 
 for (const model of models.getAllModels()) {
   if (isModelType(model, 'image')) {
@@ -318,7 +318,7 @@ IDs are unique within each provider and type; one upstream model may have separa
 Dynamically listed chat models are typed `Model<Api>`. Narrow with the `hasApi()` guard when you need API-specific option typing:
 
 ```typescript
-import { hasApi } from '@earendil-works/pi-ai';
+import { hasApi } from '@jeffhub/jeff-code-ai';
 
 const m = models.getModel('anthropic', 'claude-sonnet-4-5');
 if (m && hasApi(m, 'anthropic-messages')) {
@@ -341,7 +341,7 @@ import {
   getBuiltinModel,
   getBuiltinModels,
   getBuiltinProviders,
-} from '@earendil-works/pi-ai/providers/all';
+} from '@jeffhub/jeff-code-ai/providers/all';
 
 const model = getBuiltinModel('openai', 'gpt-4o-mini'); // typed Model<'openai-responses'>
 const radius = getBuiltinModel('radius', 'balanced');   // typed Model<'pi-messages'>
@@ -427,10 +427,10 @@ Header names are merged case-insensitively. Explicit headers override auth/model
 
 ### Credential Store
 
-Stored credentials (API keys entered interactively, OAuth tokens) live in a `CredentialStore` — one type-tagged credential per provider. pi-ai ships an in-memory default; apps inject persistent storage:
+Stored credentials (API keys entered interactively, OAuth tokens) live in a `CredentialStore` — one type-tagged credential per provider. jeff-code-ai ships an in-memory default; apps inject persistent storage:
 
 ```typescript
-import { createModels, type CredentialStore } from '@earendil-works/pi-ai';
+import { createModels, type CredentialStore } from '@jeffhub/jeff-code-ai';
 
 const models = createModels({ credentials: myFileBackedStore });
 // builtinModels() takes the same options:
@@ -439,7 +439,7 @@ const models = createModels({ credentials: myFileBackedStore });
 
 The contract is small: `read(providerId)`, `list()` for non-secret `{ providerId, type }` metadata, `modify(providerId, fn)` (the only write path — a serialized read-modify-write), and `delete(providerId)`. Each operation accepts optional cancellation options. Enumeration must not resolve secrets or execute configured key commands. OAuth token refresh runs inside `modify`, so concurrent requests and processes cannot double-refresh a rotated token. A stored credential *owns* its provider: environment variables are only consulted when nothing is stored, and a failed refresh never silently falls back to an env key.
 
-API-key credentials use the same discriminator as pi's `auth.json` and can carry provider-scoped env/config values:
+API-key credentials use the same discriminator as Jeff-Code's `auth.json` and can carry provider-scoped env/config values:
 
 ```typescript
 const credential = {
@@ -511,7 +511,7 @@ Tools enable LLMs to interact with external systems. This library uses TypeBox s
 ### Defining Tools
 
 ```typescript
-import { Type, type Tool, StringEnum } from '@earendil-works/pi-ai';
+import { Type, type Tool, StringEnum } from '@jeffhub/jeff-code-ai';
 
 // Define tool parameters with TypeBox
 const weatherTool: Tool = {
@@ -669,7 +669,7 @@ for await (const event of s) {
 When implementing your own tool execution loop, use `validateToolCall` to validate arguments before passing them to your tools:
 
 ```typescript
-import { validateToolCall, type Tool } from '@earendil-works/pi-ai';
+import { validateToolCall, type Tool } from '@jeffhub/jeff-code-ai';
 
 const tools: Tool[] = [weatherTool, calculatorTool];
 const s = models.stream(model, { messages, tools });
@@ -721,7 +721,7 @@ All streaming events emitted during assistant message generation:
 | `done` | Stream complete | `reason`: Stop reason ("stop", "length", "toolUse"), `message`: Final assistant message |
 | `error` | Error occurred | `reason`: Error type ("error" or "aborted"), `error`: AssistantMessage with partial content |
 
-Streaming events for different content blocks are not guaranteed to be contiguous. Providers may emit deltas for text, thinking, and tool calls in the same upstream chunk, and pi may surface corresponding events interleaved, for example `text_start`, `text_delta`, `toolcall_start`, `text_delta`, `toolcall_delta`. Consumers must use `contentIndex` to associate each delta/end event with its block and must not assume that a block's `*_start`/`*_delta`/`*_end` sequence is uninterrupted by events for other blocks.
+Streaming events for different content blocks are not guaranteed to be contiguous. Providers may emit deltas for text, thinking, and tool calls in the same upstream chunk, and Jeff-Code may surface corresponding events interleaved, for example `text_start`, `text_delta`, `toolcall_start`, `text_delta`, `toolcall_delta`. Consumers must use `contentIndex` to associate each delta/end event with its block and must not assume that a block's `*_start`/`*_delta`/`*_end` sequence is uninterrupted by events for other blocks.
 
 ### Compact Assistant Message Frames
 
@@ -736,7 +736,7 @@ import {
   AssistantMessageFrameEncoder,
   reduceAssistantMessageFrames,
   type AssistantMessageFrame,
-} from '@earendil-works/pi-ai';
+} from '@jeffhub/jeff-code-ai';
 
 const encoder = new AssistantMessageFrameEncoder();
 const frames: AssistantMessageFrame[] = [];
@@ -794,7 +794,7 @@ Image models live in the same `Models` collection and on the same `Provider` as 
 ### Basic Image Generation
 
 ```typescript
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { builtinModels } from '@jeffhub/jeff-code-ai/providers/all';
 
 const models = builtinModels();
 
@@ -820,7 +820,7 @@ for (const block of result.output) {
 A provider declares image support with the `images` option of [`createProvider()`](#createprovider): a map from `model.api` to an implementation with `generateImages()`. Image models go into the same `models` list as chat models. `api` becomes optional when `images` is present, so an image-only provider is just a provider without chat models:
 
 ```typescript
-import { createProvider, envApiKeyAuth } from '@earendil-works/pi-ai';
+import { createProvider, envApiKeyAuth } from '@jeffhub/jeff-code-ai';
 
 const pixels = createProvider({
   id: 'pixels',
@@ -846,7 +846,7 @@ models.setProvider(pixels);
 The old global API (`getImageModel()` / `getImageModels()` / `getImageProviders()` / `generateImages()`) remains available on the [compat entrypoint](#migrating-from-the-old-global-api):
 
 ```typescript
-import { getImageModel, generateImages } from '@earendil-works/pi-ai/compat';
+import { getImageModel, generateImages } from '@jeffhub/jeff-code-ai/compat';
 
 const model = getImageModel('openrouter', 'google/gemini-2.5-flash-image');
 const result = await generateImages(model, {
@@ -901,7 +901,7 @@ Classifier models consume structured JSON state and answer one or more typed que
 | `opencode` | `jev-1.13`, `jev-1.13-free` | `OPENCODE_API_KEY` |
 
 ```typescript
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { builtinModels } from '@jeffhub/jeff-code-ai/providers/all';
 
 const models = builtinModels();
 const model = models.getModelOfType('classifier', 'typesafe', 'jev-latest')!;
@@ -943,8 +943,8 @@ When the service reports token counts, `result.usage` carries them with their co
 The `llama-cpp-classify` API turns a chat model served by llama.cpp's `llama-server` into a classifier. Each question becomes one chat prompt: the state, every question of the request, the state again, and the question with its answers under single-token labels (letters for a choice, `Yes`/`No` for a bool, digits for a score). The prompt up to the final question is shared by all questions of a request, so the server's prompt cache evaluates the state once per request. The server returns the log-probabilities of the next token, and the answer is the softmax over the label tokens. Choices support up to 62 options and scores up to 10 levels. The model's `baseUrl` is the server URL; a trailing `/v1` is ignored. In router mode, the model ID selects the model.
 
 ```typescript
-import { createProvider } from '@earendil-works/pi-ai';
-import { llamaCppClassifyApi } from '@earendil-works/pi-ai/api/llama-cpp-classify.lazy';
+import { createProvider } from '@jeffhub/jeff-code-ai';
+import { llamaCppClassifyApi } from '@jeffhub/jeff-code-ai/api/llama-cpp-classify.lazy';
 
 const provider = createProvider({
   id: 'local-llama',
@@ -1021,7 +1021,7 @@ for (const block of response.content) {
 `models.stream()`/`complete()` accept the owning API's full option set. Use `hasApi()` to narrow a dynamically looked-up model to its API for full option typing:
 
 ```typescript
-import { hasApi } from '@earendil-works/pi-ai';
+import { hasApi } from '@jeffhub/jeff-code-ai';
 
 // OpenAI Reasoning (o1, o3, gpt-5)
 const openaiModel = models.getModel('openai', 'gpt-5-mini')!;
@@ -1189,7 +1189,7 @@ The callback is supported by `stream`, `complete`, `streamSimple`, and `complete
 
 ### Observing Provider Stream Events
 
-Use `onProviderStreamEvent` to inspect provider-specific fields that Pi does not include in `AssistantMessage`. The callback receives the parsed event available to the adapter before Pi normalizes it. Treat the event as read-only because mutations can affect normalization. This is not guaranteed to be the original HTTP bytes or SSE frame.
+Use `onProviderStreamEvent` to inspect provider-specific fields that Jeff-Code does not include in `AssistantMessage`. The callback receives the parsed event available to the adapter before Jeff-Code normalizes it. Treat the event as read-only because mutations can affect normalization. This is not guaranteed to be the original HTTP bytes or SSE frame.
 
 ```typescript
 const openRouterModel = models.getModel('openrouter', 'openrouter/auto')!;
@@ -1213,8 +1213,8 @@ Callbacks are awaited in stream order, so slow callbacks delay stream consumptio
 `createProvider()` builds a provider from parts: identity, auth, a model list, and an API implementation (`api` for chat models, `images` for image generation, `classifiers` for classification; at least one is required, see [Image Generation](#image-generation)). Use it for local inference servers, proxies, or any OpenAI/Anthropic-compatible endpoint:
 
 ```typescript
-import { createModels, createProvider, envApiKeyAuth, type Model } from '@earendil-works/pi-ai';
-import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
+import { createModels, createProvider, envApiKeyAuth, type Model } from '@jeffhub/jeff-code-ai';
+import { openAICompletionsApi } from '@jeffhub/jeff-code-ai/api/openai-completions.lazy';
 
 const ollamaModel: Model<'openai-completions'> = {
   id: 'llama-3.1-8b',
@@ -1259,8 +1259,8 @@ const proxy = createProvider({
 Mixed-API providers pass a map keyed by `model.api`; each model dispatches to its API's implementation:
 
 ```typescript
-import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy';
-import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy';
+import { anthropicMessagesApi } from '@jeffhub/jeff-code-ai/api/anthropic-messages.lazy';
+import { openAIResponsesApi } from '@jeffhub/jeff-code-ai/api/openai-responses.lazy';
 
 const gateway = createProvider({
   id: 'my-gateway',
@@ -1320,7 +1320,7 @@ Custom models can carry `headers` (e.g. proxies behind bot detection) and `compa
 
 Some OpenAI-compatible servers do not understand the `developer` role used for reasoning-capable models. For those providers, set `compat.supportsDeveloperRole` to `false` so the system prompt is sent as a `system` message instead. If the server also does not support `reasoning_effort`, set `compat.supportsReasoningEffort` to `false` too. This commonly applies to Ollama, vLLM, SGLang, and similar OpenAI-compatible servers.
 
-Use model-level `thinkingLevelMap` to describe model-specific thinking controls. Keys are pi thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Missing standard levels through `high` use provider defaults; `xhigh` and `max` are opt-in and require a non-null map entry. String values are sent to the provider, `null` marks a level unsupported, and maps may skip levels.
+Use model-level `thinkingLevelMap` to describe model-specific thinking controls. Keys are Jeff-Code thinking levels (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). Missing standard levels through `high` use provider defaults; `xhigh` and `max` are opt-in and require a non-null map entry. String values are sent to the provider, `null` marks a level unsupported, and maps may skip levels.
 
 ```typescript
 const ollamaReasoningModel: Model<'openai-completions'> = {
@@ -1353,8 +1353,8 @@ const ollamaReasoningModel: Model<'openai-completions'> = {
 The API implementations are importable on their own. Each module exports exactly `stream` and `streamSimple` with that API's full option typing. Direct calls bypass provider auth and context normalization — pass `apiKey` explicitly and wrap the context in `normalizeContext()`:
 
 ```typescript
-import { normalizeContext } from '@earendil-works/pi-ai';
-import { stream } from '@earendil-works/pi-ai/api/anthropic-messages';
+import { normalizeContext } from '@jeffhub/jeff-code-ai';
+import { stream } from '@jeffhub/jeff-code-ai/api/anthropic-messages';
 
 const s = stream(claudeModel, normalizeContext(context), {
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -1377,7 +1377,7 @@ Built-in API implementations live under `./api/<api-id>`:
 | `mistral-conversations` | `MistralOptions` |
 | `bedrock-converse-stream` | `BedrockOptions` |
 
-Importing an implementation module loads its SDK. The `./api/<id>.lazy` wrappers (used by the provider factories) defer that load to the first request when the runtime or bundler supports dynamic import chunking. Legacy raw API subpaths from older releases (`./anthropic`, `./google`, `./mistral`, `./openai-completions`, ...) were removed; use `@earendil-works/pi-ai/api/<api-id>`.
+Importing an implementation module loads its SDK. The `./api/<id>.lazy` wrappers (used by the provider factories) defer that load to the first request when the runtime or bundler supports dynamic import chunking. Legacy raw API subpaths from older releases (`./anthropic`, `./google`, `./mistral`, `./openai-completions`, ...) were removed; use `@jeffhub/jeff-code-ai/api/<api-id>`.
 
 ### OpenAI Compatibility Settings
 
@@ -1401,8 +1401,8 @@ interface OpenAICompletionsCompat {
   requiresThinkingAsText?: boolean;  // Whether thinking blocks must be converted to text (default: false)
   requiresReasoningContentOnAssistantMessages?: boolean; // Whether all replayed assistant messages must include empty reasoning_content when reasoning is enabled (default: auto-detected for DeepSeek)
   thinkingFormat?: 'openai' | 'openrouter' | 'deepseek' | 'together' | 'baseten' | 'zai' | 'qwen' | 'chat-template' | 'qwen-chat-template' | 'string-thinking' | 'ant-ling'; // Format for reasoning param: 'openai' uses reasoning_effort, 'openrouter' uses reasoning: { effort }, 'deepseek' uses thinking: { type } plus reasoning_effort when supported, 'together' uses reasoning: { enabled } plus reasoning_effort when supported, 'baseten' uses configurable chat_template_args plus reasoning_effort when supported, 'zai' uses thinking: { type }, 'qwen' uses enable_thinking, 'chat-template' uses configurable chat_template_kwargs, 'qwen-chat-template' uses chat_template_kwargs.enable_thinking and preserve_thinking, 'string-thinking' uses top-level thinking, 'ant-ling' uses reasoning: { effort } only for mapped efforts (default: openai)
-  chatTemplateKwargs?: Record<string, string | number | boolean | null | { '$var': 'thinking.enabled' | 'thinking.effort' | 'thinking.budget'; omitWhenOff?: boolean }>; // chat_template_kwargs values; use $var for pi-controlled thinking values
-  chatTemplateArgs?: Record<string, string | number | boolean | null | { '$var': 'thinking.enabled' | 'thinking.effort' | 'thinking.budget'; omitWhenOff?: boolean }>; // chat_template_args values for thinkingFormat: 'baseten'; use $var for pi-controlled thinking values
+  chatTemplateKwargs?: Record<string, string | number | boolean | null | { '$var': 'thinking.enabled' | 'thinking.effort' | 'thinking.budget'; omitWhenOff?: boolean }>; // chat_template_kwargs values; use $var for Jeff-Code-controlled thinking values
+  chatTemplateArgs?: Record<string, string | number | boolean | null | { '$var': 'thinking.enabled' | 'thinking.effort' | 'thinking.budget'; omitWhenOff?: boolean }>; // chat_template_args values for thinkingFormat: 'baseten'; use $var for Jeff-Code-controlled thinking values
   thinkingTokenBudgetField?: 'thinking_token_budget' | 'thinking_budget' | 'thinking_budget_tokens'; // Top-level field that caps reasoning tokens from thinkingBudgets (vLLM / Qwen / llama.cpp). Off by default.
   supportsThinkingTokenBudget?: boolean; // Alias for thinkingTokenBudgetField: 'thinking_token_budget' (vLLM). Prefer thinkingTokenBudgetField. Default: false.
   cacheControlFormat?: 'anthropic';  // Anthropic-style cache_control on system prompt, last tool, and last user/assistant text content
@@ -1439,7 +1439,7 @@ import {
   fauxText,
   fauxThinking,
   fauxToolCall,
-} from '@earendil-works/pi-ai';
+} from '@jeffhub/jeff-code-ai';
 
 const faux = fauxProvider({
   tokensPerSecond: 50 // optional
@@ -1526,10 +1526,10 @@ When messages from one provider are sent to a different provider, the library au
 - **Tool calls and regular text** are preserved unchanged
 
 ```typescript
-import { createModels, type Context } from '@earendil-works/pi-ai';
-import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
-import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
-import { googleProvider } from '@earendil-works/pi-ai/providers/google';
+import { createModels, type Context } from '@jeffhub/jeff-code-ai';
+import { anthropicProvider } from '@jeffhub/jeff-code-ai/providers/anthropic';
+import { openaiProvider } from '@jeffhub/jeff-code-ai/providers/openai';
+import { googleProvider } from '@jeffhub/jeff-code-ai/providers/google';
 
 const models = createModels();
 models.setProvider(anthropicProvider());
@@ -1574,7 +1574,7 @@ interface SystemMessage {
 Sections are opaque text rendered verbatim after `content`, joined by blank lines. Keep each one self-delimiting (a tag, a heading) so the model can relate an update to the original. Replaying every system message in order yields the current prompt and tools; the replay helpers take the message list:
 
 ```typescript
-import { getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt, getCurrentTools } from "@jeffhub/jeff-code-ai";
 
 const messages: Message[] = [
   { role: "system", content: "You are helpful.", sections: { rules: "<rules>Be brief.</rules>" }, toolsAdded: [readTool], timestamp: 1 },
@@ -1629,8 +1629,8 @@ Models are plain serializable data too — no functions or implementations attac
 The library supports browser environments. The core entrypoint and provider factories are side-effect free and bundle cleanly. Environment variables are not available in browsers, so pass API keys explicitly — or inject a `CredentialStore` (e.g. localStorage-backed) and let provider auth resolve from stored credentials:
 
 ```typescript
-import { createModels } from '@earendil-works/pi-ai';
-import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
+import { createModels } from '@jeffhub/jeff-code-ai';
+import { anthropicProvider } from '@jeffhub/jeff-code-ai/providers/anthropic';
 
 const models = createModels();
 models.setProvider(anthropicProvider());
@@ -1656,8 +1656,8 @@ Browser compatibility notes:
 For small bundles and low-overhead unbundled scripts, import the model runtime and only the providers you need:
 
 ```typescript
-import { createModels } from '@earendil-works/pi-ai/models';
-import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
+import { createModels } from '@jeffhub/jeff-code-ai/models';
+import { openaiProvider } from '@jeffhub/jeff-code-ai/providers/openai';
 
 const models = createModels();
 models.setProvider(openaiProvider());
@@ -1665,15 +1665,15 @@ models.setProvider(openaiProvider());
 
 Rules:
 
-- `@earendil-works/pi-ai/models` exports the model runtime (`createModels`, `createProvider`, model helpers, and their types) without TypeBox, built-in catalogs, or SDK implementations. Other types can still use `import type` from the root.
-- `@earendil-works/pi-ai` is the core entrypoint and does not import built-in catalogs, real provider factories, or SDK implementations, but it eagerly imports TypeBox and schema validation. Unbundled Node scripts do not tree-shake its unused exports; prefer `./models`, `./providers/faux`, and specific `./utils/*` subpaths when those are all you need.
-- `@earendil-works/pi-ai/providers/<provider>` imports that provider's catalog and lazy API wrapper only.
-- `@earendil-works/pi-ai/providers/all` imports every built-in provider factory and all catalogs. Use it only when you want the full built-in set.
+- `@jeffhub/jeff-code-ai/models` exports the model runtime (`createModels`, `createProvider`, model helpers, and their types) without TypeBox, built-in catalogs, or SDK implementations. Other types can still use `import type` from the root.
+- `@jeffhub/jeff-code-ai` is the core entrypoint and does not import built-in catalogs, real provider factories, or SDK implementations, but it eagerly imports TypeBox and schema validation. Unbundled Node scripts do not tree-shake its unused exports; prefer `./models`, `./providers/faux`, and specific `./utils/*` subpaths when those are all you need.
+- `@jeffhub/jeff-code-ai/providers/<provider>` imports that provider's catalog and lazy API wrapper only.
+- `@jeffhub/jeff-code-ai/providers/all` imports every built-in provider factory and all catalogs. Use it only when you want the full built-in set.
 - With code splitting, provider SDKs stay in lazy chunks and load on first request.
 - Without code splitting, bundlers fold reachable lazy API implementations into the single bundle. A single-provider bundle then includes that provider's SDK; `providers/all` includes all statically visible SDKs. Bedrock is the exception: its AWS SDK implementation is loaded through a bundler-opaque Node-only import.
-- Importing `@earendil-works/pi-ai/api/<api-id>` directly loads that API implementation and its SDK immediately.
+- Importing `@jeffhub/jeff-code-ai/api/<api-id>` directly loads that API implementation and its SDK immediately.
 
-Avoid `@earendil-works/pi-ai/compat` in new bundled apps; it preserves the old global API and imports the full built-in catalog surface.
+Avoid `@jeffhub/jeff-code-ai/compat` in new bundled apps; it preserves the old global API and imports the full built-in catalog surface.
 
 For single-file Node ESM bundles, some SDK dependencies may still use dynamic CommonJS `require()` internally. If you see errors such as `Dynamic require of "child_process" is not supported`, add a Node `require` shim to the bundle. With esbuild:
 
@@ -1688,8 +1688,8 @@ This is only for Node bundles; it is not a browser or Cloudflare Workers workaro
 Bedrock is Node-only. Add it like any other provider:
 
 ```typescript
-import { createModels } from '@earendil-works/pi-ai';
-import { amazonBedrockProvider } from '@earendil-works/pi-ai/providers/amazon-bedrock';
+import { createModels } from '@jeffhub/jeff-code-ai';
+import { amazonBedrockProvider } from '@jeffhub/jeff-code-ai/providers/amazon-bedrock';
 
 const models = createModels();
 models.setProvider(amazonBedrockProvider());
@@ -1698,8 +1698,8 @@ models.setProvider(amazonBedrockProvider());
 In normal Node package usage and code-split bundles, Bedrock loads its AWS SDK implementation lazily. For a standalone single-file bundle that must include Bedrock support, register the implementation module explicitly:
 
 ```typescript
-import { setBedrockProviderModule } from '@earendil-works/pi-ai/api/bedrock-converse-stream.lazy';
-import { bedrockProviderModule } from '@earendil-works/pi-ai/bedrock-provider';
+import { setBedrockProviderModule } from '@jeffhub/jeff-code-ai/api/bedrock-converse-stream.lazy';
+import { bedrockProviderModule } from '@jeffhub/jeff-code-ai/bedrock-provider';
 
 setBedrockProviderModule(bedrockProviderModule);
 ```
@@ -1708,7 +1708,7 @@ That explicit override bundles the AWS SDK. Without it, Bedrock's opaque runtime
 
 ### Provider-Scoped Environment Overrides
 
-Pass `env` in stream options to scope provider configuration to a request. Values in `env` are used before process environment variables for provider auth and configuration such as Cloudflare account IDs, Azure OpenAI settings, Vertex project/location, Bedrock settings, `PI_CACHE_RETENTION`, and `HTTP_PROXY`/`HTTPS_PROXY`.
+Pass `env` in stream options to scope provider configuration to a request. Values in `env` are used before process environment variables for provider auth and configuration such as Cloudflare account IDs, Azure OpenAI settings, Vertex project/location, Bedrock settings, `JEFF_CACHE_RETENTION`, and `HTTP_PROXY`/`HTTPS_PROXY`.
 
 ```typescript
 const models = builtinModels();
@@ -1738,8 +1738,8 @@ Several providers support OAuth authentication instead of static API keys:
 Each of these providers carries an `OAuthAuth` on `provider.auth.oauth` with three operations: `login(interaction)` uses the provider-neutral `AuthInteraction.prompt()`/`notify()` protocol and returns a credential, `refresh(credential, signal)` refreshes expiring credentials when applicable, and `toAuth(credential)` derives request auth (GitHub Copilot's per-account base URL comes from here). Provider login interactions and refresh calls always carry a concrete abort signal. Refresh is automatic: `models.getAuth(providerId)` and request paths refresh expired tokens under a credential-store lock, so concurrent requests and processes cannot double-refresh. OpenRouter's OAuth flow instead returns a permanent API key, so its refresh operation is a no-op.
 
 ```typescript
-import { createModels } from '@earendil-works/pi-ai';
-import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic';
+import { createModels } from '@jeffhub/jeff-code-ai';
+import { anthropicProvider } from '@jeffhub/jeff-code-ai/providers/anthropic';
 
 const models = createModels({ credentials: myStore }); // persistent CredentialStore
 models.setProvider(anthropicProvider());
@@ -1798,16 +1798,16 @@ Official docs: [Application Default Credentials](https://cloud.google.com/docs/a
 The quickest way to authenticate:
 
 ```bash
-npx @earendil-works/pi-ai login              # interactive provider selection
-npx @earendil-works/pi-ai login anthropic    # login to specific provider
-npx @earendil-works/pi-ai list               # list available providers
+npx @jeffhub/jeff-code-ai login              # interactive provider selection
+npx @jeffhub/jeff-code-ai login anthropic    # login to specific provider
+npx @jeffhub/jeff-code-ai list               # list available providers
 ```
 
 Credentials are saved to `auth.json` in the current directory.
 
 ### Programmatic OAuth
 
-Built-in login and refresh flows are private provider implementations. Use provider-owned `OAuthAuth`, which composes with `CredentialStore` and gets locked auto-refresh through `Models`. The `@earendil-works/pi-ai/oauth` entry point retains only type declarations required by coding-agent extension OAuth compatibility.
+Built-in login and refresh flows are private provider implementations. Use provider-owned `OAuthAuth`, which composes with `CredentialStore` and gets locked auto-refresh through `Models`. The `@jeffhub/jeff-code-ai/oauth` entry point retains only type declarations required by coding-agent extension OAuth compatibility.
 
 Provider notes:
 
@@ -1823,10 +1823,10 @@ Older versions exposed a global API: `stream()`/`complete()` dispatching on `mod
 
 ```typescript
 // Before
-import { getModel, complete } from '@earendil-works/pi-ai';
+import { getModel, complete } from '@jeffhub/jeff-code-ai';
 
 // After (verbatim behavior, one import-path change)
-import { getModel, complete } from '@earendil-works/pi-ai/compat';
+import { getModel, complete } from '@jeffhub/jeff-code-ai/compat';
 ```
 
 Compat is a strict superset of the root entrypoint, so a file can switch its import path wholesale. It will be removed in a future release; migrate to `createModels()` + provider factories:
@@ -1838,7 +1838,7 @@ Compat is a strict superset of the root entrypoint, so a file can switch its imp
 | `stream(model, ctx, opts)` (env-key injection) | `models.stream(model, ctx, opts)` (provider auth resolution) |
 | `registerApiProvider({ api, stream, streamSimple })` | `createProvider({ id, auth, models, api })` + `models.setProvider()` |
 | `getEnvApiKey('openai')` | `await models.getAuth(model.provider)` |
-| `streamAnthropic(model, ctx, opts)` | `stream` from `@earendil-works/pi-ai/api/anthropic-messages`, or a provider in a collection |
+| `streamAnthropic(model, ctx, opts)` | `stream` from `@jeffhub/jeff-code-ai/api/anthropic-messages`, or a provider in a collection |
 | `registerFauxProvider()` | `fauxProvider()` + `models.setProvider()` |
 | `getImageModel('openrouter', id)` / `generateImages(model, ctx, { apiKey })` | `models.getModelOfType('image', 'openrouter', id)` / `models.generateImages(model, ctx)` |
 
@@ -1865,7 +1865,7 @@ Create a new API implementation file (for example `bedrock-converse-stream.ts`) 
 - Tool conversion if the provider supports tools
 - Response parsing to emit standardized events (`text`, `tool_call`, `thinking`, `usage`, `stop`)
 
-Add a lazy wrapper `src/api/<api-id>.lazy.ts` (`<name>Api()` via `lazyApi()`) so providers can reference the implementation without importing its SDK. Add any root-level `export type` re-exports in `src/index.ts` that should remain available from `@earendil-works/pi-ai`.
+Add a lazy wrapper `src/api/<api-id>.lazy.ts` (`<name>Api()` via `lazyApi()`) so providers can reference the implementation without importing its SDK. Add any root-level `export type` re-exports in `src/index.ts` that should remain available from `@jeffhub/jeff-code-ai`.
 
 #### 3. Model Generation (`scripts/generate-models.ts`)
 

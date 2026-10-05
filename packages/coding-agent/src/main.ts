@@ -6,8 +6,8 @@
  */
 
 import { createInterface } from "node:readline";
-import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
-import { setCapabilityOverrides } from "@earendil-works/pi-tui";
+import { type ImageContent, modelsAreEqual } from "@jeffhub/jeff-code-ai";
+import { setCapabilityOverrides } from "@jeffhub/jeff-code-tui";
 import chalk from "chalk";
 import { type Args, type Mode, normalizeSessionName, parseArgs, printHelp } from "./cli/args.ts";
 import {
@@ -573,10 +573,10 @@ export interface MainOptions {
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
+	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.JEFF_OFFLINE);
 	if (offlineMode) {
-		process.env.PI_OFFLINE = "1";
-		process.env.PI_SKIP_VERSION_CHECK = "1";
+		process.env.JEFF_OFFLINE = "1";
+		process.env.JEFF_SKIP_VERSION_CHECK = "1";
 	}
 
 	if (await runAuthCommand(args)) {
@@ -599,7 +599,7 @@ export async function main(args: string[], options?: MainOptions) {
 		if (process.platform === "win32" && exitCode === 0 && args[0] === "update") {
 			// We normally prefer process.exit(0) for package commands so bad extensions cannot keep
 			// one-shot commands alive. On Windows, Node can assert after fetch() if process.exit(0)
-			// runs during teardown; let successful `pi update` drain naturally instead.
+			// runs during teardown; let successful `jeff update` drain naturally instead.
 			// https://github.com/nodejs/node/issues/56645
 			return;
 		}
@@ -899,7 +899,7 @@ export async function main(args: string[], options?: MainOptions) {
 
 	const { initialMessage, initialImages } = await prepareInitialMessage(parsed, stdinContent);
 	time("prepareInitialMessage");
-	// pi reads user-authored themes, so it opts into full validation before any theme loads.
+	// Jeff-Code reads user-authored themes, so it opts into full validation before any theme loads.
 	setThemeJsonValidator(validateThemeJson);
 	initTheme(settingsManager.getTheme(), appMode === "interactive");
 	time("initTheme");
@@ -928,9 +928,9 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(1);
 	}
 
-	const startupBenchmark = isTruthyEnvFlag(process.env.PI_STARTUP_BENCHMARK);
+	const startupBenchmark = isTruthyEnvFlag(process.env.JEFF_STARTUP_BENCHMARK);
 	if (startupBenchmark && appMode !== "interactive") {
-		console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
+		console.error(chalk.red("Error: JEFF_STARTUP_BENCHMARK only supports interactive mode"));
 		process.exit(1);
 	}
 

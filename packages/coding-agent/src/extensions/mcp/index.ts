@@ -17,7 +17,7 @@
  * reached through Codex's `list_mcp_resources`, `list_mcp_resource_templates`, and
  * `read_mcp_resource` tools (resources.ts).
  *
- * Every call runs through pi's tool pipeline, so `tool_call`/`tool_result` hooks and permission
+ * Every call runs through Jeff-Code's tool pipeline, so `tool_call`/`tool_result` hooks and permission
  * extensions apply to MCP tools the same way they do to built-in tools.
  *
  * Problems found at startup (config errors, failed connections, servers that need a sign-in) are
@@ -27,7 +27,7 @@
  */
 
 import { join, resolve } from "node:path";
-import { hyperlink, type SelectItem } from "@earendil-works/pi-tui";
+import { hyperlink, type SelectItem } from "@jeffhub/jeff-code-tui";
 import type { TSchema } from "typebox";
 import { getAgentDir } from "../../config.ts";
 import type {
@@ -343,7 +343,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 			return serverLog;
 		};
 
-		/** pi tool name to the `<server>\0<tool>` it was assigned to, so names stay unique and stable. */
+		/** Jeff-Code tool name to the `<server>\0<tool>` it was assigned to, so names stay unique and stable. */
 		const toolOwners = new Map<string, string>();
 		/** Tool names currently offered by each server. */
 		const serverTools = new Map<string, Set<string>>();
@@ -485,7 +485,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 
 		/**
 		 * Stored tokens of servers waiting for a sign-in, as they were when the sign-in was needed.
-		 * `pi mcp login` in another process (for example run by the agent) changes them.
+		 * `jeff mcp login` in another process (for example run by the agent) changes them.
 		 */
 		const tokensAtSignIn = new Map<McpServerConnection, string>();
 		const storedTokens = (connection: McpServerConnection): string => {
@@ -694,7 +694,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 					label: server.entry.name,
 					description: `${describeState(server)} · ${exposureOf(server.entry)} · ${server.entry.scope ?? server.entry.source}`,
 				})),
-			empty: `No MCP servers configured. Add them to ${resolve(getAgentDir(), "mcp.json")} or .pi/mcp.json.`,
+			empty: `No MCP servers configured. Add them to ${resolve(getAgentDir(), "mcp.json")} or .jeff/mcp.json.`,
 			confirmLabel: "manage",
 			cancelLabel: "close",
 		});
@@ -861,7 +861,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 
 		const formatStatus = (): string => {
 			if (servers.length === 0 && configErrors.length === 0 && overridden.length === 0) {
-				return `No MCP servers configured. Add them to ${resolve(getAgentDir(), "mcp.json")} or .pi/mcp.json.`;
+				return `No MCP servers configured. Add them to ${resolve(getAgentDir(), "mcp.json")} or .jeff/mcp.json.`;
 			}
 			const lines = servers.map((server) => {
 				const { name } = server.entry;
@@ -1013,7 +1013,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 			}
 		};
 
-		// Every prompt lists the servers in the `mcp_servers` section as they are when it starts. Pi
+		// Every prompt lists the servers in the `mcp_servers` section as they are when it starts. Jeff-Code
 		// appends the section to the conversation when it changed, for example after a server connected.
 		pi.on("before_agent_start", async (event, ctx) => {
 			await waitForDirectServers(ctx);
@@ -1044,7 +1044,7 @@ export function createMcpExtension(options: McpExtensionOptions = {}): Extension
 			await waitForServers(waiting, ctx.signal);
 		});
 
-		// Pick up sign-ins done outside the session, such as `pi mcp login` run by the agent.
+		// Pick up sign-ins done outside the session, such as `jeff mcp login` run by the agent.
 		pi.on("turn_start", async (_event, ctx) => {
 			if (tokensAtSignIn.size > 0) await reconnectSignedIn(ctx);
 		});

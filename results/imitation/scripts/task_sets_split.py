@@ -23,7 +23,7 @@ Rules, in order:
     its dataset's held-out count stays at or below the target (HELD_OUT_FRACTION of the dataset); the rest train.
  6. Exclusions, applied after the draw:
     - a training-side task in a group with a frozen evaluation task (or its twin) is excluded ("near evaluation task")
-    - a task that needs Model Context Protocol (MCP) tools is excluded on both sides: the pi harness gives the model
+    - a task that needs Model Context Protocol (MCP) tools is excluded on both sides: the Jeff-Code harness gives the model
       only a bash tool, so the task cannot be solved as intended
     - a training-side task that needs a GPU is excluded (the casdgx01 GPUs serve the models)
 Output: task-sets.json.
@@ -147,14 +147,14 @@ TRAIN_NEAR = {
 }
 
 # Training-side tasks a bash-only model cannot do (read by hand on 2026-10-04 from the pinned hub versions): the
-# instruction asks the model to look at an image. pi gives the model only a bash tool, which cannot show it one.
+# instruction asks the model to look at an image. Jeff-Code gives the model only a bash tool, which cannot show it one.
 BASH_ONLY_UNABLE = {
-    ("harbor-index-1.0", "hle-dirac-fermion-tunneling"): "needs to see an image (/app/image.png); pi gives the model only bash",
-    ("harbor-index-1.0", "hle-identify-city-from-photo"): "needs to see an image (/app/image.png); pi gives the model only bash",
-    ("harbor-index-1.0", "hle-identify-ingvar-runestone"): "needs to see an image (/app/image.png); pi gives the model only bash",
-    ("harbor-index-1.0", "hle-name-alkaloid-compound"): "needs to see an image (/app/image.gif); pi gives the model only bash",
-    ("harbor-index-1.0", "hle-vowel-marking-system"): "needs to see an image (/app/image.jpg); pi gives the model only bash",
-    ("terminal-bench", "cad-model"): "needs to see an image (the 2D schematic /app/schematic.png); pi gives the model only bash",
+    ("harbor-index-1.0", "hle-dirac-fermion-tunneling"): "needs to see an image (/app/image.png); Jeff-Code gives the model only bash",
+    ("harbor-index-1.0", "hle-identify-city-from-photo"): "needs to see an image (/app/image.png); Jeff-Code gives the model only bash",
+    ("harbor-index-1.0", "hle-identify-ingvar-runestone"): "needs to see an image (/app/image.png); Jeff-Code gives the model only bash",
+    ("harbor-index-1.0", "hle-name-alkaloid-compound"): "needs to see an image (/app/image.gif); Jeff-Code gives the model only bash",
+    ("harbor-index-1.0", "hle-vowel-marking-system"): "needs to see an image (/app/image.jpg); Jeff-Code gives the model only bash",
+    ("terminal-bench", "cad-model"): "needs to see an image (the 2D schematic /app/schematic.png); Jeff-Code gives the model only bash",
 }
 
 # Harbor hub package of each dataset folder, pinned to the version the folders were downloaded from on 2026-10-04
@@ -332,7 +332,7 @@ def main() -> None:
         r = by_key[k]
         g = group_of(k)
         if r["mcp_servers"]:
-            excluded[k] = "needs MCP tools (pi gives the model only bash)"
+            excluded[k] = "needs MCP tools (Jeff-Code gives the model only bash)"
             continue
         if k[0] in WHOLE_HELD_OUT and train_members(g):
             excluded[k] = (

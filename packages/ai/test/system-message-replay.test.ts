@@ -73,13 +73,13 @@ describe("system message replay", () => {
 				{
 					role: "system",
 					content: "",
-					sections: { preamble: "You are pi." },
+					sections: { preamble: "You are Jeff-Code." },
 					toolsAdded: [tool("x")],
 					timestamp: 2,
 				},
 			],
 		});
-		expect(getCurrentSystemPrompt(context.messages)).toBe("You are pi.");
+		expect(getCurrentSystemPrompt(context.messages)).toBe("You are Jeff-Code.");
 		expect(collapseSystemMessages(context).messages[0]).toMatchObject({ role: "system", toolsAdded: [tool("x")] });
 	});
 

@@ -12,8 +12,8 @@
           "path": "quickstart.md"
         },
         {
-          "title": "How Pi Works",
-          "path": "how-pi-works.md"
+          "title": "How Jeff-Code Works",
+          "path": "how-jeff-code-works.md"
         }
       ]
     },
@@ -21,10 +21,10 @@
       "title": "Guides",
       "items": [
         {
-          "title": "Run Pi",
+          "title": "Run Jeff-Code",
           "items": [
             {
-              "title": "Use Pi in the Terminal",
+              "title": "Use Jeff-Code in the Terminal",
               "path": "usage.md"
             },
             {
@@ -36,11 +36,11 @@
               "path": "sessions.md"
             },
             {
-              "title": "Run Pi Safely",
+              "title": "Run Jeff-Code Safely",
               "path": "security.md"
             },
             {
-              "title": "Isolate Pi",
+              "title": "Isolate Jeff-Code",
               "path": "containerization.md"
             },
             {
@@ -56,24 +56,24 @@
               "path": "shell-aliases.md"
             },
             {
-              "title": "Run Pi in tmux",
+              "title": "Run Jeff-Code in tmux",
               "path": "tmux.md"
             },
             {
-              "title": "Run Pi on Windows",
+              "title": "Run Jeff-Code on Windows",
               "path": "windows.md"
             },
             {
-              "title": "Run Pi on Android",
+              "title": "Run Jeff-Code on Android",
               "path": "termux.md"
             }
           ]
         },
         {
-          "title": "Customize Pi",
+          "title": "Customize Jeff-Code",
           "items": [
             {
-              "title": "Configure Pi",
+              "title": "Configure Jeff-Code",
               "path": "configuration.md"
             },
             {
@@ -89,7 +89,7 @@
               "path": "themes.md"
             },
             {
-              "title": "Use Pi Packages",
+              "title": "Use Jeff-Code Packages",
               "path": "packages.md"
             },
             {
@@ -99,7 +99,7 @@
           ]
         },
         {
-          "title": "Build on Pi",
+          "title": "Build on Jeff-Code",
           "items": [
             {
               "title": "Build Extensions",

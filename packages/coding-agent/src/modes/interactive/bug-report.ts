@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { Container, EditorComponent, TUI } from "@earendil-works/pi-tui";
+import type { Container, EditorComponent, TUI } from "@jeffhub/jeff-code-tui";
 import { getAuthCredential } from "../../cli/auth-command.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
 import {
@@ -42,7 +42,7 @@ interface BugReportOptions {
 type Overlay = Container & { dispose?: () => void };
 
 const DISCLAIMER =
-	"This report goes to the Pi developers (Earendil) and is not shared publicly. It includes your pi version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session.";
+	"This report goes to Earendil, the developers of pi (the agent Jeff-Code is built on), and is not shared publicly. It includes your Jeff-Code version, operating system, the current model and provider configuration (without API keys), loaded extensions, settings, and provider error diagnostics from this session.";
 const TRANSCRIPT_NOTE =
 	"The transcript contains your messages, model output, tool calls and their results, including file contents and command output read during this session.";
 
@@ -53,7 +53,7 @@ export async function reportBug(context: BugReportContext, initialHint?: string)
 		context.showStatus("Bug report cancelled");
 		return;
 	}
-	if (options.delivery === "upload" && process.env.PI_OFFLINE) {
+	if (options.delivery === "upload" && process.env.JEFF_OFFLINE) {
 		context.showError("Uploading bug reports requires online mode. Use Export as Zip instead.");
 		return;
 	}

@@ -91,7 +91,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The server root: pi's llama.cpp models use the OpenAI-compatible `/v1` URL as their base URL. */
+/** The server root: Jeff-Code's llama.cpp models use the OpenAI-compatible `/v1` URL as their base URL. */
 export function llamaServerRoot(baseUrl: string): string {
 	return baseUrl.replace(/\/+$/u, "").replace(/\/v1$/u, "");
 }

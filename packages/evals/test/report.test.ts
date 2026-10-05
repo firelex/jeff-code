@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EvalTask } from "../src/plan.ts";
-import { classifyCaseStatus, PI_SESSION_SNAPSHOT_ARTIFACT, readTaskObservation } from "../src/report.ts";
+import { classifyCaseStatus, JEFF_SESSION_SNAPSHOT_ARTIFACT, readTaskObservation } from "../src/report.ts";
 
 const temporaryDirectories: string[] = [];
 afterEach(async () => {
@@ -90,7 +90,7 @@ function scoredMeta(overrides?: {
 					metadata: { cacheReadTokens: 2, cacheWriteTokens: 3, estimatedCostUsd: 0.01 },
 				},
 				timings: { totalMs: 1234 },
-				artifacts: overrides?.artifacts ?? { runId: "run-1", [PI_SESSION_SNAPSHOT_ARTIFACT]: SESSION },
+				artifacts: overrides?.artifacts ?? { runId: "run-1", [JEFF_SESSION_SNAPSHOT_ARTIFACT]: SESSION },
 				errors: overrides?.errors ?? [],
 			},
 		},

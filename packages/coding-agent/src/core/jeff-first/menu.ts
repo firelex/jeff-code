@@ -1,5 +1,5 @@
 import { basename, dirname, resolve } from "node:path";
-import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
+import type { JsonObject, JsonValue } from "@jeffhub/jeff-code-ai";
 import { type FileFacts, stringsIn } from "./facts.ts";
 import type { Step } from "./transcript.ts";
 import { hasKnownFileExtension } from "./virtual-facts.ts";

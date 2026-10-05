@@ -5,8 +5,8 @@
  * When --ssh is provided, read/write/edit/bash run on the remote.
  *
  * Usage:
- *   pi -e ./ssh.ts --ssh user@host
- *   pi -e ./ssh.ts --ssh user@host:/remote/path
+ *   jeff -e ./ssh.ts --ssh user@host
+ *   jeff -e ./ssh.ts --ssh user@host:/remote/path
  *
  * Requirements:
  *   - SSH key-based auth (no password prompts)
@@ -14,7 +14,7 @@
  */
 
 import { spawn } from "node:child_process";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@jeffhub/jeff-code";
 import {
 	type BashOperations,
 	createBashTool,
@@ -24,7 +24,7 @@ import {
 	type EditOperations,
 	type ReadOperations,
 	type WriteOperations,
-} from "@earendil-works/pi-coding-agent";
+} from "@jeffhub/jeff-code";
 
 function sshExec(remote: string, command: string): Promise<Buffer> {
 	return new Promise((resolve, reject) => {

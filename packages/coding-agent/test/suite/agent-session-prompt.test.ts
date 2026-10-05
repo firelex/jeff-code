@@ -1,8 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
+import type { AgentTool } from "@jeffhub/jeff-code-agent-core";
+import { fauxAssistantMessage, fauxToolCall, type Model } from "@jeffhub/jeff-code-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, InputEvent } from "../../src/core/extensions/index.ts";

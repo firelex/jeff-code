@@ -2,7 +2,7 @@
 
 sparkgate (~/jeff-finetunes/sparkgate.py on datigator) is a Python library: every job that sends requests to the
 Spark holds one machine-wide slot per request, so all jobs together stay under the limit in ~/.spark-slots/limit.
-pi runs in Node inside Docker containers and cannot take those slots itself. This server takes them on its behalf:
+Jeff-Code runs in Node inside Docker containers and cannot take those slots itself. This server takes them on its behalf:
 each request first waits for one of this job's own slots (the cap in ~/.spark-slots/cap-<job>), then for a
 machine-wide sparkgate slot, then goes to the Spark, and the answer is streamed back. The slot is held until the
 answer has been fully sent.

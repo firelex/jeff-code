@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { getDocsPath, getExamplesPath, getReadmePath } from "@earendil-works/pi-coding-agent";
+import { getDocsPath, getExamplesPath, getReadmePath } from "@jeffhub/jeff-code";
 import { describe, expect, it, vi } from "vitest";
 import { buildSystemPrompt } from "../../coding-agent/src/core/system-prompt.ts";
 import {
@@ -17,19 +17,21 @@ describe("resolveModelSelection", () => {
 		expect(
 			resolveModelSelection(
 				{ provider: "anthropic", id: "claude-opus-4-6" },
-				{ PI_PROVIDER: "openai-codex", PI_MODEL: "gpt-5.6-sol" },
+				{ JEFF_PROVIDER: "openai-codex", JEFF_MODEL: "gpt-5.6-sol" },
 			),
 		).toEqual({ provider: "anthropic", id: "claude-opus-4-6" });
 	});
 
 	it("uses trimmed environment defaults", () => {
-		expect(resolveModelSelection(undefined, { PI_PROVIDER: " openai-codex ", PI_MODEL: " gpt-5.6-sol " })).toEqual({
+		expect(
+			resolveModelSelection(undefined, { JEFF_PROVIDER: " openai-codex ", JEFF_MODEL: " gpt-5.6-sol " }),
+		).toEqual({
 			provider: "openai-codex",
 			id: "gpt-5.6-sol",
 		});
 	});
 
-	it.each([{}, { PI_PROVIDER: "openai-codex" }, { PI_MODEL: "gpt-5.6-sol" }])(
+	it.each([{}, { JEFF_PROVIDER: "openai-codex" }, { JEFF_MODEL: "gpt-5.6-sol" }])(
 		"rejects incomplete model selection",
 		(environment) => {
 			expect(() => resolveModelSelection(undefined, environment)).toThrow("Select a harness model explicitly");
@@ -39,21 +41,21 @@ describe("resolveModelSelection", () => {
 
 describe("isolateProcessEnvironment", () => {
 	it("removes runner metadata and restores the process environment", () => {
-		vi.stubEnv("PI_EVAL_VARIANT", "with_docs");
-		vi.stubEnv("PI_EVAL_ARTIFACT_DIR", "/tmp/artifacts");
+		vi.stubEnv("JEFF_EVAL_VARIANT", "with_docs");
+		vi.stubEnv("JEFF_EVAL_ARTIFACT_DIR", "/tmp/artifacts");
 		const oldHome = process.env.HOME;
 		try {
 			const restore = applyIsolatedEnvironment("/tmp/eval-home", "/tmp/eval-agent");
 			try {
 				expect(homedir()).toBe("/tmp/eval-home");
-				expect(process.env.PI_CODING_AGENT_DIR).toBe("/tmp/eval-agent");
-				expect(process.env.PI_EVAL_VARIANT).toBeUndefined();
-				expect(process.env.PI_EVAL_ARTIFACT_DIR).toBeUndefined();
+				expect(process.env.JEFF_CODING_AGENT_DIR).toBe("/tmp/eval-agent");
+				expect(process.env.JEFF_EVAL_VARIANT).toBeUndefined();
+				expect(process.env.JEFF_EVAL_ARTIFACT_DIR).toBeUndefined();
 			} finally {
 				restore();
 			}
 			expect(process.env.HOME).toBe(oldHome);
-			expect(process.env.PI_EVAL_VARIANT).toBe("with_docs");
+			expect(process.env.JEFF_EVAL_VARIANT).toBe("with_docs");
 		} finally {
 			vi.unstubAllEnvs();
 		}
@@ -66,15 +68,15 @@ describe("documentation variant", () => {
 	});
 
 	it.each([undefined, "", "other"])("rejects invalid variant %s", (variant) => {
-		expect(() => resolveDocumentationVariant(variant)).toThrow("PI_EVAL_VARIANT");
+		expect(() => resolveDocumentationVariant(variant)).toThrow("JEFF_EVAL_VARIANT");
 	});
 
-	it("strips only the documentation routing section from the default Pi prompt", () => {
+	it("strips only the documentation routing section from the default Jeff-Code prompt", () => {
 		const prompt = buildSystemPrompt({
 			cwd: "/workspace",
 			selectedTools: [...DOCUMENTATION_EVAL_TOOLS],
 		});
-		expect(prompt).toContain("\n<docs>\nPi documentation (read only");
+		expect(prompt).toContain("\n<docs>\nJeff-Code documentation (read only");
 		expect(prompt).toContain("\n<rules>\n");
 		expect(prompt).toContain("\n<cwd>\n/workspace\n</cwd>");
 		expect(prompt).toContain("docs/models.md");
@@ -83,7 +85,7 @@ describe("documentation variant", () => {
 		expect(stripped).toContain("\n<rules>\n");
 		expect(stripped).toContain("\n<cwd>\n/workspace\n</cwd>");
 		expect(stripped).not.toContain("<docs>");
-		expect(stripped).not.toContain("Pi documentation");
+		expect(stripped).not.toContain("Jeff-Code documentation");
 		expect(stripped).not.toContain("docs/models.md");
 		expect(stripped).not.toContain(getReadmePath());
 		expect(stripped).not.toContain(getDocsPath());
@@ -104,8 +106,8 @@ describe("documentation variant", () => {
 	});
 
 	it("fails closed when prompt markers are missing", () => {
-		expect(() => excludePiDocumentation("Instructions")).toThrow("no Pi documentation section");
-		expect(() => excludePiDocumentation("\n<docs>\nPi documentation\n</docs>")).toThrow(
+		expect(() => excludePiDocumentation("Instructions")).toThrow("no Jeff-Code documentation section");
+		expect(() => excludePiDocumentation("\n<docs>\nJeff-Code documentation\n</docs>")).toThrow(
 			"no working-directory section",
 		);
 	});

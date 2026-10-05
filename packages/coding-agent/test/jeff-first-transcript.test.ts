@@ -1,4 +1,4 @@
-import type { AssistantMessage, Message, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, ToolResultMessage } from "@jeffhub/jeff-code-ai";
 import { describe, expect, it } from "vitest";
 import { JEFF_PROVIDER } from "../src/core/jeff-first/provider.ts";
 import { activeToolNames, collectSteps, taskText } from "../src/core/jeff-first/transcript.ts";

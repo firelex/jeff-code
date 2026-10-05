@@ -1,11 +1,11 @@
 """A pass-through server in front of the GLM endpoint that adds the real API key and limits requests at once.
 
-pi runs inside each task's Docker container, so any key it holds can be printed by the model (GLM once ran `env`
+Jeff-Code runs inside each task's Docker container, so any key it holds can be printed by the model (GLM once ran `env`
 and its key ended up in the traces). The containers therefore send "unused" as their key; this server, running on
 datigator, replaces the Authorization header with the real key, read from the environment variable GLM_API_KEY.
 At most --cap requests are sent at once; the rest wait here.
 
-Only the two calls pi and the teacher make are relayed: POST /v1/chat/completions and GET /v1/models. Every other
+Only the two calls Jeff-Code and the teacher make are relayed: POST /v1/chat/completions and GET /v1/models. Every other
 path answers 404 and never reaches the endpoint, so a container cannot use the real key for anything else (for example
 to read the key's own details). A request whose answer stalls for more than 300 seconds fails with status 502, so a
 hung GLM request cannot hold one of the --cap slots forever.

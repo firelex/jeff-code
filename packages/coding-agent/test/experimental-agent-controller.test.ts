@@ -1,7 +1,7 @@
-import { createFacetHost, defineFacet } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { InboxState, LiveState } from "@earendil-works/pi-durable";
+import { fauxAssistantMessage } from "@jeffhub/jeff-code-ai";
+import { createFacetHost, defineFacet } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
+import type { InboxState, LiveState } from "@jeffhub/jeff-code-durable";
 import { describe, expect, test } from "vitest";
 import { AgentController } from "../src/experimental/services/agent-controller.ts";
 import { createAgentController } from "../src/experimental/services/agent-controller-provider.ts";

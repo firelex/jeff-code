@@ -1,32 +1,32 @@
-# Pi
+# Jeff-Code
 
-Pi is an extensible AI agent that works from your terminal. Give it a goal and a working folder, and it can inspect files, run commands, edit content, and work through multi-step tasks.
+Jeff-Code is an extensible AI agent that works from your terminal. Give it a goal and a working folder, and it can inspect files, run commands, edit content, and work through multi-step tasks.
 
-Use Pi for software development, research notes, writing projects, data files, or hobby work. You can use Pi as is, prompt it to adapt itself to your workflow, or build other applications powered by Pi using the SDK.
+Use Jeff-Code for software development, research notes, writing projects, data files, or hobby work. You can use Jeff-Code as is, prompt it to adapt itself to your workflow, or build other applications powered by Jeff-Code using the SDK.
 
-## Start using Pi
+## Start using Jeff-Code
 
-New to Pi? Follow the [Quickstart](quickstart.md) to install Pi, connect a model, and complete your first task.
+New to Jeff-Code? Follow the [Quickstart](quickstart.md) to install Jeff-Code, connect a model, and complete your first task.
 
-If Pi is already installed, choose what you want to do:
+If Jeff-Code is already installed, choose what you want to do:
 
-- [Use Pi interactively](usage.md) to add files, run commands, direct ongoing work, and export results.
+- [Use Jeff-Code interactively](usage.md) to add files, run commands, direct ongoing work, and export results.
 - [Choose a model](models.md) or connect a subscription, API key, local model, or compatible endpoint.
 - [Continue or branch a session](sessions.md) to resume work or explore another approach without losing history.
-- [Configure Pi](configuration.md) for your preferences, working folders, instructions, and reusable resources.
-- [Understand how Pi works](how-pi-works.md), including tools, context, sessions, and the agent loop.
+- [Configure Jeff-Code](configuration.md) for your preferences, working folders, instructions, and reusable resources.
+- [Understand how Jeff-Code works](how-jeff-code-works.md), including tools, context, sessions, and the agent loop.
 
-## Customize Pi
+## Customize Jeff-Code
 
-Pi can reuse prompts, load specialized instructions, add executable integrations, change its terminal interface, connect model services, and distribute these resources as packages.
-Use the [Quickstart customization chooser](quickstart.md#choose-how-to-customize-pi) to select the smallest mechanism that meets your need.
+Jeff-Code can reuse prompts, load specialized instructions, add executable integrations, change its terminal interface, connect model services, and distribute these resources as packages.
+Use the [Quickstart customization chooser](quickstart.md#choose-how-to-customize-jeff-code) to select the smallest mechanism that meets your need.
 
-## Automate or embed Pi
+## Automate or embed Jeff-Code
 
 - Use [print mode](cli.md#invocation-and-output) for one-off and scripted tasks.
 - Use [JSON event stream mode](json.md) to consume structured events from one run.
-- Use [RPC mode](rpc.md) to control a separate Pi process.
-- Use the [TypeScript SDK](sdk.md) to run Pi inside an application.
+- Use [RPC mode](rpc.md) to control a separate Jeff-Code process.
+- Use the [TypeScript SDK](sdk.md) to run Jeff-Code inside an application.
 
 ## Find reference and setup information
 
@@ -36,4 +36,4 @@ For platform-specific help, see [Terminal Setup](terminal-setup.md), [Windows](w
 
 ## Work safely
 
-Pi's tools and extensions run with the permissions of the Pi process. Project trust controls which project resources Pi loads, but it does not sandbox tool calls. Review [Security](security.md) before using untrusted files, repositories, extensions, or unattended automation.
+Jeff-Code's tools and extensions run with the permissions of the Jeff-Code process. Project trust controls which project resources Jeff-Code loads, but it does not sandbox tool calls. Review [Security](security.md) before using untrusted files, repositories, extensions, or unattended automation.

@@ -2,10 +2,10 @@
  * Working Indicator Extension
  *
  * Demonstrates `ctx.ui.setWorkingIndicator()` for customizing the inline
- * working indicator shown while pi is streaming a response.
+ * working indicator shown while Jeff-Code is streaming a response.
  *
  * Usage:
- *   pi --extension examples/extensions/working-indicator.ts
+ *   jeff --extension examples/extensions/working-indicator.ts
  *
  * Commands:
  *   /working-indicator           Show current mode
@@ -13,10 +13,10 @@
  *   /working-indicator pulse     Use a custom animated indicator
  *   /working-indicator none      Hide the indicator entirely
  *   /working-indicator spinner   Restore an animated spinner
- *   /working-indicator reset     Restore pi's default spinner
+ *   /working-indicator reset     Restore Jeff-Code's default spinner
  */
 
-import type { ExtensionAPI, ExtensionContext, WorkingIndicatorOptions } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, WorkingIndicatorOptions } from "@jeffhub/jeff-code";
 
 type WorkingIndicatorMode = "dot" | "none" | "pulse" | "spinner" | "default";
 
@@ -79,7 +79,7 @@ function describeMode(mode: WorkingIndicatorMode): string {
 		case "spinner":
 			return "custom spinner";
 		case "default":
-			return "pi default spinner";
+			return "Jeff-Code default spinner";
 	}
 }
 

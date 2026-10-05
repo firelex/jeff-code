@@ -5,7 +5,7 @@
  * when thinking blocks are hidden.
  *
  * Usage:
- *   pi --extension examples/extensions/hidden-thinking-label.ts
+ *   jeff --extension examples/extensions/hidden-thinking-label.ts
  *
  * Test:
  *   1. Load this extension
@@ -18,7 +18,7 @@
  *   /thinking-label          Reset to the default label
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@jeffhub/jeff-code";
 
 const DEFAULT_LABEL = "Pondering...";
 

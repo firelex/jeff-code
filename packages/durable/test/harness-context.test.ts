@@ -1,5 +1,5 @@
-import type { Message } from "@earendil-works/pi-ai";
-import { type EntryDraft, type EntryId, type EntryRecord, MemoryStorage } from "@earendil-works/pi-durable";
+import type { Message } from "@jeffhub/jeff-code-ai";
+import { type EntryDraft, type EntryId, type EntryRecord, MemoryStorage } from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { assistant, describeMessage, openHarness, system, toolResult, user } from "./harness-support.ts";
 import { context } from "./session-support.ts";

@@ -1,9 +1,9 @@
-# @earendil-works/pi-client
+# @jeffhub/jeff-code-client
 
-Transport-neutral client for the experimental Pi service protocol.
+Transport-neutral client for the experimental Jeff-Code service protocol.
 
 ```ts
-import { Client, type ByteTransportFactory } from "@earendil-works/pi-client";
+import { Client, type ByteTransportFactory } from "@jeffhub/jeff-code-client";
 
 const transportFactory: ByteTransportFactory = async (handlers) => {
   // Connect using WebSocket, Unix socket, or another ordered byte transport.
@@ -48,12 +48,12 @@ A transport factory creates a fresh authenticated connection for each attempt. R
 Node.js and Bun consumers can use the separate Unix transport:
 
 ```ts
-import { Client } from "@earendil-works/pi-client";
-import { createUnixTransportFactory } from "@earendil-works/pi-client/unix";
+import { Client } from "@jeffhub/jeff-code-client";
+import { createUnixTransportFactory } from "@jeffhub/jeff-code-client/unix";
 
 const client = new Client({
   serverId: "01234567-89ab-4def-8123-456789abcdef",
-  transportFactory: createUnixTransportFactory({ path: "/tmp/pi.sock" }),
+  transportFactory: createUnixTransportFactory({ path: "/tmp/jeff-code.sock" }),
 });
 await client.connect();
 ```
@@ -61,10 +61,10 @@ await client.connect();
 Unix discovery scans an explicit physical-route directory, derives each expected server ID from its filename, and verifies it through the existing handshake:
 
 ```ts
-import { discoverUnixServers } from "@earendil-works/pi-client/unix";
+import { discoverUnixServers } from "@jeffhub/jeff-code-client/unix";
 
-const routes = await discoverUnixServers({ directory: "/run/user/1000/pi" });
-// [{ serverId: "...", path: "/run/user/1000/pi/<serverId>.sock" }]
+const routes = await discoverUnixServers({ directory: "/run/user/1000/jeff-code" });
+// [{ serverId: "...", path: "/run/user/1000/jeff-code/<serverId>.sock" }]
 ```
 
 Malformed entries, non-sockets, stale or unresponsive endpoints, and server-ID mismatches are ignored. Discovery is read-only and probes at most 16 sockets concurrently. Unexpected filesystem and socket errors reject discovery. Pass `timeoutMs` to override the default probe timeout.

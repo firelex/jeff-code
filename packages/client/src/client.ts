@@ -15,8 +15,8 @@ import {
 	type ServiceProviderUpdate,
 	type ServiceStateDecoder,
 	type ServiceSubscriptionSnapshot,
-} from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+} from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	type AttachmentEnvelope,
 	encodeClientMessage,
@@ -27,7 +27,7 @@ import {
 	type ServerHello,
 	type ServiceEventEnvelope,
 	type SessionTarget,
-} from "@earendil-works/pi-protocol";
+} from "@jeffhub/jeff-code-protocol";
 import { Connection } from "./connection.ts";
 import { ClientDisposedError, DisconnectedError, ServerError, toError } from "./errors.ts";
 import { createPromiseResolvers } from "./promise.ts";

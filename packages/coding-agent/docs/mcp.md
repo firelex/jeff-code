@@ -1,35 +1,35 @@
 # MCP Servers
 
-Pi connects to [Model Context Protocol](https://modelcontextprotocol.io) servers over stdio or streamable HTTP and makes their tools and resources available to the model.
+Jeff-Code connects to [Model Context Protocol](https://modelcontextprotocol.io) servers over stdio or streamable HTTP and makes their tools and resources available to the model.
 
 ## Quick setup
 
-Add a local stdio server, check the connection, then start Pi:
+Add a local stdio server, check the connection, then start Jeff-Code:
 
 ```bash
-pi mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .
-pi mcp list
-pi
+jeff mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .
+jeff mcp list
+jeff
 ```
 
 For a remote server:
 
 ```bash
-pi mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
-pi mcp list
+jeff mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
+jeff mcp list
 ```
 
 These commands add user-level servers by default. Add `--local` or `-l` to write the project configuration instead:
 
 ```bash
-pi mcp add -l tools --env API_KEY='${TOOLS_KEY}' -- uvx tools-mcp
+jeff mcp add -l tools --env API_KEY='${TOOLS_KEY}' -- uvx tools-mcp
 ```
 
 Use `/mcp` inside an interactive session to inspect connections, sign in, reconnect, change exposure, or enable and disable servers. Run `/reload` after adding, removing, or changing a server outside the session.
 
 ## Configure servers
 
-Pi reads user-level servers from `~/.pi/agent/mcp.json` and project servers from `.pi/mcp.json`. Project configuration is read only after [project trust](security.md#understand-project-trust) is granted. A project entry replaces a user-level entry with the same name.
+Jeff-Code reads user-level servers from `~/.jeff/agent/mcp.json` and project servers from `.jeff/mcp.json`. Project configuration is read only after [project trust](security.md#understand-project-trust) is granted. A project entry replaces a user-level entry with the same name.
 
 The format matches other MCP clients:
 
@@ -71,7 +71,7 @@ Keep personal servers and servers with credentials in the user-level file. Use t
 - `env` and `headers` values can use environment variables such as `${GITHUB_TOKEN}`. They can also run a command with `!command`, but the command must make up the whole value, for example `"Authorization": "!echo Bearer $(gh auth token)"`.
 - Invalid entries are reported and skipped without preventing other servers from connecting.
 
-`pi mcp add` and `pi mcp remove` cover common changes from a shell. See [MCP commands](cli.md#mcp-commands) for their options.
+`jeff mcp add` and `jeff mcp remove` cover common changes from a shell. See [MCP commands](cli.md#mcp-commands) for their options.
 
 ### Inspect or change a server
 
@@ -79,21 +79,21 @@ Keep personal servers and servers with credentials in the user-level file. Use t
 
 Exposure and enabled-state changes are saved to the file that defines the server without replacing unrelated content. Disabled servers remain listed. Outside the interactive TUI, `/mcp` prints server status; `/mcp login <server>`, `/mcp logout <server>`, and `/mcp reconnect <server>` perform those actions directly.
 
-Shell commands work without a session: `pi mcp add`, `pi mcp remove`, `pi mcp list`, `pi mcp login`, and `pi mcp logout`. Shell commands do not load extensions.
+Shell commands work without a session: `jeff mcp add`, `jeff mcp remove`, `jeff mcp list`, `jeff mcp login`, and `jeff mcp logout`. Shell commands do not load extensions.
 
 ### Diagnose connection problems
 
-Run `pi mcp list` to connect to every enabled server and print its state, tools, and errors. It exits with status 1 when an entry is invalid or an enabled server is not connected. `/mcp` shows the full connection error and the tail of stderr from a failed stdio server.
+Run `jeff mcp list` to connect to every enabled server and print its state, tools, and errors. It exits with status 1 when an entry is invalid or an enabled server is not connected. `/mcp` shows the full connection error and the tail of stderr from a failed stdio server.
 
-Pi reports configuration errors, failed connections, and required sign-ins once after startup. Server logging notifications are appended to `~/.pi/agent/mcp.log` as `<time> [<server>] <level> <logger>: <message>`. The file moves to `mcp.log.1` after it grows past 5 MB.
+Jeff-Code reports configuration errors, failed connections, and required sign-ins once after startup. Server logging notifications are appended to `~/.jeff/agent/mcp.log` as `<time> [<server>] <level> <logger>: <message>`. The file moves to `mcp.log.1` after it grows past 5 MB.
 
-Pi connects every enabled server in the background when a session starts. A server's tools appear once it connects; the `codemode` description does not list them, so it does not change when servers connect. The first prompt waits up to 10 seconds only for servers with `direct` tools, which must be declared in its request. Other servers are waited for when they are needed: a codemode script waits for the servers it names (`mcp__<server>`) and, when it calls `searchTools()` or reads `ALL_TOOLS`, for all of them; `tool_search` and the resource tools also wait for all of them. HTTP network errors and transient statuses (408, 429, and 5xx) are retried twice. A dropped connection is shown as disconnected and reconnects on the next call. When a server announces a changed tool list, new tools are added and withdrawn tools become unreachable.
+Jeff-Code connects every enabled server in the background when a session starts. A server's tools appear once it connects; the `codemode` description does not list them, so it does not change when servers connect. The first prompt waits up to 10 seconds only for servers with `direct` tools, which must be declared in its request. Other servers are waited for when they are needed: a codemode script waits for the servers it names (`mcp__<server>`) and, when it calls `searchTools()` or reads `ALL_TOOLS`, for all of them; `tool_search` and the resource tools also wait for all of them. HTTP network errors and transient statuses (408, 429, and 5xx) are retried twice. A dropped connection is shown as disconnected and reconnects on the next call. When a server announces a changed tool list, new tools are added and withdrawn tools become unreachable.
 
 Stopping a stdio server closes its stdin, sends SIGTERM, then sends SIGKILL to its process group. This also stops servers launched through wrappers such as `npx` or `uvx`.
 
 ## Migrate configuration from another client
 
-Move the converted entry under `mcpServers` in `mcp.json`, then run `pi mcp list` to validate it.
+Move the converted entry under `mcpServers` in `mcp.json`, then run `jeff mcp list` to validate it.
 
 | Client | Conversion |
 |---|---|
@@ -114,9 +114,9 @@ Remote servers that use OAuth, such as Sentry, need no credentials in `mcp.json`
 }
 ```
 
-When the server rejects an unauthenticated connection, `/mcp` shows that it needs sign-in. Select "Sign in", run `/mcp login sentry`, or run `pi mcp login sentry`. Pi opens the authorization page and waits for approval. If the browser runs on another machine, such as over SSH, paste its redirected URL into the sign-in screen. A running session uses the new credentials on its next turn.
+When the server rejects an unauthenticated connection, `/mcp` shows that it needs sign-in. Select "Sign in", run `/mcp login sentry`, or run `jeff mcp login sentry`. Jeff-Code opens the authorization page and waits for approval. If the browser runs on another machine, such as over SSH, paste its redirected URL into the sign-in screen. A running session uses the new credentials on its next turn.
 
-Pi registers itself with the authorization server, stores tokens in `~/.pi/agent/mcp-auth.json`, and refreshes access tokens when they expire or the server rejects them. If a server later requests additional scope, Pi asks for sign-in again. Signing out deletes the stored credentials.
+Jeff-Code registers itself with the authorization server, stores tokens in `~/.jeff/agent/mcp-auth.json`, and refreshes access tokens when they expire or the server rejects them. If a server later requests additional scope, Jeff-Code asks for sign-in again. Signing out deletes the stored credentials.
 
 Credentials belong to a server name and URL. Servers with the same URL under different names, such as one per account, sign in separately; servers with the same name and URL in different `mcp.json` files share one sign-in.
 
@@ -133,11 +133,11 @@ OAuth applies to HTTP servers without an `Authorization` header. For a server th
 }
 ```
 
-The redirect URI must match the registered URI. `callbackPort` uses `http://127.0.0.1:<port>/callback`. To use another URI, set `callbackUrl`; it must use HTTP on `localhost`, `127.0.0.1`, or `[::1]`. Pi sends it exactly as written. When `callbackUrl` omits a port, Pi uses `callbackPort` or a free port and adds it to the URI, as allowed for loopback redirects by RFC 8252. `clientSecret` is optional and can use an environment variable or command.
+The redirect URI must match the registered URI. `callbackPort` uses `http://127.0.0.1:<port>/callback`. To use another URI, set `callbackUrl`; it must use HTTP on `localhost`, `127.0.0.1`, or `[::1]`. Jeff-Code sends it exactly as written. When `callbackUrl` omits a port, Jeff-Code uses `callbackPort` or a free port and adds it to the URI, as allowed for loopback redirects by RFC 8252. `clientSecret` is optional and can use an environment variable or command.
 
-Set `scope` to a space-separated list for servers that do not advertise their required scopes. Otherwise, Pi requests the advertised scopes. Later scope requests are added to the configured value.
+Set `scope` to a space-separated list for servers that do not advertise their required scopes. Otherwise, Jeff-Code requests the advertised scopes. Later scope requests are added to the configured value.
 
-Pi registers as `pi`. Some servers only accept registrations from known clients. Set `clientName` to send another name:
+Jeff-Code registers as `jeff`. Some servers only accept registrations from known clients. Set `clientName` to send another name:
 
 ```json
 {
@@ -147,9 +147,9 @@ Pi registers as `pi`. Some servers only accept registrations from known clients.
 }
 ```
 
-The name is only sent when Pi registers a client. To register again under a new name, sign out first.
+The name is only sent when Jeff-Code registers a client. To register again under a new name, sign out first.
 
-Pi finds the authorization server through the server's protected resource metadata (RFC 9728) and checks that the authorization server's metadata names the expected issuer (RFC 8414). Some servers advertise the wrong authorization server or none, so sign-in opens a page that does not exist. Set `authServerMetadataUrl` to the metadata document of the right authorization server:
+Jeff-Code finds the authorization server through the server's protected resource metadata (RFC 9728) and checks that the authorization server's metadata names the expected issuer (RFC 8414). Some servers advertise the wrong authorization server or none, so sign-in opens a page that does not exist. Set `authServerMetadataUrl` to the metadata document of the right authorization server:
 
 ```json
 {
@@ -162,7 +162,7 @@ Pi finds the authorization server through the server's protected resource metada
 }
 ```
 
-Pi uses that document instead of discovery and trusts it as configured, so only point it at a document you trust. The URL must use HTTPS, except on `localhost`, `127.0.0.1`, or `[::1]`.
+Jeff-Code uses that document instead of discovery and trusts it as configured, so only point it at a document you trust. The URL must use HTTPS, except on `localhost`, `127.0.0.1`, or `[::1]`.
 
 ## Control tool exposure
 
@@ -177,9 +177,9 @@ Each server tool is registered as `mcp__<server>__<tool>`. The server's `exposur
 
 `codemode-deferred` is accepted as an alias for `codemode`.
 
-Servers with `codemode` or `deferred` tools are listed in the `mcp_servers` section of the system prompt, with how their tools are reached and one line from the configured `description` or, once connected, from the server instructions. Pi updates the section when a prompt starts, after waiting for servers with `direct` tools. When it changed, for example because a server connected and its summary became available, Pi appends the new section to the conversation instead of changing tool declarations, so earlier messages stay cached. `describeNamespace()` and the `namespace` option of `searchTools()` accept `mcp__dev-radius`, `mcp__dev_radius`, `dev-radius`, or `dev_radius`.
+Servers with `codemode` or `deferred` tools are listed in the `mcp_servers` section of the system prompt, with how their tools are reached and one line from the configured `description` or, once connected, from the server instructions. Jeff-Code updates the section when a prompt starts, after waiting for servers with `direct` tools. When it changed, for example because a server connected and its summary became available, Jeff-Code appends the new section to the conversation instead of changing tool declarations, so earlier messages stay cached. `describeNamespace()` and the `namespace` option of `searchTools()` accept `mcp__dev-radius`, `mcp__dev_radius`, `dev-radius`, or `dev_radius`.
 
-Pi activates `codemode` when a server with `codemode` exposure connects. It activates `tool_search` for a server with `deferred` exposure. To make the model see a tool without searching, give it `direct` exposure with `toolExposure`.
+Jeff-Code activates `codemode` when a server with `codemode` exposure connects. It activates `tool_search` for a server with `deferred` exposure. To make the model see a tool without searching, give it `direct` exposure with `toolExposure`.
 
 `toolExposure` overrides the server exposure for individual tools. Keys are exact server tool names or patterns where `*` matches any characters. Exact names win over patterns; among patterns, the first match wins. A server with `hidden` exposure can expose only selected tools:
 
@@ -199,11 +199,11 @@ Pi activates `codemode` when a server with `codemode` exposure connects. It acti
 }
 ```
 
-`pi mcp list` marks tools whose exposure differs from their server. The Tools view in `/mcp` also shows the effective exposure.
+`jeff mcp list` marks tools whose exposure differs from their server. The Tools view in `/mcp` also shows the effective exposure.
 
 Tools with `codemode` or `deferred` exposure can be reached through either indirect mechanism: codemode scripts can call them, and `tool_search` can load them. Codemode calls do not depend on the active tool set, so they remain available after `/tree`, resume, and fork. Tools loaded by `tool_search` are recorded in the transcript and remain declared on that branch.
 
-To keep `codemode` active without MCP servers, add `"defaultTools": ["+codemode"]` to [settings](settings.md#tools). To prevent automatic codemode activation, set `"autoEnableCodemode": false` beside `mcpServers`. A project value overrides the user-level value. Pi warns once when neither `codemode` nor `tool_search` is active and non-direct tools cannot be called.
+To keep `codemode` active without MCP servers, add `"defaultTools": ["+codemode"]` to [settings](settings.md#tools). To prevent automatic codemode activation, set `"autoEnableCodemode": false` beside `mcpServers`. A project value overrides the user-level value. Jeff-Code warns once when neither `codemode` nor `tool_search` is active and non-direct tools cannot be called.
 
 Text results over 20 KB reach the model with their middle removed around a `…N chars truncated…` marker. The full text is saved to a temporary file named in the result. Codemode scripts receive the complete result and can reduce it before returning output to the model.
 
@@ -211,7 +211,7 @@ Codemode scripts receive the complete MCP `CallToolResult`, including `content`,
 
 ## Use resources
 
-When a connected server offers [resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources), Pi adds the resource tools used by Codex and OpenCode:
+When a connected server offers [resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources), Jeff-Code adds the resource tools used by Codex and OpenCode:
 
 - `list_mcp_resources` lists resources as JSON: `{ server?, resources: [{ server, uri, name, ... }], nextCursor? }`. With `server`, it lists one page; `cursor` continues with the next page. Without `server`, it lists every resource from every server.
 - `list_mcp_resource_templates` lists URI templates for resources the servers do not list directly.
@@ -219,13 +219,13 @@ When a connected server offers [resources](https://modelcontextprotocol.io/speci
 
 These tools reach every enabled, non-hidden server with resources. Their exposure is the widest exposure among those servers: `direct`, then `codemode` or `deferred`. Resource links in tool results identify `read_mcp_resource` and the server.
 
-Resources for MCP Apps, identified by `ui://` URIs or `text/html;profile=mcp-app`, are omitted because Pi does not render them. Resource icons are also omitted.
+Resources for MCP Apps, identified by `ui://` URIs or `text/html;profile=mcp-app`, are omitted because Jeff-Code does not render them. Resource icons are also omitted.
 
 Reading and listing resources is retried once after a transient HTTP error (408, 429, or 5xx). Tool calls are not retried because the server may already have performed them.
 
 ## Permissions
 
-Every MCP call passes through Pi's tool pipeline. Extension `tool_call` and `tool_result` handlers, including permission gates, therefore apply to MCP tools. Calls made from codemode scripts carry the codemode call ID as `parentToolCallId`.
+Every MCP call passes through Jeff-Code's tool pipeline. Extension `tool_call` and `tool_result` handlers, including permission gates, therefore apply to MCP tools. Calls made from codemode scripts carry the codemode call ID as `parentToolCallId`.
 
 `pi.getAllTools()` reports the annotations declared by each server: `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`. Permission extensions can use these hints to decide which calls require confirmation (see [Tool exposure](extensions.md#tool-exposure)). Resource tools are marked read-only.
 
@@ -235,13 +235,13 @@ Every MCP call passes through Pi's tool pipeline. Extension `tool_call` and `too
 
 Extensions can add servers for the current session with `pi.registerMcpServer(name, config)`, using the same shape as an `mcpServers` entry (see [MCP servers in extensions](extensions.md#mcp-servers)). Registered servers connect like configured servers and appear in `/mcp` with the extension as their source.
 
-Changes to enabled state or exposure apply only to the current session. A file-configured server with the same name takes precedence, and `/mcp` lists the overridden registration. `pi mcp` shell commands do not load extensions and only see file-configured servers.
+Changes to enabled state or exposure apply only to the current session. A file-configured server with the same name takes precedence, and `/mcp` lists the overridden registration. `jeff mcp` shell commands do not load extensions and only see file-configured servers.
 
 ### Replace the built-in MCP support
 
-An installed extension that registers `/mcp`, such as `pi-mcp-adapter`, replaces the built-in MCP support for sessions. Pi then does not read `mcp.json` or connect its servers in a session, and `/mcp` belongs to the extension. Remove the extension to restore the built-in behavior. To disable built-in MCP support without a replacement, disable `mcp` under Built-in in `pi config`, or set `"extensions": ["-builtin:mcp"]` in [settings](settings.md#resources).
+An installed extension that registers `/mcp`, such as `pi-mcp-adapter`, replaces the built-in MCP support for sessions. Jeff-Code then does not read `mcp.json` or connect its servers in a session, and `/mcp` belongs to the extension. Remove the extension to restore the built-in behavior. To disable built-in MCP support without a replacement, disable `mcp` under Built-in in `jeff config`, or set `"extensions": ["-builtin:mcp"]` in [settings](settings.md#resources).
 
-An extension that registers `codemode` or `tool_search` similarly replaces the built-in tool with that name. Shell-level `pi mcp` commands always use the built-in implementation.
+An extension that registers `codemode` or `tool_search` similarly replaces the built-in tool with that name. Shell-level `jeff mcp` commands always use the built-in implementation.
 
 ### Use MCP from the SDK
 

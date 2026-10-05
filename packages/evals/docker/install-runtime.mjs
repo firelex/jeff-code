@@ -31,7 +31,7 @@ execFileSync(
 );
 
 for (const packageName of tarballs.keys()) {
-	if (packageName === "@earendil-works/pi-coding-agent") continue;
+	if (packageName === "@jeffhub/jeff-code") continue;
 	const packageDirectory = join(installDirectory, "node_modules", ...packageName.split("/"));
 	if (!existsSync(packageDirectory)) continue;
 	for (const entry of readdirSync(packageDirectory, { withFileTypes: true })) {

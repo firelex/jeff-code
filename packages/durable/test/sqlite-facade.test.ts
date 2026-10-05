@@ -1,5 +1,5 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { describe, expect, it } from "vitest";
 import { StorageRejected } from "../src/errors.ts";
 import { idFromNumber } from "../src/ids.ts";

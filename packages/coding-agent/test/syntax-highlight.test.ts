@@ -1,4 +1,4 @@
-import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
+import { resetCapabilitiesCache, setCapabilities } from "@jeffhub/jeff-code-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { highlightCode, initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import {

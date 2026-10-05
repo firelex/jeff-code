@@ -72,7 +72,7 @@ if (versions.length !== 1) {
 	throw new Error(`Publish packages are not lockstep versioned: ${versions.join(", ")}`);
 }
 
-console.log(`Publishing pi packages at ${versions[0]}${dryRun ? " (dry run)" : ""}\n`);
+console.log(`Publishing Jeff-Code packages at ${versions[0]}${dryRun ? " (dry run)" : ""}\n`);
 
 const packageStates = packages.map((pkg) => ({
 	...pkg,

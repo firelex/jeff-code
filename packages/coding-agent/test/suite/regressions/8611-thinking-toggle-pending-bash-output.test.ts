@@ -1,4 +1,4 @@
-import { Container, type TUI } from "@earendil-works/pi-tui";
+import { Container, type TUI } from "@jeffhub/jeff-code-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { ToolExecutionComponent } from "../../../src/modes/interactive/components/tool-execution.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";

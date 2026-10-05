@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	STORAGE_MEMORY_SCALES,
 	STORAGE_READ_BENCHMARKS,
 	type StorageBenchmarkScale,
 	seedStorageBenchmark,
 	storageBenchmarkPrimaryRecordCount,
-} from "@earendil-works/pi-durable/testing";
+} from "@jeffhub/jeff-code-durable/testing";
 import { openNodeJsonlStorage } from "../src/storage/jsonl/node.ts";
 import { MemoryStorage } from "../src/storage/memory.ts";
 import { openNodeSqliteStorage } from "../src/storage/sqlite/node.ts";

@@ -9,9 +9,9 @@ import {
 	parseServiceProviderUpdate,
 	type ServiceCall,
 	type ServiceProviderUpdate,
-} from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT, TODO_CONTEXT } from "@earendil-works/chord/context";
-import { type RoutedSessionAttachment, type RoutedSessionHandle, ServerError } from "@earendil-works/pi-server";
+} from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT, TODO_CONTEXT } from "@jeffhub/jeff-code-chord/context";
+import { type RoutedSessionAttachment, type RoutedSessionHandle, ServerError } from "@jeffhub/jeff-code-server";
 import { Check } from "typebox/value";
 import type { CoordinatorConnection, CoordinatorConnectionEvent } from "./coordinator.ts";
 import { spawnInternalProcess } from "./process.ts";

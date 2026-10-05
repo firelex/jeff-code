@@ -5,7 +5,7 @@ import { renderState } from "./teacher-prompt.ts";
 
 /**
  * How hard the coding model (Qwen) thinks in one request. "off" sends no thinking at all; "low", "medium" and "xhigh"
- * are the three reasoning efforts Qwen's chat template accepts (pi's thinking levels low, medium and xhigh map to
+ * are the three reasoning efforts Qwen's chat template accepts (Jeff-Code's thinking levels low, medium and xhigh map to
  * them; see the qwen-chat-template format in packages/ai).
  */
 export type QwenThinkingLevel = "off" | "low" | "medium" | "xhigh";

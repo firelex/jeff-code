@@ -2,15 +2,15 @@
  * Extension runner - executes extensions and manages their lifecycle.
  */
 
-import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@jeffhub/jeff-code-agent-core";
 import {
 	getCurrentSystemMessage,
 	type ImageContent,
 	type Model,
 	type Provider,
 	type ProviderHeaders,
-} from "@earendil-works/pi-ai";
-import type { KeyId } from "@earendil-works/pi-tui";
+} from "@jeffhub/jeff-code-ai";
+import type { KeyId } from "@jeffhub/jeff-code-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import type { CacheWarmingAction } from "../cache-warmer.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
@@ -275,7 +275,7 @@ function sameMessages(left: AgentMessage[], right: AgentMessage[]): boolean {
 
 /**
  * Re-attach the prompt and tool state after a `context` handler. Handlers only see the
- * conversation; the system messages belong to Pi. An unchanged conversation keeps every
+ * conversation; the system messages belong to Jeff-Code. An unchanged conversation keeps every
  * system message in place, so models with mid-conversation support keep their cached
  * prefix. A changed one gets the replayed prompt sections and tool declarations as one
  * leading system message, so pruning, windowing, or slicing from a compaction summary
@@ -1283,7 +1283,7 @@ export class ExtensionRunner {
 
 	/**
 	 * Run the request-time transforms in two phases. `context` handlers see the conversation
-	 * only and Pi restores the prompt and tool state after each; `context_with_system`
+	 * only and Jeff-Code restores the prompt and tool state after each; `context_with_system`
 	 * handlers then see the full transcript and their output is used as returned.
 	 */
 	async emitContext(messages: AgentMessage[]): Promise<AgentMessage[]> {

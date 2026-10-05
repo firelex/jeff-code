@@ -2,11 +2,11 @@
  * Custom Header Extension
  *
  * Demonstrates ctx.ui.setHeader() for replacing the built-in header
- * (logo + keybinding hints) with a custom component showing the pi mascot.
+ * (logo + keybinding hints) with a custom component showing the pi mascot (from upstream pi).
  */
 
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { VERSION } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@jeffhub/jeff-code";
+import { VERSION } from "@jeffhub/jeff-code";
 
 // --- PI MASCOT ---
 // Based on pi_mascot.ts - the pi agent character

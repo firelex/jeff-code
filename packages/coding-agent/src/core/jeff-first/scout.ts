@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@jeffhub/jeff-code-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -8,7 +8,7 @@ import {
 	createAssistantMessageEventStream,
 	type Message,
 	type Model,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { detectCheckCommands } from "./check-commands.ts";
 import type { Choice, Chooser } from "./chooser.ts";
 import type { RunApproval } from "./config.ts";
@@ -225,7 +225,7 @@ export function createScoutStreamFn(options: ScoutOptions): StreamFn {
 			}
 			options.trace.append(record);
 		} catch (error) {
-			// Not a fallback: the turn ends here, as an error the agent loop shows and pi does not retry.
+			// Not a fallback: the turn ends here, as an error the agent loop shows and Jeff-Code does not retry.
 			return errorStream(
 				model,
 				`${JEFF_FIRST_ERROR_PREFIX} the scout could not decide at decision ${thisDecision}: ${describeError(error)}`,

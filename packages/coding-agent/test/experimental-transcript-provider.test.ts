@@ -1,7 +1,7 @@
-import { createFacetHost, defineFacet } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { ConversationView } from "@earendil-works/pi-durable";
+import { fauxAssistantMessage } from "@jeffhub/jeff-code-ai";
+import { createFacetHost, defineFacet } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
+import type { ConversationView } from "@jeffhub/jeff-code-durable";
 import { describe, expect, test } from "vitest";
 import { Transcript } from "../src/experimental/services/transcript.ts";
 import { createTranscriptServiceFacet } from "../src/experimental/services/transcript-provider.ts";

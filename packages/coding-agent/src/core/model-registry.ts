@@ -24,7 +24,7 @@ import type {
 	ModelTypeMap,
 	Provider,
 	ProviderHeaders,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import type { ModelRuntime } from "./model-runtime.ts";
 import type { AuthStatus, ProviderConfigInput } from "./provider-composer.ts";
 import type { VirtualModelDefinition } from "./virtual-models.ts";

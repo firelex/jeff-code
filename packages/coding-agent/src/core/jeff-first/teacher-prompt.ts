@@ -1,4 +1,4 @@
-import type { JsonObject } from "@earendil-works/pi-ai";
+import type { JsonObject } from "@jeffhub/jeff-code-ai";
 import type { ToolOption } from "./lists.ts";
 import type { JeffState } from "./state.ts";
 

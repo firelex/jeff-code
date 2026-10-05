@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Context, JsonValue, ServiceCall, ServiceProviderUpdate } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { RpcTarget, SessionTarget } from "@earendil-works/pi-protocol";
+import type { Context, JsonValue, ServiceCall, ServiceProviderUpdate } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
+import type { RpcTarget, SessionTarget } from "@jeffhub/jeff-code-protocol";
 import { ServerDrainingError, SessionNotAttachedError } from "./errors.ts";
 import type { RoutedSessionAttachment, RoutedSessionHandle, ServerHost, SessionMetadata } from "./types.ts";
 

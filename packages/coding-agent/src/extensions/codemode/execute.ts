@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool, AgentToolCallOutcome, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolCallOutcome, AgentToolResult } from "@jeffhub/jeff-code-agent-core";
 import type {
 	AnyModel,
 	ClassifierContext,
@@ -17,7 +17,7 @@ import type {
 	ModelTypeMap,
 	TextContent,
 	Usage,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import {
 	type CodemodeResult,
 	CodemodeSandbox,
@@ -26,7 +26,7 @@ import {
 	parseCodemodeSource,
 	renderToolSample,
 	toCodemodeIdentifier,
-} from "@earendil-works/pi-codemode";
+} from "@jeffhub/jeff-code-codemode";
 import { getCodemodeWorkerSpecifier, getQuickJSWasmPath } from "../../config.ts";
 import type { ExtensionToolContext, ToolNamespace } from "../../core/extensions/types.ts";
 import type { SessionEntry } from "../../core/session-manager.ts";
@@ -50,7 +50,7 @@ const ERROR_PREVIEW_CHARS = 500;
 /** `models.classify()` and `models.generateImages()` calls one script may have in flight; `Promise.all` over many items queues the rest. */
 const MAX_CONCURRENT_MODEL_CALLS = 4;
 /**
- * Heap limit for the QuickJS VM. The worker shares pi's process, so without a limit a runaway
+ * Heap limit for the QuickJS VM. The worker shares Jeff-Code's process, so without a limit a runaway
  * script can grow to wasm32's 4 GiB and take the session down. Overruns throw
  * `InternalError: out of memory` inside the script.
  */
@@ -408,7 +408,7 @@ export async function executeCodemode(
 		if (Object.keys(set).length > 0 || deleted.length > 0) {
 			options.appendEntry?.(CODEMODE_STORE_ENTRY_TYPE, { set, delete: deleted });
 		}
-		// pi extension: a returned value is appended like text().
+		// Jeff-Code extension: a returned value is appended like text().
 		if (result.value !== undefined) items.push({ type: "text", text: valueText(result.value) });
 	} else {
 		items.push({ type: "text", text: `Script error:\n${formatError(result, calls)}` });

@@ -1,13 +1,13 @@
-# @earendil-works/pi-codemode
+# @jeffhub/jeff-code-codemode
 
 Runs model-written JavaScript in a QuickJS VM (compiled to WebAssembly) where the only capability is calling injected tools. Nested tool calls never enter the LLM context; only the script's output and return value do.
 
-Scripts use `tools`, `ALL_TOOLS`, `text`, `image`, `exit`, `store`, and `load`, and may start with a `// @options:` line. The coding agent uses it for its built-in `codemode` tool. It has no pi dependencies and can be used on its own to expose any functions (remote APIs, MCP servers, application services) to model-written scripts.
+Scripts use `tools`, `ALL_TOOLS`, `text`, `image`, `exit`, `store`, and `load`, and may start with a `// @options:` line. The coding agent uses it for its built-in `codemode` tool. It has no other Jeff-Code dependencies and can be used on its own to expose any functions (remote APIs, MCP servers, application services) to model-written scripts.
 
 ## Usage
 
 ```ts
-import { CodemodeSandbox } from "@earendil-works/pi-codemode";
+import { CodemodeSandbox } from "@jeffhub/jeff-code-codemode";
 
 const sandbox = new CodemodeSandbox({
 	timeoutMs: 60_000,
@@ -29,7 +29,7 @@ const result = await sandbox.execute(`
 `);
 
 console.log(result.output); // [{ type: "text", text: "bytes 1234" }]
-if (result.ok) console.log(result.value); // "@earendil-works/pi-codemode"
+if (result.ok) console.log(result.value); // "@jeffhub/jeff-code-codemode"
 else console.error(result.error.kind, result.error.message);
 
 await sandbox.close();
@@ -74,20 +74,20 @@ const source = await tools.read({ path: "package.json" });
 text(JSON.parse(source).name);
 ```
 
-Supported fields are `max_output_tokens`, a token budget for the output, and `timeout_ms`, a hard deadline. The sandbox does not act on them; the caller decides. The options line is replaced by an empty line, so line numbers in stack traces still match the input. Empty input, invalid JSON, unknown fields, or an options line without code throw `CodemodeSourceError`. `CODEMODE_SOURCE_GRAMMAR` is a Lark grammar for providers that support grammar-constrained tool input. Both are also available from the lightweight `@earendil-works/pi-codemode/source` entry.
+Supported fields are `max_output_tokens`, a token budget for the output, and `timeout_ms`, a hard deadline. The sandbox does not act on them; the caller decides. The options line is replaced by an empty line, so line numbers in stack traces still match the input. Empty input, invalid JSON, unknown fields, or an options line without code throw `CodemodeSourceError`. `CODEMODE_SOURCE_GRAMMAR` is a Lark grammar for providers that support grammar-constrained tool input. Both are also available from the lightweight `@jeffhub/jeff-code-codemode/source` entry.
 
 ## Bundled hosts
 
 By default the sandbox loads `quickjs-wasi/quickjs.wasm` from the installed package and starts the worker file that sits next to this package's module. Neither exists on disk when the host is bundled, so pass both:
 
 ```ts
-import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
+import { CodemodeSandbox, loadQuickJSWasm } from "@jeffhub/jeff-code-codemode";
 
 const sandbox = new CodemodeSandbox({
 	tools,
 	// Compiled once per path and cached.
 	wasm: loadQuickJSWasm(pathToQuickJSWasm),
-	// A file of your build containing `import "@earendil-works/pi-codemode/worker";`
+	// A file of your build containing `import "@jeffhub/jeff-code-codemode/worker";`
 	workerUrl: new URL("./codemode-worker.js", import.meta.url),
 });
 ```
@@ -112,18 +112,18 @@ renderDeclarations({ tools: sandbox.tools, globals: sandbox.globals });
 
 Schemas only shape the declarations; values are not validated against them. Local references (`#/$defs/...`, `#/definitions/...`) are expanded; recursive and remote references render as `unknown`.
 
-## Using with pi-agent-core
+## Using with jeff-code-agent-core
 
 To give an `Agent` a codemode tool, expose its other tools to the sandbox and wrap `execute()` as an `AgentTool`:
 
 ```ts
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@jeffhub/jeff-code-agent-core";
 import {
 	type CodemodeJsonSchema,
 	CodemodeSandbox,
 	type CodemodeTool,
 	renderDeclarations,
-} from "@earendil-works/pi-codemode";
+} from "@jeffhub/jeff-code-codemode";
 import { Type } from "typebox";
 
 const sandboxTools: CodemodeTool[] = agentTools.map((tool) => ({
@@ -158,7 +158,7 @@ const codemodeTool: AgentTool = {
 };
 ```
 
-`result.output` items already have the shape of `@earendil-works/pi-ai`'s `TextContent` and `ImageContent`. Calling `tool.execute()` directly skips the agent's `beforeToolCall` and `afterToolCall` hooks. To apply them to nested calls too, run each call through `runToolCall()` from `@earendil-works/pi-agent-core`, as the [mcp-codemode example](https://github.com/earendil-works/pi/tree/main/packages/agent/examples/mcp-codemode) does. That example also rejects failed nested calls inside the script and combines codemode with MCP tools.
+`result.output` items already have the shape of `@jeffhub/jeff-code-ai`'s `TextContent` and `ImageContent`. Calling `tool.execute()` directly skips the agent's `beforeToolCall` and `afterToolCall` hooks. To apply them to nested calls too, run each call through `runToolCall()` from `@jeffhub/jeff-code-agent-core`, as the [mcp-codemode example](https://github.com/firelex/jeff-code/tree/main/packages/agent/examples/mcp-codemode) does. That example also rejects failed nested calls inside the script and combines codemode with MCP tools.
 
 ## Results
 

@@ -1,6 +1,6 @@
 /**
  * Shortening a new tool output before the coding model sees it: keep only its last lines, its first lines, or its
- * first and last lines, with a note in pi's own truncation form (the bash tool's "[Showing lines X-Y of Z. Full
+ * first and last lines, with a note in Jeff-Code's own truncation form (the bash tool's "[Showing lines X-Y of Z. Full
  * output: PATH]") saying how many lines are not shown. Only a NEW output is shortened, before it enters the session, so
  * the server's cached prompt (the old history) stays valid.
  *
@@ -39,31 +39,31 @@ export const TRIM_OPTIONS: Record<TrimChoice, string> = {
 		"Only its first 20 and its last 20 lines, with a note between them saying how many lines are not shown.",
 };
 
-/** The trimming question for an output of `lines` lines (its full length, before any shortening by pi). */
+/** The trimming question for an output of `lines` lines (its full length, before any shortening by Jeff-Code). */
 export function trimQuestion(lines: number): string {
 	return TRIM_QUESTION_TEMPLATE.replace("{lines}", String(lines));
 }
 
-/** A tool output split into what the command printed, pi's truncation note about it, and pi's exit status line. */
+/** A tool output split into what the command printed, Jeff-Code's truncation note about it, and Jeff-Code's exit status line. */
 export interface ParsedOutput {
-	/** The printed lines shown (pi's line counting: a final newline ends the last line, it does not start one). */
+	/** The printed lines shown (Jeff-Code's line counting: a final newline ends the last line, it does not start one). */
 	lines: string[];
 	/** The number of the last shown line in the command's whole output (the first is lastLine - lines.length + 1). */
 	lastLine: number;
 	/** The number of lines of the command's whole output. */
 	totalLines: number;
-	/** Where pi saved the whole output when it cut it itself, else null. */
+	/** Where Jeff-Code saved the whole output when it cut it itself, else null. */
 	fullOutputPath: string | null;
-	/** pi's status line after the output ("Command exited with code 1", ...), else null. */
+	/** Jeff-Code's status line after the output ("Command exited with code 1", ...), else null. */
 	status: string | null;
-	/** true when pi showed only the end of one very long line: nothing more to cut by lines. */
+	/** true when Jeff-Code showed only the end of one very long line: nothing more to cut by lines. */
 	partialLine: boolean;
 }
 
 const STATUS =
 	/(?:^|\n\n)(Command exited with code -?\d+|Command timed out after [^\n]+ seconds|Command aborted|Command terminated without an exit code)$/;
-const PI_NOTE = /\n\n\[Showing lines (\d+)-(\d+) of (\d+)(?: \([^)\n]*\))?\. Full output: ([^\n\]]*)\]$/;
-const PI_PARTIAL_NOTE = /\n\n\[Showing last [^\n]*\]$/;
+const JEFF_NOTE = /\n\n\[Showing lines (\d+)-(\d+) of (\d+)(?: \([^)\n]*\))?\. Full output: ([^\n\]]*)\]$/;
+const JEFF_PARTIAL_NOTE = /\n\n\[Showing last [^\n]*\]$/;
 
 function splitLines(text: string): string[] {
 	if (text.length === 0) return [];
@@ -80,7 +80,7 @@ export function parseToolOutput(text: string): ParsedOutput {
 		status = statusMatch[1];
 		body = body.slice(0, statusMatch.index);
 	}
-	const partial = PI_PARTIAL_NOTE.exec(body);
+	const partial = JEFF_PARTIAL_NOTE.exec(body);
 	if (partial) {
 		const lines = splitLines(body.slice(0, partial.index));
 		return {
@@ -92,7 +92,7 @@ export function parseToolOutput(text: string): ParsedOutput {
 			partialLine: true,
 		};
 	}
-	const note = PI_NOTE.exec(body);
+	const note = JEFF_NOTE.exec(body);
 	if (note) {
 		const lines = splitLines(body.slice(0, note.index));
 		return {
@@ -124,12 +124,12 @@ function notShown(earlier: number, later: number): string {
 }
 
 /**
- * The output cut to the lines `cut` keeps, with a note in pi's truncation form:
+ * The output cut to the lines `cut` keeps, with a note in Jeff-Code's truncation form:
  * - last N lines: "[Showing lines 61-100 of 100. 60 earlier lines not shown.]" after them;
  * - first N lines: "[Showing lines 1-40 of 100. 60 later lines not shown.]" after them;
  * - first and last lines: "[Showing lines 1-20 and 81-100 of 100. 60 lines in between not shown.]" between them.
- * Line numbers count in the command's whole output; when pi had already cut the output and saved it, its
- * " Full output: PATH" ends the note. pi's status line stays last. undefined when the cut keeps every shown line.
+ * Line numbers count in the command's whole output; when Jeff-Code had already cut the output and saved it, its
+ * " Full output: PATH" ends the note. Jeff-Code's status line stays last. undefined when the cut keeps every shown line.
  */
 export function trimToolOutput(text: string, cut: TrimCut): string | undefined {
 	const parsed = parseToolOutput(text);

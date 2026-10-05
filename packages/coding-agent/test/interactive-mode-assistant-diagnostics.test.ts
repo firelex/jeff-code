@@ -1,5 +1,5 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Container } from "@earendil-works/pi-tui";
+import type { AssistantMessage } from "@jeffhub/jeff-code-ai";
+import { Container } from "@jeffhub/jeff-code-tui";
 import { describe, expect, test } from "vitest";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";

@@ -1,20 +1,20 @@
 {
-	"name": "@earendil-works/pi-coding-agent",
+	"name": "@jeffhub/jeff-code",
 	"version": "0.99.2",
 	"lockfileVersion": 3,
 	"requires": true,
 	"packages": {
 		"": {
-			"name": "@earendil-works/pi-coding-agent",
+			"name": "@jeffhub/jeff-code",
 			"version": "0.99.2",
 			"license": "MIT",
 			"dependencies": {
-				"@earendil-works/chord": "^0.99.2",
-				"@earendil-works/pi-agent-core": "^0.99.2",
-				"@earendil-works/pi-ai": "^0.99.2",
-				"@earendil-works/pi-codemode": "^0.99.2",
-				"@earendil-works/pi-mcp": "^0.99.2",
-				"@earendil-works/pi-tui": "^0.99.2",
+				"@jeffhub/jeff-code-chord": "^0.99.2",
+				"@jeffhub/jeff-code-agent-core": "^0.99.2",
+				"@jeffhub/jeff-code-ai": "^0.99.2",
+				"@jeffhub/jeff-code-codemode": "^0.99.2",
+				"@jeffhub/jeff-code-mcp": "^0.99.2",
+				"@jeffhub/jeff-code-tui": "^0.99.2",
 				"@silvia-odwyer/photon-node": "0.3.4",
 				"chalk": "6.0.0",
 				"cross-spawn": "7.0.6",
@@ -33,7 +33,7 @@
 				"yaml": "2.9.0"
 			},
 			"bin": {
-				"pi": "dist/bundle/cli.js"
+				"jeff": "dist/bundle/cli.js"
 			},
 			"engines": {
 				"node": ">=22.19.0"
@@ -408,154 +408,6 @@
 			"license": "MIT",
 			"engines": {
 				"node": ">=6.9.0"
-			}
-		},
-		"node_modules/@earendil-works/chord": {
-			"version": "0.99.2",
-			"resolved": "https://registry.npmjs.org/@earendil-works/chord/-/chord-0.99.2.tgz",
-			"license": "MIT",
-			"dependencies": {
-				"esbuild": "0.28.2"
-			},
-			"engines": {
-				"node": ">=22.19.0"
-			}
-		},
-		"node_modules/@earendil-works/pi-agent-core": {
-			"version": "0.99.2",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-0.99.2.tgz",
-			"license": "MIT",
-			"dependencies": {
-				"@earendil-works/pi-ai": "^0.99.2",
-				"typebox": "1.3.27"
-			},
-			"engines": {
-				"node": ">=22.19.0"
-			}
-		},
-		"node_modules/@earendil-works/pi-ai": {
-			"version": "0.99.2",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.99.2.tgz",
-			"license": "MIT",
-			"dependencies": {
-				"@anthropic-ai/sdk": "0.124.0",
-				"@aws-sdk/client-bedrock-runtime": "3.1127.0",
-				"@earendil-works/pi-telemetry": "^0.99.2",
-				"@google/genai": "2.21.0",
-				"@smithy/node-http-handler": "4.12.1",
-				"http-proxy-agent": "9.1.0",
-				"https-proxy-agent": "9.1.0",
-				"openai": "7.19.0",
-				"partial-json": "0.1.7",
-				"typebox": "1.3.27"
-			},
-			"bin": {
-				"pi-ai": "dist/cli.js"
-			},
-			"engines": {
-				"node": ">=22.19.0"
-			}
-		},
-		"node_modules/@earendil-works/pi-ai/node_modules/agent-base": {
-			"version": "9.0.0",
-			"resolved": "https://registry.npmjs.org/agent-base/-/agent-base-9.0.0.tgz",
-			"integrity": "sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA==",
-			"license": "MIT",
-			"engines": {
-				"node": ">= 20"
-			}
-		},
-		"node_modules/@earendil-works/pi-ai/node_modules/https-proxy-agent": {
-			"version": "9.1.0",
-			"resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-9.1.0.tgz",
-			"integrity": "sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA==",
-			"license": "MIT",
-			"dependencies": {
-				"agent-base": "9.0.0",
-				"debug": "^4.3.4",
-				"proxy-agent-negotiate": "1.1.0"
-			},
-			"engines": {
-				"node": ">= 20"
-			}
-		},
-		"node_modules/@earendil-works/pi-ai/node_modules/openai": {
-			"version": "7.19.0",
-			"resolved": "https://registry.npmjs.org/openai/-/openai-7.19.0.tgz",
-			"integrity": "sha512-MX2s3u2L5racTO0CC/SWpCOasJQBCJrqLKXK+l82cAhdeF8mPMBEe/gxMm0ZFa2xpKpOFLRjxv5afYEZbBXmbQ==",
-			"license": "Apache-2.0",
-			"peerDependencies": {
-				"@aws-sdk/credential-provider-node": ">=3.972.0 <4",
-				"@smithy/hash-node": ">=4.3.0 <5",
-				"@smithy/signature-v4": ">=5.4.0 <6",
-				"undici": ">=5 <9",
-				"ws": "^8.21.0",
-				"zod": "^3.25 || ^4.0"
-			},
-			"peerDependenciesMeta": {
-				"@aws-sdk/credential-provider-node": {
-					"optional": true
-				},
-				"@smithy/hash-node": {
-					"optional": true
-				},
-				"@smithy/signature-v4": {
-					"optional": true
-				},
-				"undici": {
-					"optional": true
-				},
-				"ws": {
-					"optional": true
-				},
-				"zod": {
-					"optional": true
-				}
-			},
-			"engines": {
-				"node": ">=22.0.0"
-			}
-		},
-		"node_modules/@earendil-works/pi-codemode": {
-			"version": "0.99.2",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-codemode/-/pi-codemode-0.99.2.tgz",
-			"license": "MIT",
-			"dependencies": {
-				"quickjs-wasi": "3.6.2"
-			},
-			"engines": {
-				"node": ">=22.19.0"
-			}
-		},
-		"node_modules/@earendil-works/pi-mcp": {
-			"version": "0.99.2",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-mcp/-/pi-mcp-0.99.2.tgz",
-			"license": "MIT",
-			"dependencies": {
-				"cross-spawn": "7.0.6"
-			},
-			"engines": {
-				"node": ">=22.19.0"
-			}
-		},
-		"node_modules/@earendil-works/pi-telemetry": {
-			"version": "0.99.2",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-telemetry/-/pi-telemetry-0.99.2.tgz",
-			"license": "MIT",
-			"engines": {
-				"node": ">=22.19.0"
-			}
-		},
-		"node_modules/@earendil-works/pi-tui": {
-			"version": "0.99.2",
-			"resolved": "https://registry.npmjs.org/@earendil-works/pi-tui/-/pi-tui-0.99.2.tgz",
-			"license": "MIT",
-			"dependencies": {
-				"get-east-asian-width": "1.6.0",
-				"marked": "18.0.11"
-			},
-			"engines": {
-				"node": ">=22.19.0"
 			}
 		},
 		"node_modules/@esbuild/aix-ppc64": {
@@ -997,6 +849,154 @@
 				"node": ">=20.0.0"
 			},
 			"hasInstallScript": true
+		},
+		"node_modules/@jeffhub/jeff-code-agent-core": {
+			"version": "0.99.2",
+			"resolved": "https://registry.npmjs.org/@jeffhub/jeff-code-agent-core/-/jeff-code-agent-core-0.99.2.tgz",
+			"license": "MIT",
+			"dependencies": {
+				"@jeffhub/jeff-code-ai": "^0.99.2",
+				"typebox": "1.3.27"
+			},
+			"engines": {
+				"node": ">=22.19.0"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-ai": {
+			"version": "0.99.2",
+			"resolved": "https://registry.npmjs.org/@jeffhub/jeff-code-ai/-/jeff-code-ai-0.99.2.tgz",
+			"license": "MIT",
+			"dependencies": {
+				"@anthropic-ai/sdk": "0.124.0",
+				"@aws-sdk/client-bedrock-runtime": "3.1127.0",
+				"@jeffhub/jeff-code-telemetry": "^0.99.2",
+				"@google/genai": "2.21.0",
+				"@smithy/node-http-handler": "4.12.1",
+				"http-proxy-agent": "9.1.0",
+				"https-proxy-agent": "9.1.0",
+				"openai": "7.19.0",
+				"partial-json": "0.1.7",
+				"typebox": "1.3.27"
+			},
+			"bin": {
+				"jeff-code-ai": "dist/cli.js"
+			},
+			"engines": {
+				"node": ">=22.19.0"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-ai/node_modules/agent-base": {
+			"version": "9.0.0",
+			"resolved": "https://registry.npmjs.org/agent-base/-/agent-base-9.0.0.tgz",
+			"integrity": "sha512-TQf59BsZnytt8GdJKLPfUZ54g/iaUL2OWDSFCCvMOhsHduDQxO8xC4PNeyIkVcA5KwL2phPSv0douC0fgWzmnA==",
+			"license": "MIT",
+			"engines": {
+				"node": ">= 20"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-ai/node_modules/https-proxy-agent": {
+			"version": "9.1.0",
+			"resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-9.1.0.tgz",
+			"integrity": "sha512-ag87y7cJJ9/3+GxFr8Oy4O5faDsGRGnBGsJj/YjOSsSx/5eadKLYTMPlzuR6obgoCDDm0abAAZitXXQkMOPSpA==",
+			"license": "MIT",
+			"dependencies": {
+				"agent-base": "9.0.0",
+				"debug": "^4.3.4",
+				"proxy-agent-negotiate": "1.1.0"
+			},
+			"engines": {
+				"node": ">= 20"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-ai/node_modules/openai": {
+			"version": "7.19.0",
+			"resolved": "https://registry.npmjs.org/openai/-/openai-7.19.0.tgz",
+			"integrity": "sha512-MX2s3u2L5racTO0CC/SWpCOasJQBCJrqLKXK+l82cAhdeF8mPMBEe/gxMm0ZFa2xpKpOFLRjxv5afYEZbBXmbQ==",
+			"license": "Apache-2.0",
+			"peerDependencies": {
+				"@aws-sdk/credential-provider-node": ">=3.972.0 <4",
+				"@smithy/hash-node": ">=4.3.0 <5",
+				"@smithy/signature-v4": ">=5.4.0 <6",
+				"undici": ">=5 <9",
+				"ws": "^8.21.0",
+				"zod": "^3.25 || ^4.0"
+			},
+			"peerDependenciesMeta": {
+				"@aws-sdk/credential-provider-node": {
+					"optional": true
+				},
+				"@smithy/hash-node": {
+					"optional": true
+				},
+				"@smithy/signature-v4": {
+					"optional": true
+				},
+				"undici": {
+					"optional": true
+				},
+				"ws": {
+					"optional": true
+				},
+				"zod": {
+					"optional": true
+				}
+			},
+			"engines": {
+				"node": ">=22.0.0"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-chord": {
+			"version": "0.99.2",
+			"resolved": "https://registry.npmjs.org/@jeffhub/jeff-code-chord/-/jeff-code-chord-0.99.2.tgz",
+			"license": "MIT",
+			"dependencies": {
+				"esbuild": "0.28.2"
+			},
+			"engines": {
+				"node": ">=22.19.0"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-codemode": {
+			"version": "0.99.2",
+			"resolved": "https://registry.npmjs.org/@jeffhub/jeff-code-codemode/-/jeff-code-codemode-0.99.2.tgz",
+			"license": "MIT",
+			"dependencies": {
+				"quickjs-wasi": "3.6.2"
+			},
+			"engines": {
+				"node": ">=22.19.0"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-mcp": {
+			"version": "0.99.2",
+			"resolved": "https://registry.npmjs.org/@jeffhub/jeff-code-mcp/-/jeff-code-mcp-0.99.2.tgz",
+			"license": "MIT",
+			"dependencies": {
+				"cross-spawn": "7.0.6"
+			},
+			"engines": {
+				"node": ">=22.19.0"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-telemetry": {
+			"version": "0.99.2",
+			"resolved": "https://registry.npmjs.org/@jeffhub/jeff-code-telemetry/-/jeff-code-telemetry-0.99.2.tgz",
+			"license": "MIT",
+			"engines": {
+				"node": ">=22.19.0"
+			}
+		},
+		"node_modules/@jeffhub/jeff-code-tui": {
+			"version": "0.99.2",
+			"resolved": "https://registry.npmjs.org/@jeffhub/jeff-code-tui/-/jeff-code-tui-0.99.2.tgz",
+			"license": "MIT",
+			"dependencies": {
+				"get-east-asian-width": "1.6.0",
+				"marked": "18.0.11"
+			},
+			"engines": {
+				"node": ">=22.19.0"
+			}
 		},
 		"node_modules/@protobufjs/aspromise": {
 			"version": "1.1.2",

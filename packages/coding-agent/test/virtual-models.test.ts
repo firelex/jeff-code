@@ -8,7 +8,7 @@ import {
 	getSupportedThinkingLevels,
 	InMemoryModelsStore,
 	type Model,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";

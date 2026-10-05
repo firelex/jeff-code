@@ -25,8 +25,8 @@ export const isBunBinary =
 export const isBunRuntime = !!process.versions.bun;
 
 /** Detect the esbuild-bundled Node.js distribution. */
-declare const PI_BUNDLED_NODE: boolean;
-export const isBundledNode = typeof PI_BUNDLED_NODE !== "undefined" && PI_BUNDLED_NODE;
+declare const JEFF_BUNDLED_NODE: boolean;
+export const isBundledNode = typeof JEFF_BUNDLED_NODE !== "undefined" && JEFF_BUNDLED_NODE;
 
 // =============================================================================
 // Install Method Detection
@@ -339,7 +339,7 @@ export function getSelfUpdateUnavailableInstruction(
 	const method = detectInstallMethod();
 	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	if (method === "bun-binary") {
-		return `Download from: https://github.com/earendil-works/pi/releases/latest`;
+		return `Download from: https://github.com/firelex/jeff-code/releases/latest`;
 	}
 	const command = getSelfUpdateCommandForMethod(method, packageName, target, npmCommand);
 	if (command) {
@@ -389,7 +389,7 @@ export function findNodePackageDir(startDir: string): string {
 
 export function getPackageDir(): string {
 	// Allow override via environment variable (useful for Nix/Guix where store paths tokenize poorly)
-	const envDir = process.env.PI_PACKAGE_DIR;
+	const envDir = process.env.JEFF_PACKAGE_DIR;
 	if (envDir) {
 		return normalizePath(envDir);
 	}
@@ -533,13 +533,13 @@ try {
 }
 
 const piConfigName: string | undefined = pkg.piConfig?.name;
-export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
-export const APP_NAME: string = piConfigName || "pi";
-export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
-export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
+export const PACKAGE_NAME: string = pkg.name || "@jeffhub/jeff-code";
+export const APP_NAME: string = piConfigName || "jeff";
+export const APP_TITLE: string = piConfigName ? APP_NAME : "Jeff-Code";
+export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".jeff";
 export const VERSION: string = pkg.version || "0.0.0";
 
-// e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
+// e.g., JEFF_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 export const ENV_SESSION_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`;
 
@@ -551,15 +551,15 @@ const DEFAULT_SHARE_VIEWER_URL = "https://pi.dev/session/";
 
 /** Get the share viewer URL for a gist ID. */
 export function getShareViewerUrl(gistId: string): string {
-	const baseUrl = process.env.PI_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
+	const baseUrl = process.env.JEFF_SHARE_VIEWER_URL || DEFAULT_SHARE_VIEWER_URL;
 	return `${baseUrl}#${gistId}`;
 }
 
 // =============================================================================
-// User Config Paths (~/.pi/agent/*)
+// User Config Paths (~/.jeff/agent/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.pi/agent/) */
+/** Get the agent config directory (e.g., ~/.jeff/agent/) */
 export function getAgentDir(): string {
 	const envDir = process.env[ENV_AGENT_DIR];
 	if (envDir) {

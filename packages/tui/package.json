@@ -1,5 +1,5 @@
 {
-	"name": "@earendil-works/pi-tui",
+	"name": "@jeffhub/jeff-code-tui",
 	"version": "0.99.2",
 	"description": "Terminal User Interface library with differential rendering for efficient text-based applications",
 	"type": "module",
@@ -44,7 +44,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/tui"
 	},
 	"engines": {

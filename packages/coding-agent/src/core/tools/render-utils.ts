@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import { pathToFileURL } from "node:url";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { getCapabilities, getImageDimensions, hyperlink, imageFallback } from "@earendil-works/pi-tui";
+import type { ImageContent, TextContent } from "@jeffhub/jeff-code-ai";
+import { getCapabilities, getImageDimensions, hyperlink, imageFallback } from "@jeffhub/jeff-code-tui";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../utils/ansi.ts";
 import { resolvePath } from "../../utils/paths.ts";

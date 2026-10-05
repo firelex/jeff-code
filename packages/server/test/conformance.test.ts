@@ -1,5 +1,5 @@
-import type { ServiceCall } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { ServiceCall } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { afterEach, describe, expect, test } from "vitest";
 import type { ByteConnection, ByteConnectionHandler } from "../src/connection.ts";
 import { SessionAmbiguousError } from "../src/errors.ts";

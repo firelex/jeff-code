@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase-0 shadow run: plain pi (the jeff-pi fork in shadow mode) with a chosen model on the phase-0 tasks.
+# Phase-0 shadow run: Jeff-Code in shadow mode (its plain behaviour) with a chosen model on the phase-0 tasks.
 # One Harbor run per task, so each trace line carries its own task id; CONCURRENCY tasks run at a time.
 # Each task's trace lands in JOBS_DIR/<job>/<trial>/agent/jeff-first-trace.jsonl.
 #
@@ -9,13 +9,13 @@
 #   TARBALL      the packed fork (npm pack in packages/coding-agent)
 #   BASE_URL     the OpenAI-compatible endpoint as the task containers reach it, without /v1: for Qwen the sparkgate
 #                proxy, e.g. http://192.168.0.79:8899; for GLM the GLM proxy (glm_proxy.py)
-#   THINKING     pi's thinking level for the model: off, minimal, low, medium or high; when not off, the environment
-#                variable JEFF_RUN_THINKING_FORMAT must be set to how pi switches the model's thinking on (pi's
+#   THINKING     Jeff-Code's thinking level for the model: off, minimal, low, medium or high; when not off, the environment
+#                variable JEFF_RUN_THINKING_FORMAT must be set to how Jeff-Code switches the model's thinking on (Jeff-Code's
 #                compat.thinkingFormat), e.g. qwen-chat-template, since Harbor's model entry does not say the model
 #                can reason; also when not off, the environment variable JEFF_RUN_MAX_OUTPUT_TOKENS must be set to
 #                the most tokens the model may write in one turn, thinking included, as a positive whole number,
-#                e.g. 65536, since pi's default of 16,384 tokens is too small for a thinking model
-#   TOOLS        pi's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps pi's own (read,bash,edit,write);
+#                e.g. 65536, since Jeff-Code's default of 16,384 tokens is too small for a thinking model
+#   TOOLS        Jeff-Code's tool list, e.g. read,bash,edit,write,grep,find,ls; "default" keeps Jeff-Code's own (read,bash,edit,write);
 #                use bash for imitation runs (the coding model works with bash alone, and every scout option is bash)
 #   MODEL        the model id at BASE_URL, e.g. qwen3.8-flash-next or scissero-glm-5.3
 #   MODE         shadow (log what the model does), teacher (the teacher model scouts before every model turn;
@@ -35,7 +35,7 @@
 #                xhigh needs), or jeff-off-unless:<router adapter>:<threshold> (off unless the adapter's probability
 #                for xhigh is at least the threshold, then xhigh; needs JEFF_FIRST_JEFF_URL and no
 #                JEFF_FIRST_JEFF_ROUTER_THRESHOLD) (it overrides THINKING per request; THINKING must not be off unless
-#                the router is fixed:off, since pi then marks the model as unable to think); and
+#                the router is fixed:off, since Jeff-Code then marks the model as unable to think); and
 #                JEFF_FIRST_OUTPUT_TRIM, how much of
 #                each new output over 40 lines Qwen sees: off, fixed:all, fixed:last200, fixed:last40, fixed:first40,
 #                fixed:first20last20, or jeff:<trimming adapter> (needs JEFF_FIRST_JEFF_URL and
@@ -55,7 +55,7 @@
 # reached through a proxy, as driver (BASE_URL) or as teacher (JEFF_FIRST_TEACHER_URL): Qwen through the sparkgate
 # proxy, GLM through glm_proxy.py, which adds the real key outside the containers.
 #
-# Run it on datigator in tmux session jeff-pi-phase0; stop it with: tmux kill-session -t jeff-pi-phase0
+# Run it on datigator in tmux session jeff-code-phase0; stop it with: tmux kill-session -t jeff-code-phase0
 set -euo pipefail
 
 dry_run=0
@@ -73,7 +73,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 [ -f "$tarball" ] || { echo "no fork tarball at $tarball; build it with npm pack" >&2; exit 1; }
 case "$thinking" in off|minimal|low|medium|high) ;; *) echo "THINKING must be off, minimal, low, medium or high" >&2; exit 2 ;; esac
 if [ "$thinking" != off ]; then
-  [ -n "${JEFF_RUN_THINKING_FORMAT:-}" ] || { echo "THINKING $thinking needs JEFF_RUN_THINKING_FORMAT (how pi switches thinking on, e.g. qwen-chat-template)" >&2; exit 2; }
+  [ -n "${JEFF_RUN_THINKING_FORMAT:-}" ] || { echo "THINKING $thinking needs JEFF_RUN_THINKING_FORMAT (how Jeff-Code switches thinking on, e.g. qwen-chat-template)" >&2; exit 2; }
   case "${JEFF_RUN_MAX_OUTPUT_TOKENS:-}" in ''|0|*[!0-9]*) echo "THINKING $thinking needs JEFF_RUN_MAX_OUTPUT_TOKENS (a positive whole number, e.g. 65536)" >&2; exit 2 ;; esac
 fi
 case "$concurrency" in ''|*[!0-9]*) echo "CONCURRENCY must be a whole number" >&2; exit 2 ;; esac
@@ -189,14 +189,14 @@ run_one() {
   local command=(
     uv run --project "$here" harbor run
     --dataset "$dataset" -i "$include" -n 1
-    -a harbor_agent.jeff_pi:JeffPi
+    -a harbor_agent.jeff_code:JeffCode
     --ak "tarball=$tarball" --ak model_api=openai-completions --ak "thinking=$thinking"
     -m "openai/$model"
     --agent-timeout-multiplier "$multiplier"
   )
   if [ "$tools" != default ]; then command+=(--ak "tools=$tools"); fi
   if [ "$network" = offline ]; then
-    # No internet once pi runs (harbor_agent/offline.py); only the model's host (BASE_URL's) stays reachable.
+    # No internet once Jeff-Code runs (harbor_agent/offline.py); only the model's host (BASE_URL's) stays reachable.
     local model_host=${base_url#*://}
     model_host=${model_host%%[:/]*}
     local hosts=$model_host

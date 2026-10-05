@@ -1,7 +1,7 @@
 // Store document state next to transcript entries.
 // Run from packages/durable:
 //   node --conditions=source --experimental-strip-types test/examples/01-documents.ts
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { createSession, defineDoc, MemoryStorage } from "../../src/index.ts";
 
 const context = BACKGROUND_CONTEXT;

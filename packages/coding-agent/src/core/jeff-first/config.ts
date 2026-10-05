@@ -3,7 +3,7 @@ import { readThinkingRouterSpec, readThreshold, type ThinkingRouterSpec } from "
 
 /**
  * JeffFirst settings, read from the environment so the benchmark harness can set them per task.
- * Unset JEFF_FIRST_MODE means plain pi.
+ * Unset JEFF_FIRST_MODE means plain Jeff-Code (no router).
  */
 export type RunApproval = "all" | "seen" | "never";
 const RUN_APPROVALS: RunApproval[] = ["all", "seen", "never"];

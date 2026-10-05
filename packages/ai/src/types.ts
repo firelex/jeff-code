@@ -1,4 +1,4 @@
-import type { TelemetryContext } from "@earendil-works/pi-telemetry";
+import type { TelemetryContext } from "@jeffhub/jeff-code-telemetry";
 import type { AnthropicOptions } from "./api/anthropic-messages.ts";
 import type { AzureOpenAIResponsesOptions } from "./api/azure-openai-responses.ts";
 import type { BedrockOptions } from "./api/bedrock-converse-stream.ts";
@@ -111,7 +111,7 @@ export type CacheRetention = "none" | "short" | "long";
 
 /**
  * Best-effort prompt cache lifetime in seconds for each retention tier a request can ask for.
- * A missing tier means the lifetime is unknown; pi does not warm such caches.
+ * A missing tier means the lifetime is unknown; Jeff-Code does not warm such caches.
  */
 export type ModelPromptCache = Partial<Record<Exclude<CacheRetention, "none">, number>>;
 
@@ -191,7 +191,7 @@ export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {
 	 */
 	onResponse?: (response: ProviderResponse, model: Model<Api>) => void | Promise<void>;
 	/**
-	 * Optional observer for each parsed provider stream event before Pi normalization.
+	 * Optional observer for each parsed provider stream event before Jeff-Code normalization.
 	 * Event data is adapter-owned and must be treated as read-only.
 	 * Adapter support is explicit; unsupported adapters do not invoke it.
 	 */
@@ -200,7 +200,7 @@ export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {
 	/**
 	 * Arbitrary sampling parameters merged into the request body as-is, after the named request
 	 * fields, so keys here override them. Lets custom OpenAI-compatible servers (llama.cpp, vLLM,
-	 * SGLang, ...) receive parameters pi does not model, e.g. `top_p`, `top_k`, `min_p`,
+	 * SGLang, ...) receive parameters Jeff-Code does not model, e.g. `top_p`, `top_k`, `min_p`,
 	 * `repetition_penalty`. Merged over `Model.samplingParams` per key. Only applied by
 	 * OpenAI-compatible adapters (completions, responses, Azure responses); other APIs ignore it.
 	 */
@@ -553,7 +553,7 @@ export interface AssistantMessage {
 	responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
 	/** Exact provider-native effort level used for this response. Absent for legacy or unmanaged responses. */
 	providerThinkingLevel?: string;
-	/** Pi thinking level the agent loop requested for this response. Absent outside the agent loop and for legacy responses. */
+	/** Jeff-Code thinking level the agent loop requested for this response. Absent outside the agent loop and for legacy responses. */
 	thinkingLevel?: ModelThinkingLevel;
 	diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
 	usage: Usage;
@@ -795,7 +795,7 @@ export interface OpenAICompletionsCompat {
 	supportsReasoningEffort?: boolean;
 	/** Whether the provider supports `stream_options: { include_usage: true }` for token usage in streaming responses. Default: true. */
 	supportsUsageInStreaming?: boolean;
-	/** Whether streamed responses include `finish_reason`. When false, pi infers `stop` or `toolUse` when the stream ends. Default: true. */
+	/** Whether streamed responses include `finish_reason`. When false, Jeff-Code infers `stop` or `toolUse` when the stream ends. Default: true. */
 	supportsFinishReason?: boolean;
 	/** Which field to use for max tokens. Default: auto-detected from URL. */
 	maxTokensField?: "max_completion_tokens" | "max_tokens";
@@ -820,9 +820,9 @@ export interface OpenAICompletionsCompat {
 		| "qwen-chat-template"
 		| "string-thinking"
 		| "ant-ling";
-	/** Kwargs to send as `chat_template_kwargs` when `thinkingFormat` is `chat-template`. Use `{ "$var": "thinking.enabled" }`, `{ "$var": "thinking.effort" }`, or `{ "$var": "thinking.budget" }` for pi-controlled thinking values. */
+	/** Kwargs to send as `chat_template_kwargs` when `thinkingFormat` is `chat-template`. Use `{ "$var": "thinking.enabled" }`, `{ "$var": "thinking.effort" }`, or `{ "$var": "thinking.budget" }` for Jeff-Code-controlled thinking values. */
 	chatTemplateKwargs?: Record<string, ChatTemplateKwargValue>;
-	/** Arguments to send as `chat_template_args` when `thinkingFormat` is `baseten`. Use `{ "$var": "thinking.enabled" }`, `{ "$var": "thinking.effort" }`, or `{ "$var": "thinking.budget" }` for pi-controlled thinking values. */
+	/** Arguments to send as `chat_template_args` when `thinkingFormat` is `baseten`. Use `{ "$var": "thinking.enabled" }`, `{ "$var": "thinking.effort" }`, or `{ "$var": "thinking.budget" }` for Jeff-Code-controlled thinking values. */
 	chatTemplateArgs?: Record<string, ChatTemplateKwargValue>;
 	/** OpenRouter-compatible routing preferences sent as the `provider` request field. */
 	openRouterRouting?: OpenRouterRouting;
@@ -1117,7 +1117,7 @@ export interface Model<TApi extends Api> extends BaseModel<TApi> {
 	type?: "chat";
 	reasoning: boolean;
 	/**
-	 * Maps pi thinking levels to provider/model-specific values.
+	 * Maps Jeff-Code thinking levels to provider/model-specific values.
 	 * Missing keys use provider defaults. null marks a level as unsupported.
 	 */
 	thinkingLevelMap?: ThinkingLevelMap;

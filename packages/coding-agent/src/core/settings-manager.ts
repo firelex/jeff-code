@@ -1,11 +1,11 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { DEFAULT_MAX_AGENT_RETRY_DELAY_MS, type Model, type Transport } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@jeffhub/jeff-code-agent-core";
+import { DEFAULT_MAX_AGENT_RETRY_DELAY_MS, type Model, type Transport } from "@jeffhub/jeff-code-ai";
 import type {
 	TuiMode as RendererTuiMode,
 	ScrollViewScrollbar,
 	TerminalCapabilities,
 	WheelScrollLines,
-} from "@earendil-works/pi-tui";
+} from "@jeffhub/jeff-code-tui";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
@@ -1320,7 +1320,7 @@ export class SettingsManager {
 		if (this.settings.terminal?.clearOnShrink !== undefined) {
 			return this.settings.terminal.clearOnShrink;
 		}
-		return process.env.PI_CLEAR_ON_SHRINK === "1";
+		return process.env.JEFF_CLEAR_ON_SHRINK === "1";
 	}
 
 	setClearOnShrink(enabled: boolean): void {
@@ -1466,7 +1466,7 @@ export class SettingsManager {
 	}
 
 	getShowHardwareCursor(): boolean {
-		return this.settings.showHardwareCursor ?? process.env.PI_HARDWARE_CURSOR === "1";
+		return this.settings.showHardwareCursor ?? process.env.JEFF_HARDWARE_CURSOR === "1";
 	}
 
 	setShowHardwareCursor(enabled: boolean): void {

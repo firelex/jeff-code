@@ -1,9 +1,10 @@
 // Transcript history and model context.
 // Run from packages/durable:
 //   node --conditions=source --experimental-strip-types test/examples/09-context.ts
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { AssistantMessage, Message, StopReason, ToolResultMessage } from "@earendil-works/pi-ai";
-import { createModels } from "@earendil-works/pi-ai/models";
+
+import type { AssistantMessage, Message, StopReason, ToolResultMessage } from "@jeffhub/jeff-code-ai";
+import { createModels } from "@jeffhub/jeff-code-ai/models";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { createRegistry, Harness, MemoryStorage } from "../../src/index.ts";
 
 const context = BACKGROUND_CONTEXT;

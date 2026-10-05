@@ -3,8 +3,8 @@
 For each sampled turn of the xhigh collection (thinking_budget.py offline's turns: completed turns whose thinking
 exceeded 8k tokens, and every reply that hit the output limit or the context limit), this script
 
-1. rebuilds the exact request pi sent (routing_requests.ts, pi's own code, as the routing labeller does) and has the
-   server render it with the chat template (vLLM /tokenize); the prompt's token count must equal the prompt tokens pi
+1. rebuilds the exact request Jeff-Code sent (routing_requests.ts, Jeff-Code's own code, as the routing labeller does) and has the
+   server render it with the chat template (vLLM /tokenize); the prompt's token count must equal the prompt tokens Jeff-Code
    recorded for the turn, else the turn is left out (counted);
 2. takes the RECORDED thinking text of the turn, cuts it after B tokens (B = 4k, 8k, 16k; only budgets shorter than the
    turn's thinking) and builds the prompt the chat template produces for a reply with that thinking: the rendered
@@ -22,7 +22,7 @@ Comparison (the routing labeller's rules and judge): completed turns: the cut an
 the same commands or the same full target (routing_labels.free_match), else the judge (Qwen3.8-Max on DashScope via
 judge_service.py, thinking off, temperature 0, the owner's validated prompt with Step 1 = recorded, Step 2 = cut).
 Limit hits have no recorded action: the next successful turn of the session is the reference when there is one (a
-context-limit stop, after pi's compaction), and every limit-hit answer is also put to the judge with a plain question:
+context-limit stop, after Jeff-Code's compaction), and every limit-hit answer is also put to the judge with a plain question:
 is this a reasonable next step (REASONABLE_SYSTEM).
 
 Requests go to the server family that recorded the turn (B200 turns to the B200 servers, casdgx01 to casdgx01, the
@@ -493,7 +493,7 @@ def report_markdown(rows, turns, paired_v, reasonable_v, trials, tokenizer_path)
       + (f" ({dict(collections.Counter(e['reason'] for e in excluded))})" if excluded else "")
       + f". Completed turns without the full-thinking control (run unfinished): "
       f"{len({r['turn'] for r in completed if ('full', None) not in by_turn[r['turn']]})}. Prompt check: "
-      "every rebuilt request's prompt tokens equal pi's recorded prompt tokens; every cut prompt equals the chat "
+      "every rebuilt request's prompt tokens equal Jeff-Code's recorded prompt tokens; every cut prompt equals the chat "
       "template's own rendering of a reply with that thinking (checked on every request; a difference stops the "
       "run); the server's prompt token count equals the tokens sent.\n")
     w("Decode rates used to turn tokens into seconds (output tokens per second of long completed requests of the "
@@ -573,7 +573,7 @@ def report_markdown(rows, turns, paired_v, reasonable_v, trials, tokenizer_path)
 
     w("### B.2 Limit hits: is the cut answer a reasonable next step?\n")
     w("A limit hit has no recorded action. 'reasonable' as above. 'vs next turn': the session's next completed reply "
-      "after the hit as Step 1 (routing rule); it exists only for context-limit stops (pi compacts and goes on): an "
+      "after the hit as Step 1 (routing rule); it exists only for context-limit stops (Jeff-Code compacts and goes on): an "
       "output-limit hit ends the session, so the recorded outcome of every output-limit hit is a lost trial.\n")
     w("| budget | variant | hits | usable action | reasonable | vs next turn (n) | answer tokens | saved h |")
     w("|---|---|---:|---:|---:|---:|---:|---:|")

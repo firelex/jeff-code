@@ -1,4 +1,4 @@
-import type { AssistantMessage, Message, ToolCall } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, ToolCall } from "@jeffhub/jeff-code-ai";
 import { describe, expect, it } from "vitest";
 import {
 	compareTexts,

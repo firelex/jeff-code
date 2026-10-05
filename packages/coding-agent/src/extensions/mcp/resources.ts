@@ -10,7 +10,7 @@
  * the model; binary resources are saved to temp files. Scripts get the JSON payloads.
  */
 
-import type { ImageContent, JsonValue, TextContent } from "@earendil-works/pi-ai";
+import type { ImageContent, JsonValue, TextContent } from "@jeffhub/jeff-code-ai";
 import type {
 	ContentBlock,
 	ListResourcesResult,
@@ -19,7 +19,7 @@ import type {
 	ReadResourceResult,
 	Resource,
 	ResourceTemplate,
-} from "@earendil-works/pi-mcp";
+} from "@jeffhub/jeff-code-mcp";
 import type { TSchema } from "typebox";
 import type { ToolAnnotations, ToolDefinition } from "../../core/extensions/types.ts";
 import type { McpExposure } from "./config.ts";

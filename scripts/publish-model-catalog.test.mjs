@@ -13,7 +13,7 @@ function writeJson(path, value) {
 }
 
 test("publishes explicit per-type and total model counts", (t) => {
-	const input = mkdtempSync(join(tmpdir(), "pi-model-catalog-counts-"));
+	const input = mkdtempSync(join(tmpdir(), "jeff-model-catalog-counts-"));
 	t.after(() => rmSync(input, { recursive: true, force: true }));
 	const providersDir = join(input, "providers");
 	mkdirSync(providersDir);

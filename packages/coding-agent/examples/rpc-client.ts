@@ -1,5 +1,5 @@
 /**
- * Run one prompt through a Pi RPC child process.
+ * Run one prompt through a Jeff-Code RPC child process.
  *
  * Build the coding-agent package first, then run:
  * node examples/rpc-client.ts "Explain this repository"
@@ -7,7 +7,7 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RpcClient } from "@earendil-works/pi-coding-agent";
+import { RpcClient } from "@jeffhub/jeff-code";
 
 const exampleDirectory = dirname(fileURLToPath(import.meta.url));
 const prompt = process.argv.slice(2).join(" ") || "Explain this repository in one paragraph.";

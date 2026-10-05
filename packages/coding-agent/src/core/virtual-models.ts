@@ -9,7 +9,7 @@
  * separately and adds them to the provider's catalog with `withVirtualModels()`, so any provider,
  * including one with physical models, can list several virtual models.
  */
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@jeffhub/jeff-code-agent-core";
 import {
 	type AnyModel,
 	type Api,
@@ -22,7 +22,7 @@ import {
 	type ModelThinkingLevel,
 	type Provider,
 	type ThinkingLevelMap,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import type { SessionEntry } from "./session-manager.ts";
 
 /** API id of virtual catalog entries. Requests for it fail unless routed first. */
@@ -90,7 +90,7 @@ export interface VirtualModelDefinition<TState = unknown> {
 	/** Thinking levels offered for selection. Defaults to `["off"]`. */
 	thinkingLevels?: readonly ModelThinkingLevel[];
 	/**
-	 * Limits shown before the first response. Afterwards, Pi uses the limits of the physical model
+	 * Limits shown before the first response. Afterwards, Jeff-Code uses the limits of the physical model
 	 * that answered. Unset limits are unknown (0).
 	 */
 	contextWindow?: number;

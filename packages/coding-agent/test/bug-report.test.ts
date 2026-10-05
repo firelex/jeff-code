@@ -5,7 +5,7 @@ import {
 	setKeybindings,
 	stripTerminalSequences,
 	TuiMainScreen,
-} from "@earendil-works/pi-tui";
+} from "@jeffhub/jeff-code-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { AgentSession } from "../src/core/agent-session.ts";

@@ -1,6 +1,6 @@
-import type { AttachedReplicatedState } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@jeffhub/jeff-code-ai";
+import type { AttachedReplicatedState } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	type AgentState,
 	type Conversation,
@@ -13,8 +13,8 @@ import {
 	ROOT_CONVERSATION_ID,
 	type Submission,
 	type TaskGraph,
-} from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+} from "@jeffhub/jeff-code-durable";
+import { openNodeSqliteStorage } from "@jeffhub/jeff-code-durable/storage/sqlite/node";
 import { ModelRuntime } from "../../core/model-runtime.ts";
 import { SettingsManager } from "../../core/settings-manager.ts";
 import {
@@ -86,7 +86,7 @@ export interface OpenDurableOptions {
 export interface OpenDurableResult {
 	readonly view: DurableViewSource;
 	readonly controller: DurableController;
-	/** pi's settings, for the TUI's theme and terminal capabilities. */
+	/** Jeff-Code's settings, for the TUI's theme and terminal capabilities. */
 	readonly settings: SettingsManager;
 	close(): Promise<void>;
 }

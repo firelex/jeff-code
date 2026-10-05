@@ -52,8 +52,10 @@ def test_terminal_bench_2_commands_are_unchanged(tmp_path):
     assert old.returncode == 0 and new.returncode == 0, new.stderr
     # The old copy lives in tmp_path, so its uv project folder differs; compare with that folder normalised.
     normalise = lambda text: re.sub(r"--project \S+", "--project <here>", without_time(text))
-    # The output trimming and thinking limit settings (added later) are the only new arguments.
+    # The output trimming and thinking limit settings (added later) are the only new arguments; the Harbor agent was
+    # renamed with the project (JeffPi in jeff_pi.py, now JeffCode in jeff_code.py).
     new_lines = [line.replace("--ae JEFF_FIRST_OUTPUT_TRIM=off --ae JEFF_FIRST_THINKING_LIMIT=off ", "")
+                 .replace("-a harbor_agent.jeff_code:JeffCode ", "-a harbor_agent.jeff_pi:JeffPi ")
                  for line in normalise(new.stdout).splitlines()]
     assert all("JEFF_FIRST_OUTPUT_TRIM=off" in line for line in new.stdout.splitlines())
     assert sorted(new_lines) == sorted(normalise(old.stdout).splitlines())

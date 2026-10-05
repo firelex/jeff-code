@@ -87,7 +87,7 @@ async function main(): Promise<void> {
 	if (!command || command === "help" || command === "--help" || command === "-h") {
 		const providerList = PROVIDERS.map((provider) => `  ${provider.id.padEnd(20)} ${provider.name}`).join("\n");
 		console.log(
-			`Usage: npx @earendil-works/pi-ai <command> [provider]\n\nCommands:\n  login [provider]  Login to an OAuth provider\n  list              List available providers\n\nProviders:\n${providerList}`,
+			`Usage: npx @jeffhub/jeff-code-ai <command> [provider]\n\nCommands:\n  login [provider]  Login to an OAuth provider\n  list              List available providers\n\nProviders:\n${providerList}`,
 		);
 		return;
 	}

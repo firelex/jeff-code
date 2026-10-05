@@ -54,7 +54,7 @@ if (requestedProviders.some((arg) => arg.startsWith("-"))) {
 }
 
 const repoRoot = run("git", ["rev-parse", "--show-toplevel"], { capture: true }).trim();
-const temporaryRoot = mkdtempSync(join(tmpdir(), "pi-model-catalog-diff-"));
+const temporaryRoot = mkdtempSync(join(tmpdir(), "jeff-model-catalog-diff-"));
 const baselineWorktree = join(temporaryRoot, "baseline-worktree");
 const baselineOutput = join(temporaryRoot, "before");
 const currentOutput = join(temporaryRoot, "after");

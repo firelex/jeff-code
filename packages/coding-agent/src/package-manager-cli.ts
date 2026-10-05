@@ -9,7 +9,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { Markdown, type MarkdownTheme } from "@jeffhub/jeff-code-tui";
 import chalk from "chalk";
 import lockfile from "proper-lockfile";
 import { selectConfig } from "./cli/config-selector.ts";
@@ -52,13 +52,13 @@ const MANAGED_INSTALL_MARKER = "managed-install.json";
 const MANAGED_RELEASE_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 function getActiveManagedInstallRoot(): string | undefined {
-	const configuredRoot = process.env.PI_MANAGED_INSTALL_ROOT?.trim();
+	const configuredRoot = process.env.JEFF_MANAGED_INSTALL_ROOT?.trim();
 	if (!configuredRoot) return undefined;
 
 	const managedRoot = resolve(configuredRoot);
 	const releasesDir = canonicalizePath(join(managedRoot, "releases"));
 	// The launcher environment is inherited by child processes. Do not classify a
-	// source checkout or another Pi installation launched from managed Pi as managed.
+	// source checkout or another Jeff-Code installation launched from managed Jeff-Code as managed.
 	if (getCwdRelativePath(canonicalizePath(getPackageDir()), releasesDir) === undefined) return undefined;
 
 	const markerPath = join(managedRoot, MANAGED_INSTALL_MARKER);
@@ -115,11 +115,13 @@ function verifyManagedRelease(releaseDir: string, expectedVersion: string): void
 	});
 	if (result.error || result.status !== 0) {
 		const reason = result.error?.message || result.stderr.trim() || `exit code ${result.status ?? "unknown"}`;
-		throw new Error(`Could not verify managed Pi ${expectedVersion}: ${reason}`);
+		throw new Error(`Could not verify managed Jeff-Code ${expectedVersion}: ${reason}`);
 	}
 	const installedVersion = result.stdout.trim();
 	if (installedVersion !== expectedVersion) {
-		throw new Error(`Managed Pi smoke test returned version ${installedVersion}; expected ${expectedVersion}.`);
+		throw new Error(
+			`Managed Jeff-Code smoke test returned version ${installedVersion}; expected ${expectedVersion}.`,
+		);
 	}
 }
 
@@ -178,7 +180,7 @@ async function runManagedSelfUpdate(managedRoot: string, version: string): Promi
 		releaseLock = await lockfile.lock(join(managedRoot, "update"), { realpath: false });
 	} catch (error: unknown) {
 		if (error instanceof Error && "code" in error && error.code === "ELOCKED") {
-			throw new Error("Another managed Pi update is already running.");
+			throw new Error("Another managed Jeff-Code update is already running.");
 		}
 		throw error;
 	}
@@ -186,7 +188,7 @@ async function runManagedSelfUpdate(managedRoot: string, version: string): Promi
 	let stageDir: string | undefined;
 	try {
 		cleanupManagedStaging(managedRoot);
-		const installerApiBase = (process.env.PI_INSTALLER_API_BASE?.trim() || DEFAULT_INSTALLER_API_BASE).replace(
+		const installerApiBase = (process.env.JEFF_INSTALLER_API_BASE?.trim() || DEFAULT_INSTALLER_API_BASE).replace(
 			/\/+$/,
 			"",
 		);
@@ -269,7 +271,7 @@ function getPackageCommandUsage(command: PackageCommand): string {
 		case "remove":
 			return `${APP_NAME} remove <source> [-l] [--approve|--no-approve]`;
 		case "update":
-			return `${APP_NAME} update [source|self|pi] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]`;
+			return `${APP_NAME} update [source|self|jeff] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]`;
 		case "list":
 			return `${APP_NAME} list [--approve|--no-approve]`;
 	}
@@ -337,24 +339,24 @@ Examples:
 			console.log(`${chalk.bold("Usage:")}
   ${getPackageCommandUsage("update")}
 
-Update pi, installed packages, or model catalogs.
+Update Jeff-Code, installed packages, or model catalogs.
 
 Options:
-  --self                  Update pi only (default when no target is given)
+  --self                  Update Jeff-Code only (default when no target is given)
   --extensions            Update installed packages only
   --models                Refresh model catalogs only
-  --all                   Update pi and installed packages
+  --all                   Update Jeff-Code and installed packages
   --extension <source>    Update one package only
   -a, --approve           Trust project-local files for this command
   -na, --no-approve       Ignore project-local files for this command
-  --force                 Reinstall pi even if the current version is latest
+  --force                 Reinstall Jeff-Code even if the current version is latest
 
 Short forms:
-  ${APP_NAME} update                Update pi only
-  ${APP_NAME} update --all          Update pi and all extensions
+  ${APP_NAME} update                Update Jeff-Code only
+  ${APP_NAME} update --all          Update Jeff-Code and all extensions
   ${APP_NAME} update --models       Refresh model catalogs only
   ${APP_NAME} update <source>       Update one package
-  ${APP_NAME} update pi             Update pi only (self works as alias to pi)
+  ${APP_NAME} update jeff           Update Jeff-Code only (self works as alias to jeff)
 `);
 			return;
 
@@ -531,7 +533,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 			}
 			updateTarget = { type: "extensions", source: extensionFlagSource };
 		} else if (source) {
-			const sourceIsSelf = source === "self" || source === "pi";
+			const sourceIsSelf = source === "self" || source === "jeff";
 			if (sourceIsSelf) {
 				updateTarget = extensionsFlag ? { type: "all" } : { type: "self" };
 			} else {

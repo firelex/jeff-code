@@ -1,10 +1,10 @@
-# @earendil-works/pi-durable
+# @jeffhub/jeff-code-durable
 
 > **Experimental.** The API changes without notice between releases.
 
 A durable agent harness. Conversations, model turns, tool calls, and your own state are committed to storage before anything is shown. If the process dies mid-turn, reopening the storage picks the work up where it stopped.
 
-Built on [`@earendil-works/pi-ai`](../ai/README.md) for model access and `@earendil-works/chord` for document state.
+Built on [`@jeffhub/jeff-code-ai`](../ai/README.md) for model access and `@jeffhub/jeff-code-chord` for document state.
 
 ## Table of Contents
 
@@ -38,16 +38,16 @@ Built on [`@earendil-works/pi-ai`](../ai/README.md) for model access and `@earen
 ## Installation
 
 ```bash
-npm install @earendil-works/pi-durable @earendil-works/pi-ai @earendil-works/chord
+npm install @jeffhub/jeff-code-durable @jeffhub/jeff-code-ai @jeffhub/jeff-code-chord
 ```
 
 ## Quick Start
 
 ```typescript
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { AssistantEntry, createRegistry, Harness, MemoryStorage } from "@earendil-works/pi-durable";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
+import { createModels } from "@jeffhub/jeff-code-ai/models";
+import { openaiProvider } from "@jeffhub/jeff-code-ai/providers/openai";
+import { AssistantEntry, createRegistry, Harness, MemoryStorage } from "@jeffhub/jeff-code-durable";
 
 const context = BACKGROUND_CONTEXT;
 
@@ -103,7 +103,7 @@ submit(input) → pi.user
 Use SQLite or JSONL storage to keep conversations across restarts:
 
 ```typescript
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import { openNodeSqliteStorage } from "@jeffhub/jeff-code-durable/storage/sqlite/node";
 
 const harness = await Harness.open(await openNodeSqliteStorage("./session.sqlite"), { models, registry }, context);
 const root = await harness.root(context); // the same root as last time
@@ -126,8 +126,8 @@ const again = await root.submit({ type: "input", content: "Hello", requestId: "g
 Code the Harness runs, other than its built-in tasks, comes in named extensions installed in a registry your process owns:
 
 ```typescript
-import { createRegistry, defineExtension, defineTool, hook, section, ToolTask } from "@earendil-works/pi-durable";
-import { CodingTools } from "@earendil-works/pi-durable/tools";
+import { createRegistry, defineExtension, defineTool, hook, section, ToolTask } from "@jeffhub/jeff-code-durable";
+import { CodingTools } from "@jeffhub/jeff-code-durable/tools";
 
 const Coding = defineExtension({
 	name: "coding",
@@ -144,12 +144,12 @@ An extension may bring `tools`, `sections`, `hooks`, `wraps` (decorators of a to
 
 ## Tools
 
-`@earendil-works/pi-durable/tools` provides `read`, `write`, `edit`, and `bash`, and the `CodingTools` extension with all four. They touch files and processes only through the call's environment (see [Environment](#environment)). Reading images is not supported yet.
+`@jeffhub/jeff-code-durable/tools` provides `read`, `write`, `edit`, and `bash`, and the `CodingTools` extension with all four. They touch files and processes only through the call's environment (see [Environment](#environment)). Reading images is not supported yet.
 
 Define your own tool with a TypeBox schema. `defineTool()` types `args` from `parameters`, which the Harness validates before `execute()`. `api.output()` streams running output, which becomes the result when `execute()` returns no `content`:
 
 ```typescript
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "@jeffhub/jeff-code-ai";
 
 const count = defineTool({
 	name: "count",
@@ -233,7 +233,7 @@ const harness = await Harness.open(storage, {
 `env` builds the execution environment for each tool call, section rendering, and `runtime.env()`. It receives the conversation's ID, its agent `cwd`, and committed reads, so one function serves a directory per conversation or a container per conversation:
 
 ```typescript
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { NodeExecutionEnv } from "@jeffhub/jeff-code-durable/env/node";
 
 const harness = await Harness.open(storage, {
 	models,
@@ -353,7 +353,7 @@ Running compactions are listed in `docs["pi.live"].compactions` with their reaso
 For consumers that want coding-agent style events (`message_start`, `message_update`, `tool_execution_start`, ...) instead of structural state:
 
 ```typescript
-import { watchEvents } from "@earendil-works/pi-durable";
+import { watchEvents } from "@jeffhub/jeff-code-durable";
 
 const stream = await watchEvents(harness, root.id, context);
 initialize(stream.snapshot); // entries, run, in-flight generation, tools, compactions, inbox, agent, usage
@@ -369,7 +369,7 @@ Events are derived from commits, one batch per commit, and apply on top of the s
 Hooks let extensions observe or adjust the built-in tasks, in the conversations that select them:
 
 ```typescript
-import { GenerationTask, hook, ToolTask } from "@earendil-works/pi-durable";
+import { GenerationTask, hook, ToolTask } from "@jeffhub/jeff-code-durable";
 
 const Guard = defineExtension({
 	name: "guard",
@@ -489,7 +489,7 @@ A task appears with the commit that creates it and leaves with the commit that m
 Documents are typed JSON objects committed together with entries. Define one, and edit it in a commit:
 
 ```typescript
-import { defineDoc } from "@earendil-works/pi-durable";
+import { defineDoc } from "@jeffhub/jeff-code-durable";
 
 const Todos = defineDoc<{ items: string[] }>({
 	kind: "app.todos",
@@ -521,10 +521,10 @@ const usage = await harness.usage(context); // { models: { "openai/gpt-6-sol": U
 | Backend | Import | Notes |
 |---|---|---|
 | Memory | `MemoryStorage` from the package root | Nothing is persisted. |
-| SQLite | `openNodeSqliteStorage(file)` from `@earendil-works/pi-durable/storage/sqlite/node` | One database file. WAL mode with `synchronous = NORMAL`: commits survive process crashes; the newest may be lost on power or host failure. |
-| JSONL | `openNodeJsonlStorage(directory, context)` from `@earendil-works/pi-durable/storage/jsonl/node` | Append-only files in one directory. Pass `{ fsync: true }` to flush before each commit marker. |
+| SQLite | `openNodeSqliteStorage(file)` from `@jeffhub/jeff-code-durable/storage/sqlite/node` | One database file. WAL mode with `synchronous = NORMAL`: commits survive process crashes; the newest may be lost on power or host failure. |
+| JSONL | `openNodeJsonlStorage(directory, context)` from `@jeffhub/jeff-code-durable/storage/jsonl/node` | Append-only files in one directory. Pass `{ fsync: true }` to flush before each commit marker. |
 
-One process owns a storage at a time; there is no cross-process locking. The portable SQLite and JSONL cores (`/storage/sqlite`, `/storage/jsonl`) run without Node APIs, for example on Bun or in Cloudflare Durable Objects, given an asynchronous `SqliteDatabase` facade or a `FileSystem` from `@earendil-works/pi-durable/env`.
+One process owns a storage at a time; there is no cross-process locking. The portable SQLite and JSONL cores (`/storage/sqlite`, `/storage/jsonl`) run without Node APIs, for example on Bun or in Cloudflare Durable Objects, given an asynchronous `SqliteDatabase` facade or a `FileSystem` from `@jeffhub/jeff-code-durable/env`.
 
 SQLite adapters implement promise-based `exec`, `run`, `get`, `all`, `transaction`, and `close`. `run`, `get`, and `all` take SQL text plus positional bindings; adapters may cache prepared statements by SQL text. A transaction callback receives a transaction handle; all work in the transaction must use it, and the handle expires when the callback settles. Adapters must queue unrelated operations and other transactions until the transaction finishes, so calling `database` itself inside the callback never settles:
 
@@ -538,7 +538,7 @@ await database.transaction(async (transaction) => {
 Custom backends can run the shared conformance suite with any Vitest- or Jest-compatible runner:
 
 ```typescript
-import { registerStorageConformance } from "@earendil-works/pi-durable/testing";
+import { registerStorageConformance } from "@jeffhub/jeff-code-durable/testing";
 import { describe, expect, it } from "vitest";
 
 registerStorageConformance({ describe, expect, it }, "My Storage", async (use) => {
@@ -551,7 +551,7 @@ registerStorageConformance({ describe, expect, it }, "My Storage", async (use) =
 });
 ```
 
-The package root loads TypeBox, because the tool task validates arguments with pi-ai's `validateToolArguments()`. That costs about 23 MB of peak RSS unbundled, about 4 MB in a tree-shaken bundle.
+The package root loads TypeBox, because the tool task validates arguments with jeff-code-ai's `validateToolArguments()`. That costs about 23 MB of peak RSS unbundled, about 4 MB in a tree-shaken bundle.
 
 ## Examples
 

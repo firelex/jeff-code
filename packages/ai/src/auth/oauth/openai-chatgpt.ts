@@ -19,7 +19,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const AUTHORIZE_URL = "https://auth.openai.com/api/accounts/authorize";
 const TOKEN_URL = "https://auth.openai.com/api/accounts/oauth/token";
 const RESOURCE = "https://api.openai.com/v1";
-const CALLBACK_HOST = getProviderEnvValue("PI_OAUTH_CALLBACK_HOST") || "127.0.0.1";
+const CALLBACK_HOST = getProviderEnvValue("JEFF_OAUTH_CALLBACK_HOST") || "127.0.0.1";
 const CALLBACK_PORT = 1455;
 const CALLBACK_PATH = "/auth/callback";
 const REDIRECT_URI = `http://127.0.0.1:${CALLBACK_PORT}${CALLBACK_PATH}`;
@@ -197,7 +197,7 @@ async function exchangeAuthorizationCode(
 		}),
 		signal,
 	);
-	// Pi does not use the ID token to identify the user or read profile data.
+	// Jeff-Code does not use the ID token to identify the user or read profile data.
 	// Keep the presence check as part of the token-response contract.
 	if (typeof token.id_token !== "string" || token.id_token.trim().length === 0) {
 		throw new Error("OpenAI OAuth token response did not contain an ID token");

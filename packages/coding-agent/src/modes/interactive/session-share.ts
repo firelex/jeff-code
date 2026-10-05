@@ -3,8 +3,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { DEFAULT_RADIUS_GATEWAY } from "@earendil-works/pi-ai/providers/radius-config";
-import { type Container, type EditorComponent, hyperlink, type TUI } from "@earendil-works/pi-tui";
+import { DEFAULT_RADIUS_GATEWAY } from "@jeffhub/jeff-code-ai/providers/radius-config";
+import { type Container, type EditorComponent, hyperlink, type TUI } from "@jeffhub/jeff-code-tui";
 import { getAuthCredential } from "../../cli/auth-command.ts";
 import { getShareViewerUrl } from "../../config.ts";
 import type { AgentSession } from "../../core/agent-session.ts";
@@ -118,7 +118,7 @@ async function tryShareViaRadius(tmpFile: string, context: SessionShareContext):
 		const body = fs.readFileSync(tmpFile);
 		const url = new URL("/v1/artifacts", DEFAULT_RADIUS_GATEWAY);
 		url.searchParams.set("visibility", "organization");
-		url.searchParams.set("title", "Pi session");
+		url.searchParams.set("title", "Jeff-Code session");
 		const response = await fetch(url, {
 			method: "POST",
 			headers: {

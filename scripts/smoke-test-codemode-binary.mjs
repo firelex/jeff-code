@@ -6,9 +6,9 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 
-const WORKER_MARKER = "PI_CODEMODE_WORKER_OK";
-const SUCCESS_MARKER = "PI_CODEMODE_BINARY_SMOKE_OK";
-const FAILURE_MARKER = "PI_CODEMODE_BINARY_SMOKE_FAILED";
+const WORKER_MARKER = "JEFF_CODEMODE_WORKER_OK";
+const SUCCESS_MARKER = "JEFF_CODEMODE_BINARY_SMOKE_OK";
+const FAILURE_MARKER = "JEFF_CODEMODE_BINARY_SMOKE_FAILED";
 const TIMEOUT_MS = 30_000;
 
 function completionChunk(id, delta, finishReason = null, usage) {
@@ -51,10 +51,10 @@ function toolResultContainsMarker(body) {
 async function main() {
 	const binaryArg = process.argv[2];
 	if (!binaryArg || process.argv.length !== 3) {
-		throw new Error("Usage: node scripts/smoke-test-codemode-binary.mjs <pi-binary>");
+		throw new Error("Usage: node scripts/smoke-test-codemode-binary.mjs <jeff-binary>");
 	}
 	const binary = resolve(binaryArg);
-	const tempDir = await mkdtemp(join(tmpdir(), "pi-codemode-binary-smoke-"));
+	const tempDir = await mkdtemp(join(tmpdir(), "jeff-codemode-binary-smoke-"));
 	let requestCount = 0;
 	const server = createServer(async (request, response) => {
 		if (request.method !== "POST" || !request.url?.endsWith("/chat/completions")) {
@@ -133,8 +133,8 @@ async function main() {
 			cwd: tempDir,
 			env: {
 				...process.env,
-				PI_CODING_AGENT_DIR: tempDir,
-				PI_OFFLINE: "1",
+				JEFF_CODING_AGENT_DIR: tempDir,
+				JEFF_OFFLINE: "1",
 			},
 			stdio: ["ignore", "pipe", "pipe"],
 		});

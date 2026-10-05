@@ -120,7 +120,7 @@ def test_round_folders_without_a_dash_are_found(tmp_path):
 
 
 def test_a_trial_whose_model_called_a_tool_other_than_bash_is_skipped_and_counted(tmp_path):
-    # Qwen (NVFP4) sometimes names a tool that does not exist (seen 2026-10-04: "bbyte"); pi answers with an error.
+    # Qwen (NVFP4) sometimes names a tool that does not exist (seen 2026-10-04: "bbyte"); Jeff-Code answers with an error.
     run = tmp_path / "runs-collect-xhigh"
     trial = make_trial(run, "b200-gpu0-s3", "fix-bug", "aaa")
     make_trial(run, "b200-gpu0-s3", "fix-bug", "bbb")
@@ -321,7 +321,7 @@ def test_the_cli_needs_the_builds(tmp_path):
 
 
 def test_a_real_schema_5_trial_converts_end_to_end(tmp_path):
-    # Written by pi itself (createAgentSession in record mode, build 13486e524) with a fake coding model; only the
+    # Written by Jeff-Code itself (createAgentSession in record mode, build 13486e524) with a fake coding model; only the
     # session's working folder was renamed to /app. Turn 1 runs `ls`, then `cat main.py` (one record_step line after
     # `ls`); turn 2 runs `cat notes.md`, rewrites main.py and runs it (record_step lines after its calls 1 and 2);
     # turn 3 only answers.

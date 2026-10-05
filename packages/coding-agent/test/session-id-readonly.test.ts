@@ -71,7 +71,7 @@ async function runCli(args: string[]): Promise<{ code: number | null; agentDir: 
 			env: {
 				...process.env,
 				[ENV_AGENT_DIR]: agentDir,
-				PI_OFFLINE: "1",
+				JEFF_OFFLINE: "1",
 			},
 			stdio: ["ignore", "ignore", "ignore"],
 		});

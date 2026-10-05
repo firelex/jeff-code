@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Context, JsonValue } from "@earendil-works/chord";
-import { createModels, fauxAssistantMessage, fauxText, fauxToolCall, Type } from "@earendil-works/pi-ai";
+import { createModels, fauxAssistantMessage, fauxText, fauxToolCall, Type } from "@jeffhub/jeff-code-ai";
+import type { Context, JsonValue } from "@jeffhub/jeff-code-chord";
 import {
 	type Conversation,
 	type ConversationId,
@@ -15,7 +15,7 @@ import {
 	MemoryStorage,
 	type Storage,
 	type TaskId,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import type { SessionImpl } from "../src/session/session.ts";
 import { openNodeSqliteStorage } from "../src/storage/sqlite/node.ts";

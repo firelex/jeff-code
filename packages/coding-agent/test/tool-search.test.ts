@@ -1,4 +1,4 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@jeffhub/jeff-code-agent-core";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import type { ToolNamespace } from "../src/core/extensions/types.ts";

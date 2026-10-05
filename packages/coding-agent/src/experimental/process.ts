@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { getPackageDir, isBunBinary, isBundledNode } from "../config.ts";
 
-export const INTERNAL_PROCESS_ENV = "__PI_INTERNAL_SPAWN";
+export const INTERNAL_PROCESS_ENV = "__JEFF_INTERNAL_SPAWN";
 
 export type InternalProcessRole = "coordinator" | "server" | "session-worker";
 

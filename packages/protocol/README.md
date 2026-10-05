@@ -1,6 +1,6 @@
-# @earendil-works/pi-protocol
+# @jeffhub/jeff-code-protocol
 
-Runtime-neutral routed envelopes, CBOR encoding, and byte-stream framing for the experimental Pi protocol.
+Runtime-neutral routed envelopes, CBOR encoding, and byte-stream framing for the experimental Jeff-Code protocol.
 
 Protocol version `8` defines:
 
@@ -12,7 +12,7 @@ Protocol version `8` defines:
 
 A server target contains `{ serverId }`; a Session target contains `{ serverId, sessionId, attachmentId }`. The combined route fences calls to one logical server, durable Session, and live presentation attachment. Management `attach()` and `detach()` return no routing identifiers; the server publishes the selected live route in an out-of-band `attachment` message. Disconnecting releases only that presentation's attachment after admitted calls settle.
 
-Chord owns the payload semantics carried inside these envelopes: `{ serviceId, instance?, member, args }` calls, the `$chord.service` control vocabulary, service catalogues, subscription snapshots and updates, service error codes, and the independent Delta path codecs for replicated states. `pi-protocol` validates that each opaque payload is strict JSON but does not validate or export its Chord grammar. Clients and servers parse those values through `@earendil-works/chord` at the service adapter boundary.
+Chord owns the payload semantics carried inside these envelopes: `{ serviceId, instance?, member, args }` calls, the `$chord.service` control vocabulary, service catalogues, subscription snapshots and updates, service error codes, and the independent Delta path codecs for replicated states. `pi-protocol` validates that each opaque payload is strict JSON but does not validate or export its Chord grammar. Clients and servers parse those values through `@jeffhub/jeff-code-chord` at the service adapter boundary.
 
 Session-directory state, management results, transcripts, models, plugins, and all other application values remain opaque service data. The durable Session and its Harness remain local to the Session worker process. Server and Session calls route opaquely to their owning providers, where Chord and the application validate and invoke them.
 
@@ -26,7 +26,7 @@ import {
   encodeClientMessage,
   ServerMessageDecoder,
   type ClientHello,
-} from "@earendil-works/pi-protocol";
+} from "@jeffhub/jeff-code-protocol";
 
 const hello: ClientHello = { type: "hello", version: PROTOCOL_VERSION };
 transport.send(encodeClientMessage(hello));

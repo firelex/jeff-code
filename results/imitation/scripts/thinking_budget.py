@@ -1,7 +1,7 @@
 """Long thinking in the xhigh collection: how much Qwen3.8-27B's generation time goes to very long thinking, and what a
 thinking budget could save.
 
-`offline` reads recorded pi sessions and JeffFirst traces (read-only, no model calls) and writes the Part A tables and a
+`offline` reads recorded Jeff-Code sessions and JeffFirst traces (read-only, no model calls) and writes the Part A tables and a
 per-turn JSONL (input of the re-ask test, `sample`).
 
 Data: trials of the xhigh collection (record mode, thinking router fixed:xhigh, driver tarball of build 8db5381f3 unless
@@ -17,7 +17,7 @@ Definitions:
   completed requests.
 - Turn classes: completed (stop reason toolUse or stop), output limit (stop reason length with 32,768 output tokens:
   the reply reached the output limit), context limit (stop reason length with fewer output tokens: prompt plus reply
-  reached the context window; pi compacts the context and goes on), runaway cut (outcome discarded or turn_ended with guard runaway), loop guard (guard loop;
+  reached the context window; Jeff-Code compacts the context and goes on), runaway cut (outcome discarded or turn_ended with guard runaway), loop guard (guard loop;
   it acts only at thinking off/low, so never at xhigh), failed (stop reason error/aborted without a guard).
 - Time a budget B saves on a completed turn with T > B thinking tokens: its generation time x (T - B) / output tokens
   (the decode share of the turn; prefill and queueing are put on all tokens alike, as ceiling.py does).
@@ -119,7 +119,7 @@ def read_trial(trial, host, build):
         elif request["stop_reason"] == "length" and usage.get("output", 0) >= OUTPUT_LIMIT:
             klass = "output limit"
         elif request["stop_reason"] == "length":
-            # The prompt plus the reply reached the context window before the output limit; pi compacts and goes on.
+            # The prompt plus the reply reached the context window before the output limit; Jeff-Code compacts and goes on.
             klass = "context limit"
         elif request["stop_reason"] in ("toolUse", "stop"):
             klass = "completed"
@@ -240,7 +240,7 @@ def offline_markdown(trials, rows, skipped, ratio, build):
     limit_last = sum(r["last_turn"] for r in limit)
     with_calls = sum(1 for r in limit if r.get("n_calls"))
     w(f"After an output-limit hit: {limit_last} of {len(limit)} limit hits are the session's last Qwen turn (the "
-      f"session ends there); {with_calls} of them carried a tool call (pi fails a cut reply's tool calls without running "
+      f"session ends there); {with_calls} of them carried a tool call (Jeff-Code fails a cut reply's tool calls without running "
       "them). Rewards of the trials whose session ended on a limit hit: "
       + str(dict(collections.Counter(next(t["reward"] for t in trials if t["trial_dir"] == r["trial_dir"])
                                      for r in limit if r["last_turn"]))) + ".\n")

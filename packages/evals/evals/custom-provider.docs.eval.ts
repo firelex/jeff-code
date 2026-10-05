@@ -62,7 +62,7 @@ describeEval("Add custom streaming provider", { harness, judges: [judge], judgeT
 		await run([
 			{
 				type: "prompt",
-				content: `Configure this running Pi installation with Acme Stream as a provider. Do not create a project package or modify project source. Its provider ID is ${STREAM_PROVIDER_ID}, its API is at ${server.origin()}, and its API documentation is in ./${DOCUMENTATION_PATH}. Read its credential from the ACME_STREAM_API_KEY environment variable.
+				content: `Configure this running Jeff-Code installation with Acme Stream as a provider. Do not create a project package or modify project source. Its provider ID is ${STREAM_PROVIDER_ID}, its API is at ${server.origin()}, and its API documentation is in ./${DOCUMENTATION_PATH}. Read its credential from the ACME_STREAM_API_KEY environment variable.
 
 It offers one model, ${STREAM_MODEL_ID}, shown as “Acme Stream Chat”. The model accepts text, does not support reasoning, has a 16,384-token context window and a 2,048-token maximum output, and has no usage cost.`,
 			},

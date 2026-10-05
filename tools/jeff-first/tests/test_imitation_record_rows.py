@@ -53,7 +53,7 @@ def write_session(tmp_path, entries):
     folder.mkdir()
     header = {"type": "session", "version": 3, "id": "sess-1", "timestamp": "t", "cwd": "/app"}
     lines = [header, {"type": "message", "message": {"role": "user", "content": "Fix the bug in /app/main.py."}}, *entries]
-    # Entries form one chain, as pi writes them: entry N's parent is entry N-1 (the first one's parent is None).
+    # Entries form one chain, as Jeff-Code writes them: entry N's parent is entry N-1 (the first one's parent is None).
     lines = [header] + [{**line, "id": f"e{n}", "parentId": None if n == 1 else f"e{n - 1}"} for n, line in enumerate(lines[1:], start=1)]
     (folder / "s.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
     return folder
@@ -244,7 +244,7 @@ def test_a_whole_trace_reads_without_notes(tmp_path):
 
 
 def test_a_bash_call_without_a_command_is_shown_as_state_ts_shows_it(tmp_path):
-    # Qwen sometimes sends a bash call with no arguments; pi answers "Validation failed" and state.ts shows the step
+    # Qwen sometimes sends a bash call with no arguments; Jeff-Code answers "Validation failed" and state.ts shows the step
     # as the tool name and its arguments ("bash {}"). The turn is labelled from that text: it matches no option.
     entries = [
         assistant({"type": "toolCall", "id": "c1", "name": "bash", "arguments": {}}),
@@ -271,7 +271,7 @@ def test_bash_arguments_are_written_as_javascript_writes_json(tmp_path):
 
 
 def test_a_cut_trial_drops_record_lines_for_turns_the_session_file_does_not_have_yet(tmp_path):
-    # pi writes the record line and the session's assistant message separately; when the trial is stopped (or is still
+    # Jeff-Code writes the record line and the session's assistant message separately; when the trial is stopped (or is still
     # running when copied) the trace may hold the next turn already.
     folder = write_session(tmp_path, [assistant(bash("c1", "ls -la /app")), result("c1", "main.py")])
     files = sorted(folder.glob("*.jsonl"))
@@ -304,7 +304,7 @@ def test_a_trial_without_result_json_was_cut(tmp_path):
 
 def test_trial_cut_names_a_timeout_or_a_killed_agent_and_nothing_else(tmp_path):
     assert trial_cut(write_trial(tmp_path / "a", GOOD, exception_type="AgentTimeoutError")) == "AgentTimeoutError"
-    # pi killed mid-turn (exit 143, e.g. by a pkill in Qwen's own command): the trace may hold a turn the session file
+    # Jeff-Code killed mid-turn (exit 143, e.g. by a pkill in Qwen's own command): the trace may hold a turn the session file
     # does not, exactly as at a timeout.
     assert trial_cut(write_trial(tmp_path / "k", GOOD, exception_type="NonZeroAgentExitCodeError")) == "NonZeroAgentExitCodeError"
     assert trial_cut(write_trial(tmp_path / "b", GOOD, exception_type="RuntimeError")) is None
@@ -312,7 +312,7 @@ def test_trial_cut_names_a_timeout_or_a_killed_agent_and_nothing_else(tmp_path):
 
 
 def test_after_a_compaction_the_state_holds_only_the_steps_pi_kept(tmp_path):
-    # pi's context after a compaction holds a summary, the entries from firstKeptEntryId on, and every later entry;
+    # Jeff-Code's context after a compaction holds a summary, the entries from firstKeptEntryId on, and every later entry;
     # the scout's state then covers only the steps in those entries. Entry ids: e1 is the user message, e2 the first
     # assistant message, and so on.
     entries = [

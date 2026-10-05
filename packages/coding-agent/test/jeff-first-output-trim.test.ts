@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@jeffhub/jeff-code-ai";
 import { describe, expect, it } from "vitest";
 import type { JeffCut } from "../src/core/jeff-first/jeff-service.ts";
 import {

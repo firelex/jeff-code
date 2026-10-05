@@ -2,7 +2,7 @@
  * Alt-screen render churn benchmark.
  *
  * Measures cumulative JS allocation and wall time for repeated TuiAltScreen
- * frames on a layout mirroring pi's fullscreen interactive mode:
+ * frames on a layout mirroring Jeff-Code's fullscreen interactive mode:
  * VStack [ ScrollView(transcript), dock VStack [status, editor, footer] ].
  *
  * Two scenarios:

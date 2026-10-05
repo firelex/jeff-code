@@ -1,6 +1,6 @@
 """Where does the coding model's time go? Time per Qwen turn, by what the turn does, and the ceiling for Jeff.
 
-Reads recorded pi sessions (read-only) and writes results/imitation/ceiling.md.
+Reads recorded Jeff-Code sessions (read-only) and writes results/imitation/ceiling.md.
 
 Usage (needs the `tokenizers` package):
     uv run --with tokenizers python ceiling.py --tokenizer TOKENIZER_DIR --out OUT.md [--turns TURNS.jsonl] RUN_DIR...
@@ -10,8 +10,8 @@ holds config.json, result.json (missing if the trial was stopped), agent/pi/sess
 agent/jeff-first-trace.jsonl.
 
 Definitions used throughout:
-- A Qwen turn is one assistant message in the pi session. Its generation time is from the request start (the message's
-  own `timestamp`, set when pi sends the request) to the response end (the session entry's `timestamp`, written when the
+- A Qwen turn is one assistant message in the Jeff-Code session. Its generation time is from the request start (the message's
+  own `timestamp`, set when Jeff-Code sends the request) to the response end (the session entry's `timestamp`, written when the
   message ends, before any tool runs). Its tool time is from the response end to the last tool result of that turn.
 - Thinking tokens come from the server's usage report (`usage.reasoning`). Text and tool-call tokens are counted with
   the Qwen tokenizer: the tool calls are rendered the way Qwen writes them (qwen3_coder XML format).
@@ -744,7 +744,7 @@ def main():
     w(f"- Trials: {len(trials)}; with a session: {len(sessions)} ({no_session} failed before the first turn). "
       f"Ended with a final answer: {finished}; stopped by the collection shutdown: {stopped}; other ends "
       f"(timeout, cap, error): {len(sessions) - finished - stopped}.")
-    w(f"- Qwen turns: {len(qwen_turns):,}, plus {len(by_class[COMPACTION])} compaction summaries (pi asks Qwen to "
+    w(f"- Qwen turns: {len(qwen_turns):,}, plus {len(by_class[COMPACTION])} compaction summaries (Jeff-Code asks Qwen to "
       f"summarise the context when it gets too long).")
     w(f"- Qwen generation time: {hours(total_gen)} hours. Tool time (commands running): {hours(total_tool)} hours. "
       f"Generation is {pct(total_gen, total_gen + total_tool)} of generation plus tool time.")
@@ -759,7 +759,7 @@ def main():
       f"{(reasoning_tokens + text_tokens + call_tokens) / out_tokens:.3f} over all output).\n")
 
     w("## How turns are measured and classified\n")
-    w("- Generation time: from pi sending the request to the end of Qwen's reply (session timestamps). It includes "
+    w("- Generation time: from Jeff-Code sending the request to the end of Qwen's reply (session timestamps). It includes "
       "prefill (reading the prompt) and queueing on a shared server. Tool time: from the end of the reply to the last "
       "tool result. Compaction time: from the entry before it to the compaction entry.")
     w("- Thinking time of a turn = generation time x thinking tokens / output tokens. This puts some prefill time on "

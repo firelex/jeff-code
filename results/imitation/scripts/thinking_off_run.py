@@ -7,7 +7,7 @@ Usage:
 
 BODIES.jsonl holds one line per rebuilt request body, {"id": "<turn id>|on", "body": {...}} (also "|off" and "|cut"),
 as written by thinking_off_requests.ts. For every turn four requests are sent, all streamed:
-  A  thinking on, the body exactly as pi sent it (server-default sampling), at most 32,768 output tokens;
+  A  thinking on, the body exactly as Jeff-Code sent it (server-default sampling), at most 32,768 output tokens;
   B  thinking off, temperature 0, at most 8,192 output tokens;
   C  thinking off, temperature 0.7, top_p 0.8, top_k 20 (Qwen's recommended non-thinking sampling), at most 8,192;
   D  as C, on the cut context (system prompt, task message, last 3 tool steps);

@@ -39,7 +39,7 @@ out.html
 packages/coding-agent/binaries/
 todo.md
 plans/
-.pi/hf-sessions/
-.pi/hf-sessions-backup/
+.jeff/hf-sessions/
+.jeff/hf-sessions-backup/
 collect.sh
 packages/agent/docs/extensions/pi-server-artifact/index.md

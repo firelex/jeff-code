@@ -4,7 +4,7 @@ import {
 	getCurrentSystemPrompt,
 	getCurrentTools,
 	type TranscriptContext,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionFactory } from "../../../src/index.ts";

@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-server",
+	"name": "@jeffhub/jeff-code-server",
 	"version": "0.99.2",
-	"description": "experimental server package for pi",
+	"description": "experimental server package for Jeff-Code",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -33,22 +33,22 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"keywords": [
-		"pi",
+		"jeff-code",
 		"server"
 	],
 	"author": "Earendil Works",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/server"
 	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/chord": "^0.99.2",
-		"@earendil-works/pi-protocol": "^0.99.2"
+		"@jeffhub/jeff-code-chord": "^0.99.2",
+		"@jeffhub/jeff-code-protocol": "^0.99.2"
 	},
 	"devDependencies": {
 		"shx": "0.4.0",

@@ -30,7 +30,7 @@ Sides:
      held out; SkillsBench groups until HELD_OUT_FRACTION of its tasks are held out.
   4b. After the draw (so no other group moves): a SWE-rebench repository that also has tasks in SWE-bench Verified or
      DeepSWE is held out (owner decision, 2026-10-04).
-  5. Excluded on both sides: tasks that need MCP tools (pi gives the model only bash). Excluded on the training side:
+  5. Excluded on both sides: tasks that need MCP tools (Jeff-Code gives the model only bash). Excluded on the training side:
      tasks that need a GPU.
 Sizes: as task_sets_summary.py (compressed, shared registry layers counted once, Dockerfile installs estimated from
 the first survey's calibration), with one change: a Dockerfile that only installs uv or makes directories (SWE-rebench)
@@ -105,7 +105,7 @@ SPLIT_POLICY = {
     "swe-rebench-leaderboard": "repository-level seeded split: about 15% of repositories (all their tasks) held out as "
     "our own validation benchmark; the rest train (owner decision)",
     "skillsbench": "seeded group split, 50% held out (Terminal-Bench-style tasks; numbers are not comparable with the "
-    "published ones anyway, because pi does not load the benchmark's skill folders)",
+    "published ones anyway, because Jeff-Code does not load the benchmark's skill folders)",
 }
 
 # Hand-checked: added task -> (task of the first survey, why). Same shape as a held-out task.
@@ -317,7 +317,7 @@ def main() -> None:
             if k in EXCLUDE:
                 reason = EXCLUDE[k]
             elif r["mcp_servers"]:
-                reason = "needs MCP tools (pi gives the model only bash)"
+                reason = "needs MCP tools (Jeff-Code gives the model only bash)"
             elif s == "training" and ds in WHOLE_HELD_OUT:
                 reason = forced[root] + "; its dataset is kept whole as held-out, so it is not trained on either"
             elif s == "training" and (r["gpus"] or r["gpu_in_compose"]):

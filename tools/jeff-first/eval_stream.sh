@@ -3,7 +3,7 @@
 # queues in the order given (eval_queue.py claim; a block = one task attempt under all four arms, on one server), runs
 # it through run_phase0.sh with that arm's settings, records its end, and repeats until no queue has anything left
 # (exit 4 from each) or it is stopped.
-# Arms (all: package jeff-pi-scout-86f8c8323.tgz, pi thinking high, bash only, output cap 32768, run approval all,
+# Arms (all: package jeff-pi-scout-86f8c8323.tgz, Jeff-Code thinking high, bash only, output cap 32768, run approval all,
 # multiplier 6 as the collection; hub tasks get at most 15 min x 6 of agent time, task_source.py):
 #   a1-baseline   record mode (Jeff off), router fixed:xhigh, thinking limit off, trim off
 #   a2-off-guard  record mode (Jeff off), router fixed:off, thinking limit 8000, trim off

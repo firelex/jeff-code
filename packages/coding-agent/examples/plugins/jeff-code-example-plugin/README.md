@@ -1,21 +1,21 @@
-# `@earendil-works/pi-example-plugin`
+# `@jeffhub/jeff-code-example-plugin`
 
 This package provides conventional `session` and `tui` Chord facets. The Session-worker facet provides a remote greeting service. The TUI facet contributes `/hello` and calls that service.
 
-The package needs no build script. Pi asks Chord to discover `src/session.ts` and `src/tui.ts`, builds both entries into its server-owned plugin cache, and sends the TUI artifact to clients.
+The package needs no build script. Jeff-Code asks Chord to discover `src/session.ts` and `src/tui.ts`, builds both entries into its server-owned plugin cache, and sends the TUI artifact to clients.
 
 From the repository root:
 
 ```bash
-PI_EXPERIMENTAL=1 ./pi-test.sh server \
-  -e "$PWD/packages/coding-agent/examples/plugins/pi-example-plugin"
+JEFF_EXPERIMENTAL=1 ./jeff-test.sh server \
+  -e "$PWD/packages/coding-agent/examples/plugins/jeff-code-example-plugin"
 ```
 
 Alternatively, a client can select the plugin for the Session it creates or resumes on one local server:
 
 ```bash
-PI_EXPERIMENTAL=1 ./pi-test.sh client \
-  -e "$PWD/packages/coding-agent/examples/plugins/pi-example-plugin"
+JEFF_EXPERIMENTAL=1 ./jeff-test.sh client \
+  -e "$PWD/packages/coding-agent/examples/plugins/jeff-code-example-plugin"
 ```
 
 Repeat `-e` to select multiple plugin packages. Client paths are resolved locally and sent only to a Unix server; Radius clients cannot select server filesystem paths. The Session and matching TUI facets are stored with that Session, so later server generations and clients can resume it without plugin arguments. Other Sessions and their workers are unaffected. An active Session rejects a different package selection instead of being restarted.

@@ -1,4 +1,4 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage } from "@jeffhub/jeff-code-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionBeforeCompactEvent } from "../../src/core/extensions/index.ts";
 import { createHarness, type Harness } from "./harness.ts";

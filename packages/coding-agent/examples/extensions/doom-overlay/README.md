@@ -1,11 +1,11 @@
 # DOOM Overlay Demo
 
-Play DOOM as an overlay in pi. Demonstrates that the overlay system can handle real-time game rendering at 35 FPS.
+Play DOOM as an overlay in Jeff-Code. Demonstrates that the overlay system can handle real-time game rendering at 35 FPS.
 
 ## Usage
 
 ```bash
-pi --extension ./examples/extensions/doom-overlay
+jeff --extension ./examples/extensions/doom-overlay
 ```
 
 Then run:

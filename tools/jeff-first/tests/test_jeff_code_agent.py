@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from harbor.agents.installed.pi import Pi
 
 from harbor.environments.base import ExecResult
 
-from harbor_agent.jeff_pi import BULLSEYE_CURL_INSTALL, CURL_STATE, REMOTE_TARBALL, JeffPi
+from harbor_agent.jeff_code import BULLSEYE_CURL_INSTALL, CURL_STATE, REMOTE_TARBALL, JeffCode
 
 
 class FakeEnvironment:
@@ -28,7 +29,7 @@ class FakeEnvironment:
 
 
 def make_agent(tmp_path, **kwargs):
-    return JeffPi(logs_dir=tmp_path / "logs", model_name="spark/qwen3.8-flash-next", **kwargs)
+    return JeffCode(logs_dir=tmp_path / "logs", model_name="spark/qwen3.8-flash-next", **kwargs)
 
 
 def record_calls(agent, monkeypatch):
@@ -50,7 +51,7 @@ def record_calls(agent, monkeypatch):
 
 
 async def test_installs_the_fork_from_the_uploaded_tarball(tmp_path, monkeypatch):
-    tarball = tmp_path / "earendil-works-pi-coding-agent-0.99.2.tgz"
+    tarball = tmp_path / "jeffhub-jeff-code-0.99.2.tgz"
     tarball.write_bytes(b"tarball")
     agent = make_agent(tmp_path, tarball=str(tarball))
     calls = record_calls(agent, monkeypatch)
@@ -62,14 +63,14 @@ async def test_installs_the_fork_from_the_uploaded_tarball(tmp_path, monkeypatch
     assert calls[0] == ("deps", ("curl",))
     command = calls[1][1]
     assert f"npm install -g --ignore-scripts {REMOTE_TARBALL}" in command
-    assert "@earendil-works/pi-coding-agent@" not in command
-    assert command.rstrip().endswith("pi --version")
+    assert "@jeffhub/jeff-code@" not in command
+    assert command.rstrip().endswith("jeff --version")
 
 
 async def test_installs_curl_from_the_bullseye_main_archive_on_debian_11_without_curl(tmp_path, monkeypatch):
     # qemu-startup and qemu-alpine-ssh (Debian 11): the security archive lists curl 7.74.0-1.3+deb11u16, whose
     # package files are gone (404), so Harbor's plain apt-get install fails; the main archive still has curl.
-    tarball = tmp_path / "pi.tgz"
+    tarball = tmp_path / "jeff-code.tgz"
     tarball.write_bytes(b"tarball")
     agent = make_agent(tmp_path, tarball=str(tarball))
     calls = record_calls(agent, monkeypatch)
@@ -86,7 +87,7 @@ async def test_installs_curl_from_the_bullseye_main_archive_on_debian_11_without
 
 @pytest.mark.parametrize("state", ["present", "other"])
 async def test_leaves_curl_to_harbor_on_other_images(tmp_path, monkeypatch, state):
-    tarball = tmp_path / "pi.tgz"
+    tarball = tmp_path / "jeff-code.tgz"
     tarball.write_bytes(b"tarball")
     agent = make_agent(tmp_path, tarball=str(tarball))
     calls = record_calls(agent, monkeypatch)
@@ -98,7 +99,7 @@ async def test_leaves_curl_to_harbor_on_other_images(tmp_path, monkeypatch, stat
 
 
 async def test_refuses_an_unknown_curl_state(tmp_path, monkeypatch):
-    tarball = tmp_path / "pi.tgz"
+    tarball = tmp_path / "jeff-code.tgz"
     tarball.write_bytes(b"tarball")
     agent = make_agent(tmp_path, tarball=str(tarball))
     record_calls(agent, monkeypatch)
@@ -114,7 +115,7 @@ async def test_refuses_a_missing_tarball(tmp_path, monkeypatch):
 
 
 def test_requires_the_tarball_option(tmp_path):
-    with pytest.raises(ValueError, match=r"(?s)Invalid kwargs for agent 'jeff-pi'.*tarball"):
+    with pytest.raises(ValueError, match=r"(?s)Invalid kwargs for agent 'jeff-code'.*tarball"):
         make_agent(tmp_path)
 
 
@@ -124,20 +125,51 @@ def test_keeps_pi_options_such_as_thinking(tmp_path):
     assert agent.options.model_api == "openai-completions"
 
 
-def test_passes_the_tool_list_to_pi(tmp_path):
+def test_passes_the_tool_list_to_jeff_code(tmp_path):
     agent = make_agent(tmp_path, tarball="x.tgz", tools="read,bash,edit,write,grep,find,ls")
     assert "--tools read,bash,edit,write,grep,find,ls" in agent.build_cli_flags()
 
 
-def test_leaves_pi_default_tools_when_no_list_is_given(tmp_path):
+def test_leaves_jeff_code_default_tools_when_no_list_is_given(tmp_path):
     agent = make_agent(tmp_path, tarball="x.tgz")
     assert "--tools" not in agent.build_cli_flags()
 
 
-def test_ends_pi_options_before_the_instruction(tmp_path):
-    # An instruction starting with "-" (TB2 pytorch-model-recovery) was read by pi as an unknown option.
+def test_ends_jeff_code_options_before_the_instruction(tmp_path):
+    # An instruction starting with "-" (TB2 pytorch-model-recovery) was read by Jeff-Code as an unknown option.
     assert make_agent(tmp_path, tarball="x.tgz", tools="bash").build_cli_flags().endswith(" --")
     assert make_agent(tmp_path, tarball="x.tgz").build_cli_flags().endswith("--")
+
+
+async def test_runs_the_jeff_command_with_its_settings_folder(tmp_path, monkeypatch):
+    # Harbor's pi agent runs `pi` with PI_CODING_AGENT_DIR; the Jeff-Code tarball installs `jeff`, which reads
+    # JEFF_CODING_AGENT_DIR. The session folder and event output stay where Harbor (and the tools here) expect them.
+    fake_models_json(monkeypatch)
+    monkeypatch.setattr(JeffCode, "model_connection", property(lambda self: SimpleNamespace(provider=None, env={"K": "secret"})))
+    agent = make_agent(tmp_path, tarball="x.tgz", tools="bash")
+    calls = record_calls(agent, monkeypatch)
+    written = []
+
+    async def write_custom_models_json(environment, models_json):
+        written.append(models_json)
+
+    monkeypatch.setattr(agent, "_write_custom_models_json", write_custom_models_json)
+
+    await agent.run("- fix the bug", FakeEnvironment(), None)
+
+    assert written == [SAMPLE]
+    [(kind, command)] = calls
+    assert kind == "exec"
+    assert command.startswith(
+        ". ~/.nvm/nvm.sh; JEFF_CODING_AGENT_DIR=/tmp/harbor-pi-agent jeff --print --mode json "
+        "--session-dir /logs/agent/pi/sessions --provider harbor-endpoint --model qwen3.8-flash-next --tools bash -- '- fix the bug' "
+    )
+    assert command.endswith("| stdbuf -oL tee /logs/agent/pi.txt")
+    assert "PI_CODING_AGENT_DIR" not in command and " pi " not in command
+
+
+def test_reads_the_version_from_the_jeff_command(tmp_path):
+    assert make_agent(tmp_path, tarball="x.tgz").get_version_command() == ". ~/.nvm/nvm.sh; jeff --version"
 
 
 SAMPLE = {"providers": {"harbor-endpoint": {"baseUrl": "http://x/v1", "apiKey": "$K", "api": "openai-completions", "models": [{"id": "qwen3.8-27b"}]}}}

@@ -1,4 +1,4 @@
-import type { Api, Model, Provider } from "@earendil-works/pi-ai";
+import type { Api, Model, Provider } from "@jeffhub/jeff-code-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { defaultModelPerProvider } from "../../../src/core/model-resolver.ts";

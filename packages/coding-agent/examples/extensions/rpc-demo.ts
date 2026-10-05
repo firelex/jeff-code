@@ -17,7 +17,7 @@
  * - setEditorText() - via /rpc-prefill command
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@jeffhub/jeff-code";
 
 export default function (pi: ExtensionAPI) {
 	let turnCount = 0;
@@ -25,7 +25,7 @@ export default function (pi: ExtensionAPI) {
 	// -- setTitle, setWidget, setStatus on session lifecycle --
 
 	pi.on("session_start", async (event, ctx) => {
-		ctx.ui.setTitle(event.reason === "new" ? "pi RPC Demo (new session)" : "pi RPC Demo");
+		ctx.ui.setTitle(event.reason === "new" ? "Jeff-Code RPC Demo (new session)" : "Jeff-Code RPC Demo");
 		ctx.ui.setWidget("rpc-demo", ["--- RPC Extension UI Demo ---", "Loaded and ready."]);
 		ctx.ui.setStatus("rpc-demo", `Turns: ${turnCount}`);
 	});

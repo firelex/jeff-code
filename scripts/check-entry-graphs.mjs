@@ -19,14 +19,14 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Workspace package name -> its source root, so cross-package imports are followed. */
 const WORKSPACE = {
-	"@earendil-works/chord": "packages/chord/src",
-	"@earendil-works/pi-ai": "packages/ai/src",
-	"@earendil-works/pi-durable": "packages/durable/src",
-	"@earendil-works/pi-agent-core": "packages/agent/src",
-	"@earendil-works/pi-codemode": "packages/codemode/src",
-	"@earendil-works/pi-telemetry": "packages/telemetry/src",
-	"@earendil-works/pi-mcp": "packages/mcp/src",
-	"@earendil-works/pi-tui": "packages/tui/src",
+	"@jeffhub/jeff-code-chord": "packages/chord/src",
+	"@jeffhub/jeff-code-ai": "packages/ai/src",
+	"@jeffhub/jeff-code-durable": "packages/durable/src",
+	"@jeffhub/jeff-code-agent-core": "packages/agent/src",
+	"@jeffhub/jeff-code-codemode": "packages/codemode/src",
+	"@jeffhub/jeff-code-telemetry": "packages/telemetry/src",
+	"@jeffhub/jeff-code-mcp": "packages/mcp/src",
+	"@jeffhub/jeff-code-tui": "packages/tui/src",
 };
 
 /**
@@ -43,7 +43,7 @@ const BUDGETS = {
 	},
 	"packages/durable": {
 		".": {
-			// The built-in tool task validates arguments with pi-ai's TypeBox-based validation, so TypeBox is allowed.
+			// The built-in tool task validates arguments with jeff-code-ai's TypeBox-based validation, so TypeBox is allowed.
 			maxFiles: 60,
 			forbid: ["packages/ai/src/index.ts", "packages/ai/src/utils/typebox-helpers.ts"],
 		},

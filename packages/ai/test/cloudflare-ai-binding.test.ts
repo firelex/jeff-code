@@ -69,7 +69,7 @@ describe("createAiBindingFetch", () => {
 
 	it("keeps SDK placeholder auth off the wire when paired with null auth headers", async () => {
 		// The full header contract from the module docs, end to end through a real API impl: the
-		// sentinel satisfies pi's request-auth check, and the explicit nulls make the OpenAI SDK
+		// sentinel satisfies Jeff-Code's request-auth check, and the explicit nulls make the OpenAI SDK
 		// delete its own `Authorization: Bearer unused` placeholder before dispatch.
 		const { binding, requests } = fakeBinding(
 			Response.json({ error: { type: "bad_request", message: "stubbed" } }, { status: 400 }),

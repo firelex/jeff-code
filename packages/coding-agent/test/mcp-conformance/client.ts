@@ -8,7 +8,7 @@
  * authorization URL is fetched without following its redirect, and the redirect is delivered to pi's
  * loopback callback server. Credentials stay in memory.
  *
- * Run through run.ts, which writes the outcome to `PI_MCP_CONFORMANCE_REPORT`.
+ * Run through run.ts, which writes the outcome to `JEFF_MCP_CONFORMANCE_REPORT`.
  */
 
 import { writeFileSync } from "node:fs";
@@ -179,7 +179,7 @@ async function run(serverUrl: string, scenario: string): Promise<void> {
 async function main(): Promise<number> {
 	const serverUrl = process.argv.at(-1);
 	const scenario = process.env.MCP_CONFORMANCE_SCENARIO;
-	const reportPath = process.env.PI_MCP_CONFORMANCE_REPORT;
+	const reportPath = process.env.JEFF_MCP_CONFORMANCE_REPORT;
 	let report: { success: boolean; error?: string };
 	if (!serverUrl || !scenario || process.argv.length < 3) {
 		report = { success: false, error: "Usage: MCP_CONFORMANCE_SCENARIO=<scenario> client.ts <server-url>" };

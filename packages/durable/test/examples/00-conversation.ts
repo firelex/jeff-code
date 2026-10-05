@@ -1,7 +1,7 @@
 // A Session stores conversations, transcript entries, tasks, and documents.
 // Run from packages/durable:
 //   node --conditions=source --experimental-strip-types test/examples/00-conversation.ts
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { createSession, MemoryStorage } from "../../src/index.ts";
 
 // MemoryStorage keeps everything in memory; other storage backends keep it on disk.

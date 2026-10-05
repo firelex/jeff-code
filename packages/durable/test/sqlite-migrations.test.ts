@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { afterEach, describe, expect, it } from "vitest";
 import { idFromNumber } from "../src/ids.ts";
 import {

@@ -54,7 +54,7 @@ export interface McpStdioServerConfig extends McpServerConfigBase {
 
 /** OAuth client settings for servers that do not support dynamic client registration. */
 export interface McpOAuthConfig {
-	/** Pre-registered client id. Without it, pi registers a client with the authorization server. */
+	/** Pre-registered client id. Without it, Jeff-Code registers a client with the authorization server. */
 	clientId?: string;
 	/** May reference environment variables (`${NAME}`) or commands (`!cmd`). */
 	clientSecret?: string;
@@ -73,7 +73,7 @@ export interface McpOAuthConfig {
 	scope?: string;
 	/**
 	 * `client_name` sent with dynamic client registration, for servers that only accept known clients.
-	 * Default: `pi`.
+	 * Default: `jeff`.
 	 */
 	clientName?: string;
 	/**
@@ -86,7 +86,7 @@ export interface McpOAuthConfig {
 
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
 
-/** Whether a redirect URI can be served by pi's loopback callback server. */
+/** Whether a redirect URI can be served by Jeff-Code's loopback callback server. */
 export function isLoopbackRedirectUri(value: string): boolean {
 	if (!URL.canParse(value)) return false;
 	const url = new URL(value);
@@ -100,7 +100,7 @@ export interface McpHttpServerConfig extends McpServerConfigBase {
 	headers?: Record<string, string>;
 	oauth?: McpOAuthConfig;
 	/**
-	 * Send the token of a pi provider (`/login <provider>`) instead of using OAuth. Not allowed in project
+	 * Send the token of a Jeff-Code provider (`/login <provider>`) instead of using OAuth. Not allowed in project
 	 * `mcp.json` files, and requires https except on loopback hosts, since it sends the credential to `url`.
 	 */
 	auth?: { provider: string };

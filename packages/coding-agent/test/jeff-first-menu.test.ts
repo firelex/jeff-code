@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JsonObject } from "@earendil-works/pi-ai";
+import type { JsonObject } from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { liveFacts } from "../src/core/jeff-first/facts.ts";
 import { buildMenu, type MenuInput, type MenuOption, matchToolCall } from "../src/core/jeff-first/menu.ts";

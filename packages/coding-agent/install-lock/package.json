@@ -1,10 +1,10 @@
 {
-	"name": "@earendil-works/pi-coding-agent-install",
+	"name": "@jeffhub/jeff-code-install",
 	"version": "0.99.2",
 	"private": true,
-	"description": "Lockfile root used by the Pi installer and updater.",
+	"description": "Lockfile root used by the Jeff-Code installer and updater.",
 	"dependencies": {
-		"@earendil-works/pi-coding-agent": "0.99.2"
+		"@jeffhub/jeff-code": "0.99.2"
 	},
 	"overrides": {
 		"protobufjs": "7.6.6"

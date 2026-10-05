@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
-import type { JsonObject, StopReason } from "@earendil-works/pi-ai";
+import type { JsonObject, StopReason } from "@jeffhub/jeff-code-ai";
 import type { Pick } from "./chooser.ts";
 import type { RunApproval } from "./config.ts";
 import type { JeffCannotFit, JeffCut } from "./jeff-service.ts";
@@ -204,7 +204,7 @@ export type GuardTrigger =
 /**
  * Schema "jeff-first-trace/6" adds this line kind; the other kinds keep their schema. One line per request to the
  * coding model (Qwen) in teacher and record modes, written before that turn's model_turn or record line: the thinking
- * level the router (or the guard) chose, what pi sent for it, and what came back. A turn has a second request
+ * level the router (or the guard) chose, what Jeff-Code sent for it, and what came back. A turn has a second request
  * (attempt 2, always at "xhigh") only when the first reply was discarded: it repeated one of Qwen's last 6 actions at
  * thinking "off" or "low" (guard.trigger "loop", see loop-guard.ts), or it ran away (guard.trigger "runaway"). A discarded reply never enters the
  * session. A guard on a kept attempt-1 line means the user aborted the request while the guard fired.

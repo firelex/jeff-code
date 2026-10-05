@@ -1,8 +1,8 @@
-import { type Context, copyJson, type JsonValue } from "@earendil-works/chord";
-import { awaitWithContext } from "@earendil-works/chord/context";
-import { overlap } from "@earendil-works/chord/delta";
-import type { ImageContent, TextContent, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
-import { validateToolArguments } from "@earendil-works/pi-ai/utils/validation";
+import type { ImageContent, TextContent, ToolCall, ToolResultMessage } from "@jeffhub/jeff-code-ai";
+import { validateToolArguments } from "@jeffhub/jeff-code-ai/utils/validation";
+import { type Context, copyJson, type JsonValue } from "@jeffhub/jeff-code-chord";
+import { awaitWithContext } from "@jeffhub/jeff-code-chord/context";
+import { overlap } from "@jeffhub/jeff-code-chord/delta";
 import { AssistantEntry, ToolResultEntry } from "../entries.ts";
 import { defineTask } from "../tasks.ts";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, utf8ByteLength } from "../truncate.ts";

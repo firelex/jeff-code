@@ -12,12 +12,12 @@ write one line per large-model turn to a trace file; the teacher run also writes
 
 Plain-English definitions used below:
 
-- A tool call: one entry of type "toolCall" inside one assistant message's content, in pi's own session log
-  (agent/pi/sessions/*.jsonl). It has a "name" (which pi tool it called, e.g. "read", "bash", "write") and
+- A tool call: one entry of type "toolCall" inside one assistant message's content, in Jeff-Code's own session log
+  (agent/pi/sessions/*.jsonl). It has a "name" (which Jeff-Code tool it called, e.g. "read", "bash", "write") and
   "arguments". A scout step shows up as its own, separate assistant message whose "provider" is "jeff-first"; every
   other assistant message's tool calls are Qwen's.
 
-- The scout's share of tool calls: of every tool call in the teacher run's pi session(s), the fraction made by the
+- The scout's share of tool calls: of every tool call in the teacher run's Jeff-Code session(s), the fraction made by the
   scout (provider "jeff-first") rather than Qwen.
 
 - The scout's decision time: how many seconds the scout itself spent choosing, across every decision in the
@@ -31,7 +31,7 @@ Plain-English definitions used below:
   We do not know how long that particular avoided turn would have taken, so we estimate it as the typical turn
   length above, multiplied by how many steps the scout took.
 
-- A scout "step": a decision whose action is "step" - the scout chose a tool and an argument, and pi ran that tool
+- A scout "step": a decision whose action is "step" - the scout chose a tool and an argument, and Jeff-Code ran that tool
   call instead of asking Qwen. A decision whose action is "hand_over" took no step; it either asked the scout and
   it chose "hand over", chose "none of these" when shown an argument, or hit the per-turn step limit before being
   asked at all (in which case the decision's "levels" list is empty, since no question was ever put to it).
@@ -52,7 +52,7 @@ Plain-English definitions used below:
   package-manager flags and no reliable way to tell a flag like "-y" from the package name) but from the English
   description of the option the scout picked - the option whose id matches "chosen" on the *last* entry of the
   decision's "levels" list (the last question asked before the step: which specific argument to use). Descriptions
-  are fixed sentences pi always writes the same way, so each one is matched against a fixed pattern to pull out
+  are fixed sentences Jeff-Code always writes the same way, so each one is matched against a fixed pattern to pull out
   its target, or, for a few kinds, a fixed set of search strings instead of one name:
     - "Read the file PATH", "Read lines A to B of PATH", "Look at the data in PATH", "Show the type of every file
       in PATH", "List the folder PATH", "Show the last 20 lines of PATH", "Find the files under PATH" -> the last
@@ -85,11 +85,11 @@ Plain-English definitions used below:
 - Used: a step is "used" when the teacher run's very next "model_turn" trace line after it (the large model's next
   turn, once the scout hands over) makes a tool call that mentions the step's target.
 
-- A tool call's phase: how many write-like tool calls by the large model (pi's "write" or "edit" tool, or a bash
-  command whose text contains "cat >" or "tee ") came before it, in order, within one run's pi session(s). The
+- A tool call's phase: how many write-like tool calls by the large model (Jeff-Code's "write" or "edit" tool, or a bash
+  command whose text contains "cat >" or "tee ") came before it, in order, within one run's Jeff-Code session(s). The
   scout's own tool calls never count as write-like (the scout is never given write or edit).
 
-- Anticipated: a step is "anticipated" when, in the base run's pi session(s), some tool call by the large model
+- Anticipated: a step is "anticipated" when, in the base run's Jeff-Code session(s), some tool call by the large model
   sits at the very same phase as the step (the same number of prior write-like calls) and mentions the step's
   target - i.e. working alone, at the same point in its work, Qwen did the same thing the scout did for it in the
   teacher run.
@@ -164,7 +164,7 @@ def _command(match: re.Match[str]) -> StepTarget:
     return StepTarget((CD_PREFIX.sub("", match.group(1)).strip(),))
 
 
-# Each entry is a fixed sentence pi's own option descriptions use (see lists.ts, qwen-tools.ts, probes.ts), matched
+# Each entry is a fixed sentence Jeff-Code's own option descriptions use (see lists.ts, qwen-tools.ts, probes.ts), matched
 # whole against the description, paired with how to build this step's target from the match. re.DOTALL makes "."
 # match a newline too, so a "Run" command that is itself a multi-line heredoc is still matched whole, instead of
 # raising "no target pattern matches" partway through it.
@@ -204,7 +204,7 @@ def read_trace(trial: Path) -> list[dict]:
 
 
 def read_session_calls(trial: Path) -> list[tuple[str | None, dict]]:
-    """Every tool call in this trial's pi session(s), in file and line order, paired with the "provider" of the
+    """Every tool call in this trial's Jeff-Code session(s), in file and line order, paired with the "provider" of the
     assistant message that made it ("jeff-first" for the scout, anything else - including missing - for Qwen)."""
     calls: list[tuple[str | None, dict]] = []
     for session in sorted((trial / "agent" / "pi" / "sessions").glob("*.jsonl")):
@@ -225,7 +225,7 @@ def read_session_calls(trial: Path) -> list[tuple[str | None, dict]]:
 
 
 def write_like(call: dict) -> bool:
-    """Whether this is a write-like call by the large model: pi's write or edit tool, or a bash command whose text
+    """Whether this is a write-like call by the large model: Jeff-Code's write or edit tool, or a bash command whose text
     contains "cat >" or "tee " (the shapes it uses to write a file from a shell command)."""
     if call["name"] in ("write", "edit"):
         return True
@@ -250,7 +250,7 @@ def step_phases(trace: list[dict]) -> dict[int, int]:
 
 
 def phase_grouped_calls(session_calls: list[tuple[str | None, dict]]) -> dict[int, list[dict]]:
-    """The large model's own tool calls (the scout's are left out) from one trial's pi session(s), grouped by their
+    """The large model's own tool calls (the scout's are left out) from one trial's Jeff-Code session(s), grouped by their
     phase: how many of the large model's write-like calls came before each one."""
     grouped: dict[int, list[dict]] = {}
     running = 0
@@ -347,7 +347,7 @@ def value(teacher_trial: Path, base_trial: Path) -> dict:
     session_calls = read_session_calls(teacher_trial)
     tool_calls = len(session_calls)
     if tool_calls == 0:
-        raise ValueError(f"{teacher_trial} has no tool calls in its pi session(s)")
+        raise ValueError(f"{teacher_trial} has no tool calls in its Jeff-Code session(s)")
     scout_calls = sum(1 for provider, _ in session_calls if provider == "jeff-first")
 
     trace = read_trace(teacher_trial)

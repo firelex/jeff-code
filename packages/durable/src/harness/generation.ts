@@ -1,4 +1,3 @@
-import { type Context, copyJson, type Draft, type JsonValue } from "@earendil-works/chord";
 import type {
 	Api,
 	AssistantMessage,
@@ -8,10 +7,11 @@ import type {
 	ModelThinkingLevel,
 	SimpleStreamOptions,
 	ToolCall,
-} from "@earendil-works/pi-ai";
-import { isContextOverflow } from "@earendil-works/pi-ai/utils/overflow";
-import { isRetryableAssistantError, retryDelayMs } from "@earendil-works/pi-ai/utils/retry";
-import { getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
+} from "@jeffhub/jeff-code-ai";
+import { isContextOverflow } from "@jeffhub/jeff-code-ai/utils/overflow";
+import { isRetryableAssistantError, retryDelayMs } from "@jeffhub/jeff-code-ai/utils/retry";
+import { getCurrentTools } from "@jeffhub/jeff-code-ai/utils/transcript";
+import { type Context, copyJson, type Draft, type JsonValue } from "@jeffhub/jeff-code-chord";
 import { AssistantEntry, ResetEntry, SystemEntry, UserEntry } from "../entries.ts";
 import type { ExecutionEnv } from "../env/index.ts";
 import { defineTask } from "../tasks.ts";
@@ -398,7 +398,7 @@ async function streamResponse(
 	try {
 		const events = runtime.models.streamSimple(model, { messages: [...messages] }, options);
 		for await (const event of events) {
-			// A partial without content, such as pi-ai's opening `start` event, shows nothing; a deferred response
+			// A partial without content, such as jeff-code-ai's opening `start` event, shows nothing; a deferred response
 			// never gets past it, so it never leaves a partial.
 			if (event.type === "done" || event.type === "error" || event.partial.content.length === 0) continue;
 			pending = event.partial;

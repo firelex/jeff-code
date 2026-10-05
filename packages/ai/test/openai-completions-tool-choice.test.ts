@@ -1881,7 +1881,7 @@ describe("openai-completions tool_choice", () => {
 		const result = await stream(
 			model,
 			{ messages: [{ role: "user", content: "Hi", timestamp: Date.now() }] },
-			// A value outside pi's levels, as a caller without type checks could pass it.
+			// A value outside Jeff-Code's levels, as a caller without type checks could pass it.
 			{ apiKey: "test", reasoningEffort: "huge" },
 		).result();
 

@@ -1,9 +1,10 @@
 // Open a Harness with a registry of extensions.
 // Run from packages/durable:
 //   node --conditions=source --experimental-strip-types test/examples/06-harness.ts
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Type } from "@earendil-works/pi-ai";
-import { createModels } from "@earendil-works/pi-ai/models";
+
+import { Type } from "@jeffhub/jeff-code-ai";
+import { createModels } from "@jeffhub/jeff-code-ai/models";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	AgentDoc,
 	createRegistry,
@@ -30,7 +31,7 @@ const Files = defineExtension({ name: "files", tools: [read] });
 const registry = createRegistry();
 registry.install(Files);
 
-// `models` is pi-ai's model access; generation calls models through it.
+// `models` is jeff-code-ai's model access; generation calls models through it.
 const harness = await Harness.open(new MemoryStorage(), { models: createModels(), registry }, context);
 
 const Notes = defineDoc<{ text: string }>({

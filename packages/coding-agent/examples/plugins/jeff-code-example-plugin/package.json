@@ -1,0 +1,10 @@
+{
+	"name": "@jeffhub/jeff-code-example-plugin",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"peerDependencies": {
+		"@jeffhub/jeff-code-chord": "^0.84.4",
+		"@jeffhub/jeff-code": "^0.84.4"
+	}
+}

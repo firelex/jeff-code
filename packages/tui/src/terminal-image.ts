@@ -138,18 +138,18 @@ function parseBooleanCapabilityOverride(value: string | undefined): boolean | un
 }
 
 export function detectCapabilities(tmuxForwardsHyperlink: () => boolean = probeTmuxHyperlinks): TerminalCapabilities {
-	const hyperlinks = parseBooleanCapabilityOverride(process.env.PI_HYPERLINKS);
+	const hyperlinks = parseBooleanCapabilityOverride(process.env.JEFF_HYPERLINKS);
 	const detected = detectCapabilitiesFromEnvironment(
 		hyperlinks === undefined ? tmuxForwardsHyperlink : () => hyperlinks,
 	);
-	const imageProtocol = process.env.PI_IMAGE_PROTOCOL?.toLowerCase();
+	const imageProtocol = process.env.JEFF_IMAGE_PROTOCOL?.toLowerCase();
 	const images =
 		imageProtocol === "kitty" || imageProtocol === "iterm2"
 			? imageProtocol
 			: imageProtocol === "none" || imageProtocol === "0"
 				? null
 				: undefined;
-	const trueColor = parseBooleanCapabilityOverride(process.env.PI_TRUE_COLOR);
+	const trueColor = parseBooleanCapabilityOverride(process.env.JEFF_TRUE_COLOR);
 	return {
 		...detected,
 		...(images !== undefined ? { images } : {}),

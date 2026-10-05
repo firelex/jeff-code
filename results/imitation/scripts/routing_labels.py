@@ -1,7 +1,7 @@
 """Routing labels: for each recorded Qwen turn of the xhigh collection, is a cheaper thinking level good enough?
 
 The xhigh collection (record mode, router fixed:xhigh) recorded every Qwen3.8-27B turn at reasoning effort xhigh. For
-each such turn this script asks the same request again (rebuilt with pi's own code by routing_requests.ts) at cheaper
+each such turn this script asks the same request again (rebuilt with Jeff-Code's own code by routing_requests.ts) at cheaper
 thinking levels, in order, and stops at the first level whose action is good:
 
   off     thinking off, temperature 0, at most 8,192 output tokens;
@@ -73,11 +73,11 @@ COARSE_KINDS = ("other", "writes")  # intent parts without a full target (free_m
 OFF_MAX_TOKENS = 8192
 ROUTER = "fixed:xhigh"
 SENT_XHIGH = {"enable_thinking": True, "reasoning_effort": "xhigh"}
-# Before the thinking router (build 4abde3ece, collections v4/v5) pi sent only enable_thinking; the template then
+# Before the thinking router (build 4abde3ece, collections v4/v5) Jeff-Code sent only enable_thinking; the template then
 # applied its default effort, xhigh.
 SENT_LEGACY = {"enable_thinking": True, "reasoning_effort": None}
 LEGACY_TARBALLS = {"jeff-pi-scout-4abde3ece.tgz"}
-# Server prompt tokens minus pi's recorded prompt tokens per level, measured in the smoke (106 turns, every request) on
+# Server prompt tokens minus Jeff-Code's recorded prompt tokens per level, measured in the smoke (106 turns, every request) on
 # NVFP4 and FP8: xhigh is the recorded request itself; the others lack or change the system prompt's reasoning-effort
 # line (and off closes the thinking block in the prompt).
 PROMPT_DIFF = {"xhigh": 0, "off": -36, "low": -12, "medium": -38}
@@ -428,7 +428,7 @@ def broken_inside(path):
 
 def legacy_line(record):
     """A schema-4 record line (build 4abde3ece, before the thinking router) in the shape of a kept qwen_request line.
-    pi sent thinking on without a reasoning effort, so the chat template used its default, xhigh: the same prompt as
+    Jeff-Code sent thinking on without a reasoning effort, so the chat template used its default, xhigh: the same prompt as
     an explicit xhigh (checked per turn by the prompt tokens, `check_prompt`)."""
     return {"kind": "qwen_request", "session_id": record["session_id"], "turn": record["turn"], "outcome": "kept",
             "stop_reason": record["action"]["stop_reason"], "usage": {"input": record["model_usage"]["input"]},
@@ -440,7 +440,7 @@ class PromptMismatch(Exception):
 
 
 def check_prompt(what, level, prompt_diff):
-    """At xhigh the rebuilt request is the recorded one: its prompt tokens must equal pi's record exactly. The other
+    """At xhigh the rebuilt request is the recorded one: its prompt tokens must equal Jeff-Code's record exactly. The other
     levels change the system prompt's reasoning-effort line, whose token count depends on the text around it (most
     sessions -36/-12/-38, some -37 or -30 at off), so their difference is only recorded (statistics), not checked."""
     if level == "xhigh" and prompt_diff is not None and prompt_diff != PROMPT_DIFF[level]:
@@ -1090,7 +1090,7 @@ def stats_markdown(labels, excluded=()):
     w("")
 
     w("## Request check\n")
-    w("Prompt tokens the server counted minus the prompt tokens pi recorded for the turn, per level (difference: "
+    w("Prompt tokens the server counted minus the prompt tokens Jeff-Code recorded for the turn, per level (difference: "
       "requests). xhigh must be 0 (the rebuilt request is the recorded one); the other levels differ by the "
       "reasoning-effort line of the system prompt only, so each must be one constant.\n")
     for level in ("xhigh",) + CHEAP_LEVELS:

@@ -1,4 +1,4 @@
-import { Container, getKeybindings, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, getKeybindings, Spacer, Text } from "@jeffhub/jeff-code-tui";
 import {
 	getProjectTrustOptions,
 	type ProjectTrustOption,

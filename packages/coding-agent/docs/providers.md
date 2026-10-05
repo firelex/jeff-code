@@ -9,9 +9,9 @@ Use `/login [provider]` to see the methods supported by a provider. Amazon Bedro
 
 ## Authenticate interactively
 
-Run `/login` and select a provider. Pi guides you through its OAuth or API-key flow and saves the resulting credential in [`auth.json`](configuration.md#agent-directory).
+Run `/login` and select a provider. Jeff-Code guides you through its OAuth or API-key flow and saves the resulting credential in [`auth.json`](configuration.md#agent-directory).
 
-On a remote or headless machine, an OAuth callback may not reach the local process. When prompted, paste the final redirect URL or authorization code back into Pi.
+On a remote or headless machine, an OAuth callback may not reach the local process. When prompted, paste the final redirect URL or authorization code back into Jeff-Code.
 
 Run `/logout` and select a provider to remove its stored credential. This does not unset environment variables, remove authentication from `models.json`, or revoke the credential at the provider.
 
@@ -19,11 +19,11 @@ Run `/logout` and select a provider to remove its stored credential. This does n
 
 ## Use an API key from the environment
 
-Environment variables are useful in CI and anywhere Pi should not store the key. Set the variable before starting Pi:
+Environment variables are useful in CI and anywhere Jeff-Code should not store the key. Set the variable before starting Jeff-Code:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-pi
+jeff
 ```
 
 This table covers providers with a single primary API-key variable. Providers that need additional configuration or support ambient credentials are covered under [Provider Specific Config](#provider-specific-config).
@@ -81,7 +81,7 @@ To use a secret manager without writing the resolved key to disk, set a provider
 }
 ```
 
-Pi runs the command when the key is first needed and caches its standard output for the process lifetime. Empty output, a timeout, or a nonzero exit leaves the key unresolved until Pi restarts.
+Jeff-Code runs the command when the key is first needed and caches its standard output for the process lifetime. Empty output, a timeout, or a nonzero exit leaves the key unresolved until Jeff-Code restarts.
 
 ## Provider Specific Config
 
@@ -103,11 +103,11 @@ A stored API-key credential can include an `env` object. Its values take priorit
 
 ### Radius
 
-Radius is a service crafted for Pi by the builders of Pi, Earendil Works. It provides a customizable AI gateway with organization-level controls and analytics built in, and artifacts for sharing what you create with Pi.
+Radius is a service crafted for Jeff-Code by the builders of Jeff-Code, Earendil Works. It provides a customizable AI gateway with organization-level controls and analytics built in, and artifacts for sharing what you create with Jeff-Code.
 
-To get started, run `/login radius` in Pi. This adds Radius as a provider, and its models appear in `/model` like any other provider's.
+To get started, run `/login radius` in Jeff-Code. This adds Radius as a provider, and its models appear in `/model` like any other provider's.
 
-Radius also has an MCP server, so Pi can manage Radius for you.
+Radius also has an MCP server, so Jeff-Code can manage Radius for you.
 
 Radius is currently in early alpha and evolving quickly. See [radius.earendil.com](https://radius.earendil.com) for more.
 
@@ -148,7 +148,7 @@ export AWS_REGION=us-west-2
 # AWS_DEFAULT_REGION is also supported
 ```
 
-Pi also supports ECS task credentials and IRSA through the standard `AWS_CONTAINER_CREDENTIALS_*` and `AWS_WEB_IDENTITY_TOKEN_FILE` variables.
+Jeff-Code also supports ECS task credentials and IRSA through the standard `AWS_CONTAINER_CREDENTIALS_*` and `AWS_WEB_IDENTITY_TOKEN_FILE` variables.
 
 ### Cloudflare AI Gateway
 
@@ -162,7 +162,7 @@ export CLOUDFLARE_GATEWAY_ID=...
 
 The account and gateway IDs can come from the process environment or the credential's `env` object in `auth.json`.
 
-`CLOUDFLARE_API_KEY` authenticates Pi to the gateway. Upstream access can use Cloudflare unified billing, credentials stored in the gateway, or an `Authorization` header configured for the provider in `models.json`.
+`CLOUDFLARE_API_KEY` authenticates Jeff-Code to the gateway. Upstream access can use Cloudflare unified billing, credentials stored in the gateway, or an `Authorization` header configured for the provider in `models.json`.
 
 ### Cloudflare Workers AI
 

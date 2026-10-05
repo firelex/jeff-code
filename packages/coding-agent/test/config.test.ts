@@ -12,7 +12,7 @@ import {
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
 const originalPath = process.env.PATH;
-const originalPiPackageDir = process.env.PI_PACKAGE_DIR;
+const originalPiPackageDir = process.env.JEFF_PACKAGE_DIR;
 const originalArgv1 = process.argv[1];
 let tempDir: string | undefined;
 
@@ -33,9 +33,9 @@ afterEach(() => {
 		process.env.PATH = originalPath;
 	}
 	if (originalPiPackageDir === undefined) {
-		delete process.env.PI_PACKAGE_DIR;
+		delete process.env.JEFF_PACKAGE_DIR;
 	} else {
-		process.env.PI_PACKAGE_DIR = originalPiPackageDir;
+		process.env.JEFF_PACKAGE_DIR = originalPiPackageDir;
 	}
 	if (originalArgv1 === undefined) {
 		process.argv.splice(1, 1);
@@ -52,11 +52,11 @@ afterEach(() => {
 function createNpmPrefixInstall(template = "pi-prefix-"): { prefix: string; packageDir: string } {
 	const prefix = mkdtempSync(join(tmpdir(), template));
 	const root = join(prefix, "lib", "node_modules");
-	const scopeDir = join(root, "@earendil-works");
-	const packageDir = join(scopeDir, "pi-coding-agent");
+	const scopeDir = join(root, "@jeffhub");
+	const packageDir = join(scopeDir, "jeff-code");
 	mkdirSync(packageDir, { recursive: true });
 	tempDir = prefix;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env.JEFF_PACKAGE_DIR = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
 	return { prefix, packageDir };
 }
@@ -72,7 +72,7 @@ function createPnpmGlobalInstall(): { root: string; packageDir: string } {
 	chmodSync(join(binDir, process.platform === "win32" ? "pnpm.cmd" : "pnpm"), 0o755);
 	tempDir = temp;
 	process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env.JEFF_PACKAGE_DIR = packageDir;
 	setExecPath(
 		join(
 			root,
@@ -99,7 +99,7 @@ function createYarnGlobalInstall(): { globalDir: string; packageDir: string } {
 	chmodSync(join(binDir, process.platform === "win32" ? "yarn.cmd" : "yarn"), 0o755);
 	tempDir = temp;
 	process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env.JEFF_PACKAGE_DIR = packageDir;
 	setExecPath(join(globalDir, ".yarn", "@mariozechner", "pi-coding-agent", "dist", "cli.js"));
 	return { globalDir, packageDir };
 }
@@ -109,15 +109,15 @@ function createBunGlobalInstall(): { packageDir: string } {
 	const prefix = join(temp, ".bun");
 	const bunBin = join(prefix, "bin");
 	const root = join(prefix, "install", "global", "node_modules");
-	const scopeDir = join(root, "@earendil-works");
-	const packageDir = join(scopeDir, "pi-coding-agent");
+	const scopeDir = join(root, "@jeffhub");
+	const packageDir = join(scopeDir, "jeff-code");
 	mkdirSync(packageDir, { recursive: true });
 	mkdirSync(bunBin, { recursive: true });
 	writeFileSync(join(bunBin, process.platform === "win32" ? "bun.cmd" : "bun"), createFakeBunScript(bunBin));
 	chmodSync(join(bunBin, process.platform === "win32" ? "bun.cmd" : "bun"), 0o755);
 	tempDir = temp;
 	process.env.PATH = `${bunBin}${delimiter}${originalPath ?? ""}`;
-	process.env.PI_PACKAGE_DIR = packageDir;
+	process.env.JEFF_PACKAGE_DIR = packageDir;
 	setExecPath(join(packageDir, "dist", "cli.js"));
 	return { packageDir };
 }
@@ -162,12 +162,12 @@ describe("findNodePackageDir", () => {
 describe("detectInstallMethod", () => {
 	test("detects pnpm from Windows .pnpm install paths", () => {
 		setExecPath(
-			"C:\\Users\\Admin\\Documents\\pnpm-repository\\global\\5\\.pnpm\\@earendil-works+pi-coding-agent@0.67.68\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\cli.js",
+			"C:\\Users\\Admin\\Documents\\pnpm-repository\\global\\5\\.pnpm\\@jeffhub+jeff-code@0.67.68\\node_modules\\@jeffhub\\jeff-code\\dist\\cli.js",
 		);
 
 		expect(detectInstallMethod()).toBe("pnpm");
-		expect(getUpdateInstruction("@earendil-works/pi-coding-agent")).toBe(
-			"Run: pnpm install -g --ignore-scripts --config.minimumReleaseAge=0 @earendil-works/pi-coding-agent",
+		expect(getUpdateInstruction("@jeffhub/jeff-code")).toBe(
+			"Run: pnpm install -g --ignore-scripts --config.minimumReleaseAge=0 @jeffhub/jeff-code",
 		);
 	});
 
@@ -175,39 +175,31 @@ describe("detectInstallMethod", () => {
 		setExecPath("/usr/local/bin/node");
 
 		expect(detectInstallMethod()).toBe("unknown");
-		expect(getSelfUpdateCommand("@earendil-works/pi-coding-agent")).toBeUndefined();
-		expect(getUpdateInstruction("@earendil-works/pi-coding-agent")).toBe(
-			"Update @earendil-works/pi-coding-agent using the package manager, wrapper, or source checkout that provides this installation.",
+		expect(getSelfUpdateCommand("@jeffhub/jeff-code")).toBeUndefined();
+		expect(getUpdateInstruction("@jeffhub/jeff-code")).toBe(
+			"Update @jeffhub/jeff-code using the package manager, wrapper, or source checkout that provides this installation.",
 		);
 	});
 
 	test("self-updates npm installs from custom prefixes", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent");
+		const command = getSelfUpdateCommand("@jeffhub/jeff-code");
 
 		expect(detectInstallMethod()).toBe("npm");
 		expect(command).toEqual({
 			command: "npm",
-			args: [
-				"--prefix",
-				prefix,
-				"install",
-				"-g",
-				"--ignore-scripts",
-				"--min-release-age=0",
-				"@earendil-works/pi-coding-agent",
-			],
-			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent`,
+			args: ["--prefix", prefix, "install", "-g", "--ignore-scripts", "--min-release-age=0", "@jeffhub/jeff-code"],
+			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @jeffhub/jeff-code`,
 		});
 	});
 
 	test("self-updates exact npm versions without uninstalling the current package", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent", undefined, {
-			packageName: "@earendil-works/pi-coding-agent",
-			installSpec: "@earendil-works/pi-coding-agent@1.2.3",
+		const command = getSelfUpdateCommand("@jeffhub/jeff-code", undefined, {
+			packageName: "@jeffhub/jeff-code",
+			installSpec: "@jeffhub/jeff-code@1.2.3",
 		});
 
 		expect(command).toEqual({
@@ -219,9 +211,9 @@ describe("detectInstallMethod", () => {
 				"-g",
 				"--ignore-scripts",
 				"--min-release-age=0",
-				"@earendil-works/pi-coding-agent@1.2.3",
+				"@jeffhub/jeff-code@1.2.3",
 			],
-			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent@1.2.3`,
+			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @jeffhub/jeff-code@1.2.3`,
 		});
 	});
 
@@ -252,27 +244,19 @@ describe("detectInstallMethod", () => {
 	test("self-update respects configured npmCommand", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent", ["npm", "--prefix", prefix]);
+		const command = getSelfUpdateCommand("@jeffhub/jeff-code", ["npm", "--prefix", prefix]);
 
 		expect(command).toEqual({
 			command: "npm",
-			args: [
-				"--prefix",
-				prefix,
-				"install",
-				"-g",
-				"--ignore-scripts",
-				"--min-release-age=0",
-				"@earendil-works/pi-coding-agent",
-			],
-			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent`,
+			args: ["--prefix", prefix, "install", "-g", "--ignore-scripts", "--min-release-age=0", "@jeffhub/jeff-code"],
+			display: `npm --prefix ${prefix} install -g --ignore-scripts --min-release-age=0 @jeffhub/jeff-code`,
 		});
 	});
 
 	test("self-update treats empty npmCommand as unset", () => {
 		const { prefix } = createNpmPrefixInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent", []);
+		const command = getSelfUpdateCommand("@jeffhub/jeff-code", []);
 
 		expect(command?.args).toEqual([
 			"--prefix",
@@ -281,41 +265,41 @@ describe("detectInstallMethod", () => {
 			"-g",
 			"--ignore-scripts",
 			"--min-release-age=0",
-			"@earendil-works/pi-coding-agent",
+			"@jeffhub/jeff-code",
 		]);
 	});
 
 	test("quotes npm self-update display paths", () => {
 		const { prefix } = createNpmPrefixInstall("pi prefix ");
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent");
+		const command = getSelfUpdateCommand("@jeffhub/jeff-code");
 
 		expect(command?.display).toBe(
-			`npm --prefix "${prefix}" install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent`,
+			`npm --prefix "${prefix}" install -g --ignore-scripts --min-release-age=0 @jeffhub/jeff-code`,
 		);
 	});
 
 	test("does not infer Windows npm custom prefixes from package paths", () => {
-		const packageDir = "C:\\Users\\Admin\\npm prefix\\node_modules\\@earendil-works\\pi-coding-agent";
-		process.env.PI_PACKAGE_DIR = packageDir;
+		const packageDir = "C:\\Users\\Admin\\npm prefix\\node_modules\\@jeffhub\\jeff-code";
+		process.env.JEFF_PACKAGE_DIR = packageDir;
 		setExecPath(`${packageDir}\\dist\\cli.js`);
 
 		expect(detectInstallMethod()).toBe("npm");
-		expect(getUpdateInstruction("@earendil-works/pi-coding-agent")).toBe(
-			"Run: npm install -g --ignore-scripts --min-release-age=0 @earendil-works/pi-coding-agent",
+		expect(getUpdateInstruction("@jeffhub/jeff-code")).toBe(
+			"Run: npm install -g --ignore-scripts --min-release-age=0 @jeffhub/jeff-code",
 		);
 	});
 
 	test("self-updates bun global installs from bun pm bin", () => {
 		createBunGlobalInstall();
 
-		const command = getSelfUpdateCommand("@earendil-works/pi-coding-agent");
+		const command = getSelfUpdateCommand("@jeffhub/jeff-code");
 
 		expect(detectInstallMethod()).toBe("bun");
 		expect(command).toEqual({
 			command: "bun",
-			args: ["install", "-g", "--ignore-scripts", "--minimum-release-age=0", "@earendil-works/pi-coding-agent"],
-			display: "bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent",
+			args: ["install", "-g", "--ignore-scripts", "--minimum-release-age=0", "@jeffhub/jeff-code"],
+			display: "bun install -g --ignore-scripts --minimum-release-age=0 @jeffhub/jeff-code",
 		});
 	});
 
@@ -349,8 +333,8 @@ describe("detectInstallMethod", () => {
 		const temp = mkdtempSync(join(tmpdir(), "pi-pnpm11-"));
 		const binDir = join(temp, "bin");
 		const root = join(temp, "Library", "pnpm", "global", "v11");
-		const packageName = "@earendil-works/pi-coding-agent";
-		const globalPackageDir = join(root, "11e9a", "node_modules", "@earendil-works", "pi-coding-agent");
+		const packageName = "@jeffhub/jeff-code";
+		const globalPackageDir = join(root, "11e9a", "node_modules", "@jeffhub", "jeff-code");
 		const storePackageDir = join(
 			temp,
 			"Library",
@@ -358,13 +342,13 @@ describe("detectInstallMethod", () => {
 			"store",
 			"v11",
 			"links",
-			"@earendil-works",
-			"pi-coding-agent",
+			"@jeffhub",
+			"jeff-code",
 			"0.75.0",
 			"hash",
 			"node_modules",
-			"@earendil-works",
-			"pi-coding-agent",
+			"@jeffhub",
+			"jeff-code",
 		);
 		mkdirSync(globalPackageDir, { recursive: true });
 		mkdirSync(storePackageDir, { recursive: true });
@@ -374,7 +358,7 @@ describe("detectInstallMethod", () => {
 		chmodSync(join(binDir, process.platform === "win32" ? "pnpm.cmd" : "pnpm"), 0o755);
 		tempDir = temp;
 		process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
-		process.env.PI_PACKAGE_DIR = storePackageDir;
+		process.env.JEFF_PACKAGE_DIR = storePackageDir;
 		process.argv[1] = join(globalPackageDir, "dist", "cli.js");
 		setExecPath(join(storePackageDir, "dist", "cli.js"));
 
@@ -443,9 +427,7 @@ describe("detectInstallMethod", () => {
 		const { packageDir } = createNpmPrefixInstall();
 		chmodSync(packageDir, 0o500);
 
-		expect(getSelfUpdateCommand("@earendil-works/pi-coding-agent")).toBeUndefined();
-		expect(getSelfUpdateUnavailableInstruction("@earendil-works/pi-coding-agent")).toContain(
-			"the install path is not writable",
-		);
+		expect(getSelfUpdateCommand("@jeffhub/jeff-code")).toBeUndefined();
+		expect(getSelfUpdateUnavailableInstruction("@jeffhub/jeff-code")).toContain("the install path is not writable");
 	});
 });

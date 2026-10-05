@@ -15,7 +15,7 @@ New label of a turn ("off" unless the judge says YES):
 A judge input that DashScope's content inspection refuses is left out (an "excluded" line with the reason).
 
 The judge sees the same context as routing_labels.py's judge: the task (the session's first user message) and the last
-3 commands with the end of their output, from the request pi sent for the turn, rebuilt by routing_requests.mjs.
+3 commands with the end of their output, from the request Jeff-Code sent for the turn, rebuilt by routing_requests.mjs.
 
 `calibrate`: on the calibration turns (they hold two extra xhigh samples), the same question with Step 2 = an extra
 xhigh sample (the noise floor: how often xhigh is "materially better" than xhigh) and Step 2 = the off answer.

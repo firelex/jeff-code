@@ -1,9 +1,10 @@
 // Reload extension code through the registry.
 // Run from packages/durable:
 //   node --conditions=source --experimental-strip-types test/examples/10-registry-reload.ts
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { Type } from "@earendil-works/pi-ai";
-import { createModels } from "@earendil-works/pi-ai/models";
+
+import { Type } from "@jeffhub/jeff-code-ai";
+import { createModels } from "@jeffhub/jeff-code-ai/models";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { createRegistry, defineExtension, defineTool, Harness, MemoryStorage, wrapTool } from "../../src/index.ts";
 
 const context = BACKGROUND_CONTEXT;

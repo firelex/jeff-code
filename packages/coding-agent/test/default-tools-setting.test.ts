@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import { getModel } from "@jeffhub/jeff-code-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentSessionFromServices, createAgentSessionServices } from "../src/core/agent-session-services.ts";

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Qwen3.8-27B in bash-only pi with the trained Jeff scouting before every Qwen turn (JEFF_FIRST_MODE=jeff) and Jeff's
+# Qwen3.8-27B in bash-only Jeff-Code with the trained Jeff scouting before every Qwen turn (JEFF_FIRST_MODE=jeff) and Jeff's
 # router choosing Qwen's thinking level per request, on a list of tasks, through run_phase0.sh. Only the adapters and
 # their thresholds change between runs; everything else is fixed here.
 #
 # Usage: jeff_eval.sh RUN_DIR TARBALL QWEN_URL DRIVER_BUILD JEFF_URL STEP_ADAPTER STEP_THRESHOLD ROUTER THRESHOLD
 #                     THINKING_LIMIT OUT_FOLDER CONCURRENCY TASK...
 #   RUN_DIR         folder holding tools/jeff-first (this script's repository copy) and tasks.json
-#   TARBALL         the packed jeff-pi fork with jeff mode (npm pack in packages/coding-agent)
+#   TARBALL         the packed Jeff-Code tarball with jeff mode (npm pack in packages/coding-agent)
 #   QWEN_URL        Qwen's OpenAI-compatible server as the task containers reach it, without /v1,
 #                   e.g. http://192.168.2.10:8885
 #   DRIVER_BUILD    the exact Qwen build for the trace, e.g. qwen3.8-27b-fp8@casdgx01-gpu0
@@ -29,7 +29,7 @@
 #   at the service like the others.
 # At the end: jeff_eval_summary.py counts Jeff's questions, cuts and abstentions per decision kind, and the replies
 #   cut at the thinking limit (OUT/jeff-decisions-summary.json).
-# Fixed: pi thinking "high" (the router sets each request's level), output cap 32768 tokens, run approval all, time
+# Fixed: Jeff-Code thinking "high" (the router sets each request's level), output cap 32768 tokens, run approval all, time
 # multiplier 6 (as the collection).
 set -euo pipefail
 [ $# -ge 13 ] || { sed -n '2,30p' "$0" >&2; exit 2; }

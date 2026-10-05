@@ -1,5 +1,5 @@
-import { type SystemMessage, type Tool, Type } from "@earendil-works/pi-ai";
-import { getCurrentTools, toToolDeclaration } from "@earendil-works/pi-ai/utils/transcript";
+import { type SystemMessage, type Tool, Type } from "@jeffhub/jeff-code-ai";
+import { getCurrentTools, toToolDeclaration } from "@jeffhub/jeff-code-ai/utils/transcript";
 import {
 	type Conversation,
 	createRegistry,
@@ -11,7 +11,7 @@ import {
 	SystemEntry,
 	type ToolRegistration,
 	wrapSection,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { resolveAgent, resolveSettings } from "../src/harness/agent.ts";
 import { planSystemEntries, renderSections, replaySections } from "../src/harness/prompt.ts";
