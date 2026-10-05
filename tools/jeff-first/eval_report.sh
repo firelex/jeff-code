@@ -2,8 +2,8 @@
 # Final report of tonight's four-arm evaluation, run from the Mac: collects every session's line (eval_units.py) and
 # writes the report (eval_report.py) to results/imitation/eval-tonight.md and a copy in the sdd folder.
 #   live:  B200 and casdgx01 lines over ssh (while the B200 is reachable).
-#   final: B200 lines from the Mac copy made by final_copy.sh at 08:16 (~/jeff-data/b200/eval-tonight; refuses to run
-#          until final_copy.log says the copy is done), casdgx01 lines over ssh.
+#   final: B200 lines from the Mac copy made by b200_final.sh after the 15:30 B200 stop (~/jeff-data/b200/eval-tonight;
+#          refuses to run until b200_final.log says the copy is done), casdgx01 lines over ssh.
 # The collected lines are kept in OUT_DIR (default: a fresh folder under /private/tmp/claude-501/eval-tonight).
 # Usage: eval_report.sh live|final [OUT_DIR]
 set -euo pipefail
@@ -17,9 +17,9 @@ live)
 	ssh mstrasser@85.13.211.160 'cd /raid/work/jeff-first/eval-tonight/repo2/tools/jeff-first && python3 eval_units.py /raid/work/jeff-first/eval-tonight' > "$out/b200.jsonl"
 	;;
 final)
-	log=/private/tmp/claude-501/eval-tonight/final_copy.log
-	if ! grep -q "copied to Mac" "$log"; then
-		echo "the B200 final copy is not done ($log has no 'copied to Mac' line); use live or wait" >&2
+	log=/private/tmp/claude-501/eval-tonight/b200_final.log
+	if ! grep -q "B200 evaluation finished" "$log"; then
+		echo "the B200 final copy is not done ($log has no 'B200 evaluation finished' line); use live or wait" >&2
 		exit 1
 	fi
 	python3 "$here/eval_units.py" ~/jeff-data/b200/eval-tonight > "$out/b200.jsonl"

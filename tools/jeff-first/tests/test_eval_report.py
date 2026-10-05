@@ -9,6 +9,8 @@ from eval_report import (
     mcnemar_p,
     nearest_rank,
     pair_up,
+    section_of,
+    statistics_of,
     sum_fields,
     wilson,
 )
@@ -107,9 +109,55 @@ def test_pair_up_pairs_by_block_and_counts_discordant_passes():
     assert total["n"] == 3
     assert total["base_only"] == 1 and total["arm_only"] == 1
     assert total["solved_both"] == 1
-    assert total["log_ratio"] == pytest.approx(math.log(0.5))
+    assert total["both_logw"] == pytest.approx([math.log(0.5)])
     assert total["base_wall"] == 300.0 and total["arm_wall"] == 430.0
     assert {p.cluster for p in pairs} == {("terminal-bench-2", "t1"), ("terminal-bench-2", "t2"), ("terminal-bench-2", "t3")}
+
+
+def test_time_on_tasks_the_baseline_solved_counts_the_arm_whatever_its_outcome():
+    rows = [
+        row("a1-baseline", "b1", 1.0, 100.0, qwen=40.0),
+        row("a2-off-guard", "b1", 1.0, 50.0, qwen=10.0),
+        row("a1-baseline", "b2", 1.0, 100.0, qwen=40.0, task="t2"),
+        row("a2-off-guard", "b2", 0.0, 300.0, qwen=160.0, task="t2"),
+        row("a1-baseline", "b3", 0.0, 100.0, task="t3"),
+        row("a2-off-guard", "b3", 1.0, 80.0, task="t3"),
+    ]
+    pairs, _ = pair_up(rows, "a2-off-guard")
+    total = sum_fields([p.fields for p in pairs])
+    assert total["bs_n"] == 2
+    assert (total["bs_base_wall"], total["bs_arm_wall"]) == (200.0, 350.0)
+    assert (total["bs_base_qwen"], total["bs_arm_qwen"]) == (80.0, 170.0)
+    s = statistics_of(total)
+    assert s["bs_total"] == pytest.approx(350 / 200)
+    assert s["bs_geo"] == pytest.approx(math.sqrt(0.5 * 3.0))
+    assert s["bs_median"] == pytest.approx(math.sqrt(0.5 * 3.0))  # two blocks: middle pair averaged geometrically
+    assert s["bs_qwen_total"] == pytest.approx(170 / 80)
+    assert s["bs_qwen_geo"] == pytest.approx(math.sqrt(0.25 * 4.0))
+    assert s["both_geo"] == pytest.approx(0.5)
+    assert s["total_wall"] == pytest.approx(430 / 300)
+    # per-session medians: baseline 100, arm median of 50, 300, 80 = 80
+    assert s["session_median"] == pytest.approx(0.8)
+
+
+def test_a_paired_session_with_zero_qwen_time_is_counted_apart_from_the_qwen_ratios():
+    rows = [row("a1-baseline", "b1", 1.0, 100.0, qwen=40.0), row("a2-off-guard", "b1", 0.0, 30.0, qwen=0.0)]
+    pairs, _ = pair_up(rows, "a2-off-guard")
+    f = pairs[0].fields
+    assert f["qwen_zero"] == 1 and f["bs_logq"] == [] and f["bs_logw"] == pytest.approx([math.log(0.3)])
+
+
+def test_section_of_keeps_tb2_whole_and_splits_later_rounds():
+    assert section_of({"benchmark": "terminal-bench-2", "attempt": "3r"}) == "terminal-bench-2"
+    assert section_of({"benchmark": "skillsbench", "attempt": "1"}) == "skillsbench"
+    assert section_of({"benchmark": "skillsbench", "attempt": "2"}) == "skillsbench#2"
+    assert section_of({"benchmark": "skillsbench", "attempt": "1r"}) == "skillsbench"
+
+
+def test_bootstrap_concatenates_list_fields():
+    clusters = [{"v": [1.0, 3.0], "n": 2}, {"v": [2.0], "n": 1}]
+    interval = bootstrap_interval(clusters, lambda t: len(t["v"]) / t["n"], resamples=100, seed=2)
+    assert (interval.lo, interval.hi) == (1.0, 1.0)
 
 
 def test_pair_up_leaves_out_and_lists_unscored_and_unpaired_sessions():
@@ -128,7 +176,7 @@ def test_pair_up_leaves_out_and_lists_unscored_and_unpaired_sessions():
 def test_pair_up_counts_a_pair_without_qwen_time_apart():
     rows = [row("a1-baseline", "b1", 0.0, 1.0, qwen=None), row("a2-off-guard", "b1", 0.0, 1.0)]
     pairs, _ = pair_up(rows, "a2-off-guard")
-    assert pairs[0].fields["qwen_n"] == 0 and pairs[0].fields["base_qwen"] == 0.0
+    assert pairs[0].fields["qwen_n"] == 0 and pairs[0].fields["base_qwen"] == 0.0 and pairs[0].fields["bs_qwen_n"] == 0
 
 
 def test_pair_up_refuses_a_pair_on_two_servers():

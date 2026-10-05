@@ -1,22 +1,26 @@
-"""Final report of tonight's four-arm evaluation (2026-10-04/05) from eval_units.py lines of every host.
+"""Final report of tonight's evaluation (2026-10-04/05) from eval_units.py lines of every host.
 
 Arms: a1-baseline (Qwen at xhigh thinking, Jeff off), a2-off-guard (thinking off with safeguards), a3-jeff07 and
 a4-jeff06 (Jeff routes thinking at P(xhigh) >= 0.7 / 0.6, takes steps, may shorten tool output). A block is one task
-attempt run under every arm on one Qwen server; a Jeff-arm rerun (block id ending in "r") pairs with the original
-block's a1/a2 sessions. Sessions marked superseded (Jeff arms started before the Jeff capacity fix) are left out.
+attempt run under the arms of that benchmark on one Qwen server (swe-bench-verified ran a1 and a4 only); a Jeff-arm
+rerun (block id ending in "r") pairs with the original block's a1/a2 sessions. Sessions marked superseded (Jeff arms
+started before the Jeff capacity fix) or cut (still running when the B200 stopped) are left out and counted.
 
-Written per benchmark and pooled over the benchmarks with a meaningful baseline pass rate (POOLED):
-1. pass rate per arm (Wilson 95% interval) and the paired difference to the baseline over blocks where both sessions
-   have a reward (cluster bootstrap 95% interval; baseline-only vs arm-only passes; exact McNemar p);
-2. speed, paired by block: wall-time ratio on blocks both solved (geometric mean, median); total wall time and total
-   Qwen generation time over the same paired blocks, all outcomes; time to solve (total wall time / passes);
-3. per arm: turns at thinking off, guard hits, forced xhigh, thinking-limit cuts, Jeff steps, Jeff question latency,
-   time-limit kills and errors by kind;
-4. a verdict per arm against the owner's target (25% faster at the same pass rate);
-5. caveats, and every session or block left out with the reason.
+Sections: one per benchmark and round (Terminal-Bench 2.0 keeps its three attempts in one section; a follow-on
+benchmark's attempt 2 is the section BENCHMARK#2). The pooled scope takes every round of the benchmarks with a
+meaningful baseline pass rate (all but terminal-bench and terminal-bench-science).
 
-Intervals resample tasks (all attempts and arms of a task together), so the three TB2 attempts of a task are not
-treated as independent. Wall time is the agent's execution time (agent start to agent end), as in eval_summary.py.
+Speed measures (owner's decision, fixed before the final numbers), all paired by block, ratio = arm / baseline:
+1. time on tasks the baseline solved: blocks where a1 passed, the arm's session counted whatever its outcome; wall
+   time and Qwen generation time; geometric mean and median of per-block ratios, and the ratio of totals;
+2. both-solved: blocks both passed, geometric mean and median of per-block wall ratios;
+3. total wall and Qwen generation time over all paired blocks (all outcomes);
+4. median wall time per session over all paired blocks (arm median / baseline median).
+Pass rate per arm (Wilson 95%) and the paired difference (task-bootstrap 95%, exact McNemar on discordant blocks).
+Also: behaviour per arm, a verdict per arm against the owner's target (25% faster at the same pass rate), caveats,
+and every session or block left out with the reason.
+
+Intervals resample tasks (all rounds, attempts and arms of a task together). Wall time is the agent's execution time.
 A pass is reward 1 (partial rewards such as 0.667 count as not passed).
 
 Usage: python3 eval_report.py OUT.md UNITS.jsonl...
@@ -36,13 +40,19 @@ from pathlib import Path
 BASE = "a1-baseline"
 ARMS = (BASE, "a2-off-guard", "a3-jeff07", "a4-jeff06")
 JEFF_ARMS = ("a3-jeff07", "a4-jeff06")
-# Order of the sections: Terminal-Bench 2.0, the follow-on benchmarks in run order, then the two moved to the end.
-BENCHMARKS = (
+# Section order: Terminal-Bench 2.0, the follow-on benchmarks (round 1, then round 2), SWE-bench Verified, then the two
+# benchmarks moved to the end.
+SECTIONS = (
     "terminal-bench-2",
     "harbor-index-1.0",
+    "harbor-index-1.0#2",
     "skillsbench",
+    "skillsbench#2",
     "terminal-bench-pro",
+    "terminal-bench-pro#2",
     "swe-rebench-leaderboard",
+    "swe-rebench-leaderboard#2",
+    "swe-bench-verified",
     "terminal-bench",
     "terminal-bench-science",
 )
@@ -50,7 +60,7 @@ NOT_POOLED = {
     "terminal-bench": "baseline pass rate near zero, so it cannot show a pass-rate difference",
     "terminal-bench-science": "baseline pass rate near zero, so it cannot show a pass-rate difference",
 }
-POOLED = tuple(b for b in BENCHMARKS if b not in NOT_POOLED)
+POOLED = tuple(s for s in SECTIONS if s.split("#")[0] not in NOT_POOLED)
 EXCLUDED_TASKS = {
     ("terminal-bench-2", "pytorch-model-recovery"): (
         "harness bug: the instruction starts with '- ', so pi stopped with 'Unknown option' before doing anything in "
@@ -64,6 +74,13 @@ THIN_PAIRS = 30  # fewer paired blocks than this, or an interval wider than THIN
 THIN_WIDTH = 0.20
 RESAMPLES = 4000
 SEED = 20261005
+
+
+def section_of(row: dict) -> str:
+    attempt = str(row["attempt"]).removesuffix("r")
+    if row["benchmark"] == "terminal-bench-2" or attempt == "1":
+        return row["benchmark"]
+    return f"{row['benchmark']}#{attempt}"
 
 
 # ---------------------------------------------------------------------------------------------------------- statistics
@@ -105,10 +122,11 @@ def nearest_rank(values: list[float], q: float) -> float:
 
 
 def sum_fields(items: list[dict]) -> dict:
+    """Adds number fields and concatenates list fields."""
     total: dict = {}
     for item in items:
         for key, value in item.items():
-            total[key] = total.get(key, 0) + value
+            total[key] = total.get(key, [] if isinstance(value, list) else 0) + value
     return total
 
 
@@ -129,20 +147,24 @@ def _quantile(ordered: list[float], q: float) -> float:
 def bootstrap_intervals(
     clusters: list[dict], statistics_: dict[str, Callable[[dict], float | None]], resamples: int, seed: int
 ) -> dict[str, Interval]:
-    """Percentile 95% intervals by resampling whole clusters (tasks) with replacement; each cluster is a dict of summed
-    fields and each statistic is computed from the fields summed over a resample."""
+    """Percentile 95% intervals by resampling whole clusters (tasks) with replacement. Each cluster is a dict of fields
+    (numbers are summed over a resample, lists concatenated); each statistic is computed from those totals."""
     if not clusters:
         raise ValueError("bootstrap of no clusters")
     keys = sorted(clusters[0])
     if any(sorted(c) != keys for c in clusters):
         raise ValueError("bootstrap clusters with different fields")
-    rows = [tuple(c[k] for k in keys) for c in clusters]
+    list_keys = [k for k in keys if isinstance(clusters[0][k], list)]
+    number_keys = [k for k in keys if k not in list_keys]
+    numbers = [tuple(c[k] for k in number_keys) for c in clusters]
     rng = random.Random(seed)
     values: dict[str, list[float]] = {name: [] for name in statistics_}
     undefined = dict.fromkeys(statistics_, 0)
     for _ in range(resamples):
-        sample = rng.choices(rows, k=len(rows))
-        totals = dict(zip(keys, (sum(column) for column in zip(*sample))))
+        picks = rng.choices(range(len(clusters)), k=len(clusters))
+        totals = dict(zip(number_keys, (sum(column) for column in zip(*(numbers[i] for i in picks)))))
+        for k in list_keys:
+            totals[k] = [x for i in picks for x in clusters[i][k]]
         for name, statistic in statistics_.items():
             value = statistic(totals)
             if value is None:
@@ -174,8 +196,7 @@ class Pair:
     block: str
     rerun: bool  # the arm's session is a rerun (ran later than its baseline)
     fields: dict
-    base_wall: float
-    arm_wall: float
+    qwen_zero_note: str | None  # why this block is out of the per-block Qwen ratios, if it is
 
 
 def passed(row: dict) -> bool:
@@ -184,11 +205,11 @@ def passed(row: dict) -> bool:
 
 def pair_up(rows: list[dict], arm: str) -> tuple[list[Pair], list[tuple[tuple, str]]]:
     """Pairs every block's finished baseline and arm sessions. Blocks where either side has no finished session or no
-    reward are left out and returned with the reason (running sessions have no block yet and are counted elsewhere)."""
+    reward are left out and returned with the reason (running and cut sessions are counted elsewhere)."""
     sides: dict[str, dict[str, dict]] = {BASE: {}, arm: {}}
     for r in rows:
-        if r.get("superseded"):
-            raise ValueError(f"superseded session passed to pair_up: {r.get('folder')}")
+        if r.get("superseded") or r.get("cut"):
+            raise ValueError(f"superseded or cut session passed to pair_up: {r.get('folder')}")
         if r["arm"] in sides and r["state"] == "finished":
             if r["pair_block"] in sides[r["arm"]]:
                 raise ValueError(f"two finished {r['arm']} sessions in block {r['pair_block']}")
@@ -213,24 +234,41 @@ def pair_up(rows: list[dict], arm: str) -> tuple[list[Pair], list[tuple[tuple, s
             left_out.append((key, f"{who} finished without a reward"))
             continue
         for name, r in ((BASE, base), (arm, other)):
-            if r.get("agent_s") is None:
+            if r.get("agent_s") is None or r["agent_s"] <= 0:
                 raise ValueError(f"block {block}: {name} session has a reward but no agent time: {r.get('folder')}")
+        bw, aw = base["agent_s"], other["agent_s"]
         bp, ap = passed(base), passed(other)
-        both = bp and ap
         has_qwen = "qwen_s" in base and "qwen_s" in other
+        bq, aq = (base["qwen_s"], other["qwen_s"]) if has_qwen else (0.0, 0.0)
+        qwen_zero = has_qwen and (bq <= 0 or aq <= 0)
         fields = {
             "n": 1,
             "base_pass": int(bp),
             "arm_pass": int(ap),
             "base_only": int(bp and not ap),
             "arm_only": int(ap and not bp),
-            "solved_both": int(both),
-            "log_ratio": math.log(other["agent_s"] / base["agent_s"]) if both else 0.0,
-            "base_wall": base["agent_s"],
-            "arm_wall": other["agent_s"],
+            # 1. time on tasks the baseline solved (the arm counted whatever its outcome)
+            "bs_n": int(bp),
+            "bs_base_wall": bw if bp else 0.0,
+            "bs_arm_wall": aw if bp else 0.0,
+            "bs_logw": [math.log(aw / bw)] if bp else [],
+            "bs_qwen_n": int(bp and has_qwen),
+            "bs_base_qwen": bq if bp else 0.0,
+            "bs_arm_qwen": aq if bp else 0.0,
+            "bs_logq": [math.log(aq / bq)] if bp and has_qwen and not qwen_zero else [],
+            # 2. both solved
+            "solved_both": int(bp and ap),
+            "both_logw": [math.log(aw / bw)] if bp and ap else [],
+            # 3. totals over all paired blocks
+            "base_wall": bw,
+            "arm_wall": aw,
             "qwen_n": int(has_qwen),
-            "base_qwen": base["qwen_s"] if has_qwen else 0.0,
-            "arm_qwen": other["qwen_s"] if has_qwen else 0.0,
+            "base_qwen": bq,
+            "arm_qwen": aq,
+            "qwen_zero": int(qwen_zero),
+            # 4. per-session wall times
+            "base_walls": [bw],
+            "arm_walls": [aw],
         }
         pairs.append(
             Pair(
@@ -238,8 +276,7 @@ def pair_up(rows: list[dict], arm: str) -> tuple[list[Pair], list[tuple[tuple, s
                 block=block,
                 rerun=other["block"].endswith("r"),
                 fields=fields,
-                base_wall=base["agent_s"],
-                arm_wall=other["agent_s"],
+                qwen_zero_note=f"{key[1]} {block}: Qwen time {bq:.0f} s / {aq:.0f} s" if qwen_zero else None,
             )
         )
     return pairs, left_out
@@ -249,15 +286,35 @@ def _ratio(a: float, b: float) -> float | None:
     return a / b if b else None
 
 
+def _exp_mean(logs: list[float]) -> float | None:
+    return math.exp(sum(logs) / len(logs)) if logs else None
+
+
+def _exp_median(logs: list[float]) -> float | None:
+    return math.exp(statistics.median(logs)) if logs else None
+
+
 PAIR_STATISTICS: dict[str, Callable[[dict], float | None]] = {
     "diff": lambda t: (t["arm_pass"] - t["base_pass"]) / t["n"],
-    "geo": lambda t: math.exp(t["log_ratio"] / t["solved_both"]) if t["solved_both"] else None,
-    "wall": lambda t: _ratio(t["arm_wall"], t["base_wall"]),
-    "qwen": lambda t: _ratio(t["arm_qwen"], t["base_qwen"]),
+    "bs_geo": lambda t: _exp_mean(t["bs_logw"]),
+    "bs_median": lambda t: _exp_median(t["bs_logw"]),
+    "bs_total": lambda t: _ratio(t["bs_arm_wall"], t["bs_base_wall"]),
+    "bs_qwen_geo": lambda t: _exp_mean(t["bs_logq"]),
+    "bs_qwen_median": lambda t: _exp_median(t["bs_logq"]),
+    "bs_qwen_total": lambda t: _ratio(t["bs_arm_qwen"], t["bs_base_qwen"]),
+    "both_geo": lambda t: _exp_mean(t["both_logw"]),
+    "both_median": lambda t: _exp_median(t["both_logw"]),
+    "total_wall": lambda t: _ratio(t["arm_wall"], t["base_wall"]),
+    "total_qwen": lambda t: _ratio(t["arm_qwen"], t["base_qwen"]),
+    "session_median": lambda t: statistics.median(t["arm_walls"]) / statistics.median(t["base_walls"]),
     "tts": lambda t: (
         (t["arm_wall"] / t["arm_pass"]) / (t["base_wall"] / t["base_pass"]) if t["arm_pass"] and t["base_pass"] else None
     ),
 }
+
+
+def statistics_of(totals: dict) -> dict[str, float | None]:
+    return {name: f(totals) for name, f in PAIR_STATISTICS.items()}
 
 
 @dataclass
@@ -267,7 +324,6 @@ class Comparison:
     totals: dict
     point: dict[str, float | None]
     intervals: dict[str, Interval]
-    solved_ratios: list[float]
 
 
 def compare(pairs: list[Pair], arm: str, seed: int) -> Comparison | None:
@@ -282,9 +338,8 @@ def compare(pairs: list[Pair], arm: str, seed: int) -> Comparison | None:
         arm=arm,
         pairs=pairs,
         totals=totals,
-        point={name: f(totals) for name, f in PAIR_STATISTICS.items()},
+        point=statistics_of(totals),
         intervals=bootstrap_intervals(clusters, PAIR_STATISTICS, RESAMPLES, seed),
-        solved_ratios=[p.arm_wall / p.base_wall for p in pairs if p.fields["solved_both"]],
     )
 
 
@@ -345,8 +400,9 @@ def arm_profile(sessions: list[dict]) -> dict:
 
 @dataclass
 class Data:
-    active: list[dict]  # not superseded, not of an excluded task
+    active: list[dict]  # not superseded, not cut, not of an excluded task
     superseded: list[dict]
+    cut: list[dict]
     excluded: list[dict]
     inputs: list[tuple[str, int, str]]  # path, lines, modified time
 
@@ -363,9 +419,10 @@ def load(paths: list[str]) -> Data:
     for r in rows:
         if r["arm"] not in ARMS:
             raise ValueError(f"unknown arm {r['arm']!r} in {r.get('folder')}")
-        if r["benchmark"] not in BENCHMARKS:
-            raise ValueError(f"unknown benchmark {r['benchmark']!r} in {r.get('folder')}")
-        if r["state"] not in ("finished", "running"):
+        r["section"] = section_of(r)
+        if r["section"] not in SECTIONS:
+            raise ValueError(f"unknown benchmark section {r['section']!r} in {r.get('folder')}")
+        if r["state"] not in ("finished", "running", "cut"):
             raise ValueError(f"unknown state {r['state']!r} in {r.get('folder')}")
     folders = Counter(r["folder"] for r in rows)
     twice = [f for f, n in folders.items() if n > 1]
@@ -374,14 +431,15 @@ def load(paths: list[str]) -> Data:
     blocks: dict[str, tuple[str, str]] = {}
     for r in rows:
         if r["state"] == "finished":
-            seen = blocks.setdefault(r["pair_block"], (r["benchmark"], r["task"]))
-            if seen != (r["benchmark"], r["task"]):
-                raise ValueError(f"block {r['pair_block']} holds two tasks: {seen} and {(r['benchmark'], r['task'])}")
+            seen = blocks.setdefault(r["pair_block"], (r["section"], r["task"]))
+            if seen != (r["section"], r["task"]):
+                raise ValueError(f"block {r['pair_block']} holds two tasks: {seen} and {(r['section'], r['task'])}")
     superseded = [r for r in rows if r.get("superseded")]
-    rest = [r for r in rows if not r.get("superseded")]
+    cut = [r for r in rows if not r.get("superseded") and r.get("cut")]
+    rest = [r for r in rows if not r.get("superseded") and not r.get("cut")]
     excluded = [r for r in rest if (r["benchmark"], r["task"]) in EXCLUDED_TASKS]
     active = [r for r in rest if (r["benchmark"], r["task"]) not in EXCLUDED_TASKS]
-    return Data(active=active, superseded=superseded, excluded=excluded, inputs=inputs)
+    return Data(active=active, superseded=superseded, cut=cut, excluded=excluded, inputs=inputs)
 
 
 # ------------------------------------------------------------------------------------------------------------- format
@@ -397,7 +455,7 @@ def pts(x: float) -> str:
 
 def interval_text(iv: Interval, fmt: Callable[[float], str]) -> str:
     if iv.undefined:
-        return f"n/a ({iv.undefined}/{RESAMPLES} resamples undefined)"
+        return f"n/a, {iv.undefined}/{RESAMPLES} resamples undefined"
     return f"{fmt(iv.lo)} to {fmt(iv.hi)}"
 
 
@@ -438,25 +496,20 @@ def verdict(c: Comparison | None, arm: str) -> str:
     if c is None:
         return f"{arm}: no paired blocks."
     t = c.totals
-    diff_iv, wall_iv, tts_iv = c.intervals["diff"], c.intervals["wall"], c.intervals["tts"]
-    wall = c.point["wall"]
-    parts = []
-    if wall_iv.undefined:
-        speed = "speed interval undefined"
-    elif wall_iv.hi <= TARGET_RATIO:
+    diff_iv, speed_iv = c.intervals["diff"], c.intervals["bs_total"]
+    speed_value = c.point["bs_total"]
+    if speed_value is None or speed_iv.undefined:
+        speed = "speed not defined (too few blocks the baseline solved)"
+    elif speed_iv.hi <= TARGET_RATIO:
         speed = "speed target met (whole interval at or below 0.75)"
-    elif wall <= TARGET_RATIO and wall_iv.hi < 1:
+    elif speed_value <= TARGET_RATIO and speed_iv.hi < 1:
         speed = "speed target met on the estimate, but the interval reaches above 0.75"
-    elif wall_iv.hi < 1:
+    elif speed_iv.hi < 1:
         speed = "faster than baseline, but short of the 25% target"
-    elif wall_iv.lo > 1:
+    elif speed_iv.lo > 1:
         speed = "slower than baseline"
     else:
-        speed = "no clear speed difference"
-    parts.append(
-        f"total wall time {r2(wall)} x baseline ({interval_text(wall_iv, r2)}); "
-        f"time per solve {r2(c.point['tts'])} x ({interval_text(tts_iv, r2)}): {speed}."
-    )
+        speed = "no clear speed difference (interval spans 1)"
     if diff_iv.undefined:
         same = "pass-rate interval undefined"
     elif diff_iv.lo >= -SAME_PASS_MARGIN:
@@ -465,12 +518,12 @@ def verdict(c: Comparison | None, arm: str) -> str:
         same = "pass rate lower than baseline"
     else:
         same = "a pass-rate loss of more than 5 points is not ruled out"
-    parts.append(f"Pass rate {pts(c.point['diff'])} pts ({interval_text(diff_iv, pts)}): {same}.")
     met = (
-        not wall_iv.undefined
+        speed_value is not None
+        and not speed_iv.undefined
         and not diff_iv.undefined
-        and wall <= TARGET_RATIO
-        and wall_iv.hi < 1
+        and speed_value <= TARGET_RATIO
+        and speed_iv.hi < 1
         and diff_iv.lo >= -SAME_PASS_MARGIN
     )
     thin = t["n"] < THIN_PAIRS or (not diff_iv.undefined and diff_iv.hi - diff_iv.lo > THIN_WIDTH)
@@ -479,7 +532,11 @@ def verdict(c: Comparison | None, arm: str) -> str:
         overall += f" -- data too thin to rely on ({t['n']} paired blocks; pass-rate interval width " + (
             "undefined)" if diff_iv.undefined else f"{100 * (diff_iv.hi - diff_iv.lo):.0f} pts)"
         )
-    return f"**{arm}: {overall}.** " + " ".join(parts)
+    return (
+        f"**{arm}: {overall}.** Time on tasks the baseline solved {r2(speed_value)} x baseline "
+        f"({interval_text(speed_iv, r2)}; geomean per block {ratio_cell(c, 'bs_geo')}, {t['bs_n']} blocks): {speed}. "
+        f"Pass rate {pts(c.point['diff'])} pts ({interval_text(diff_iv, pts)}): {same}."
+    )
 
 
 # ------------------------------------------------------------------------------------------------------------- report
@@ -488,15 +545,15 @@ def verdict(c: Comparison | None, arm: str) -> str:
 @dataclass
 class Scope:
     name: str
-    benchmarks: tuple[str, ...]
+    sections: tuple[str, ...]
     comparisons: dict[str, Comparison | None]
     left_out: dict[str, list[tuple[tuple, str]]]
     sessions: dict[str, list[dict]]  # arm -> finished sessions
     running: Counter
 
 
-def build_scope(name: str, benchmarks: tuple[str, ...], data: Data, seed: int) -> Scope:
-    rows = [r for r in data.active if r["benchmark"] in benchmarks]
+def build_scope(name: str, sections: tuple[str, ...], data: Data, seed: int) -> Scope:
+    rows = [r for r in data.active if r["section"] in sections]
     comparisons, left_out = {}, {}
     for i, arm in enumerate(ARMS[1:]):
         pairs, out = pair_up(rows, arm)
@@ -504,7 +561,7 @@ def build_scope(name: str, benchmarks: tuple[str, ...], data: Data, seed: int) -
         left_out[arm] = out
     return Scope(
         name=name,
-        benchmarks=benchmarks,
+        sections=sections,
         comparisons=comparisons,
         left_out=left_out,
         sessions={arm: [r for r in rows if r["arm"] == arm and r["state"] == "finished"] for arm in ARMS},
@@ -512,40 +569,46 @@ def build_scope(name: str, benchmarks: tuple[str, ...], data: Data, seed: int) -
     )
 
 
+HEADLINE_HEADER = [
+    "scope",
+    "arm",
+    "pass rate (95%)",
+    "paired blocks",
+    "pass diff vs baseline, pts (95%); baseline-only vs arm-only",
+    "1. time on baseline-solved tasks: wall, total ratio (95%)",
+    "1. same, geomean / median per block",
+    "1. same, Qwen gen total ratio (95%)",
+    "2. both solved: geomean (95%), blocks",
+    "3. total wall, all paired (95%)",
+    "4. median wall per session (95%)",
+]
+
+
 def headline_rows(scope: Scope) -> list[list[str]]:
-    out = [[scope.name, BASE, pass_rate_cell(scope.sessions[BASE]), "-", "-", "-", "-", "-", "-"]]
+    out = [[scope.name, BASE, pass_rate_cell(scope.sessions[BASE])] + ["-"] * 8]
     for arm in ARMS[1:]:
         c = scope.comparisons[arm]
         if c is None:
-            out.append([scope.name, arm, pass_rate_cell(scope.sessions[arm]), "0", "-", "-", "-", "-", "-"])
+            if scope.sessions[arm]:
+                out.append([scope.name, arm, pass_rate_cell(scope.sessions[arm]), "0"] + ["-"] * 7)
             continue
+        t = c.totals
         out.append(
             [
                 scope.name,
                 arm,
                 pass_rate_cell(scope.sessions[arm]),
-                str(c.totals["n"]),
+                str(t["n"]),
                 diff_cell(c),
-                f"{ratio_cell(c, 'geo')} n={c.totals['solved_both']}",
-                ratio_cell(c, "wall"),
-                ratio_cell(c, "qwen"),
-                ratio_cell(c, "tts"),
+                f"{ratio_cell(c, 'bs_total')}, {t['bs_n']} blocks",
+                f"{r2(c.point['bs_geo'])} / {r2(c.point['bs_median'])}",
+                ratio_cell(c, "bs_qwen_total"),
+                f"{ratio_cell(c, 'both_geo')}, {t['solved_both']}",
+                ratio_cell(c, "total_wall"),
+                ratio_cell(c, "session_median"),
             ]
         )
     return out
-
-
-HEADLINE_HEADER = [
-    "scope",
-    "arm",
-    "pass rate (95% interval)",
-    "paired blocks",
-    "pass diff vs baseline (95%); baseline-only vs arm-only passes",
-    "wall ratio, both solved (geomean)",
-    "total wall ratio",
-    "total Qwen gen ratio",
-    "time-per-solve ratio",
-]
 
 
 def scope_section(scope: Scope) -> list[str]:
@@ -559,25 +622,28 @@ def scope_section(scope: Scope) -> list[str]:
         + "."
     )
     out.append("")
-    out.append("**1. Pass rate**")
+    arms = [arm for arm in ARMS if scope.sessions[arm] or scope.running[arm]]
+    compared = [arm for arm in arms[1:] if arm != BASE]
+    out.append("**Pass rate**")
     out.append("")
     rows = []
-    for arm in ARMS:
+    for arm in arms:
         c = scope.comparisons.get(arm)
         rows.append(
             [
                 arm,
                 pass_rate_cell(scope.sessions[arm]),
                 "-" if arm == BASE else (str(c.totals["n"]) if c else "0"),
-                "-" if arm == BASE or c is None else f"{pct(c.totals['base_pass'] / c.totals['n'])} -> "
-                f"{pct(c.totals['arm_pass'] / c.totals['n'])}",
+                "-"
+                if arm == BASE or c is None
+                else f"{pct(c.totals['base_pass'] / c.totals['n'])} -> {pct(c.totals['arm_pass'] / c.totals['n'])}",
                 "-" if arm == BASE or c is None else diff_cell(c),
             ]
         )
     out += table(
         [
             "arm",
-            "pass rate, all scored sessions (95% interval)",
+            "pass rate, all scored sessions (95%)",
             "paired blocks",
             "baseline -> arm on paired blocks",
             "difference (95%); baseline-only vs arm-only; McNemar p",
@@ -585,48 +651,53 @@ def scope_section(scope: Scope) -> list[str]:
         rows,
     )
     out.append("")
-    out.append("**2. Speed (paired by block; ratio = arm / baseline, below 1 is faster)**")
+    out.append("**Speed, paired by block (ratio = arm / baseline; below 1 is faster)**")
     out.append("")
     rows = []
-    for arm in ARMS[1:]:
+    for arm in compared:
         c = scope.comparisons[arm]
         if c is None:
-            rows.append([arm] + ["-"] * 7)
+            rows.append([arm] + ["-"] * 6)
             continue
         t = c.totals
         rows.append(
             [
                 arm,
-                f"{t['solved_both']}: geomean {ratio_cell(c, 'geo')}, median "
-                f"{r2(statistics.median(c.solved_ratios)) if c.solved_ratios else '-'}",
-                f"{hours(t['base_wall'])} -> {hours(t['arm_wall'])}",
-                ratio_cell(c, "wall"),
-                f"{hours(t['base_qwen'])} -> {hours(t['arm_qwen'])} (n={t['qwen_n']})",
-                ratio_cell(c, "qwen"),
-                f"{t['base_wall'] / t['base_pass'] / 60:.1f} -> {t['arm_wall'] / t['arm_pass'] / 60:.1f} min"
+                f"{t['bs_n']}: total {hours(t['bs_base_wall'])} -> {hours(t['bs_arm_wall'])}, "
+                f"ratio {ratio_cell(c, 'bs_total')}; geomean {ratio_cell(c, 'bs_geo')}; "
+                f"median {ratio_cell(c, 'bs_median')}",
+                f"{t['bs_qwen_n']}: total {hours(t['bs_base_qwen'])} -> {hours(t['bs_arm_qwen'])}, "
+                f"ratio {ratio_cell(c, 'bs_qwen_total')}; geomean {ratio_cell(c, 'bs_qwen_geo')}; "
+                f"median {ratio_cell(c, 'bs_qwen_median')}",
+                f"{t['solved_both']}: geomean {ratio_cell(c, 'both_geo')}; median {ratio_cell(c, 'both_median')}",
+                f"{t['n']}: wall {hours(t['base_wall'])} -> {hours(t['arm_wall'])}, ratio {ratio_cell(c, 'total_wall')}; "
+                f"Qwen gen {hours(t['base_qwen'])} -> {hours(t['arm_qwen'])} (n={t['qwen_n']}), ratio "
+                f"{ratio_cell(c, 'total_qwen')}",
+                f"{statistics.median(t['base_walls']) / 60:.1f} -> {statistics.median(t['arm_walls']) / 60:.1f} min, "
+                f"ratio {ratio_cell(c, 'session_median')}",
+                f"{t['base_wall'] / t['base_pass'] / 60:.1f} -> {t['arm_wall'] / t['arm_pass'] / 60:.1f} min, "
+                f"ratio {ratio_cell(c, 'tts')}"
                 if t["base_pass"] and t["arm_pass"]
                 else "-",
-                ratio_cell(c, "tts"),
             ]
         )
     out += table(
         [
             "arm",
-            "(a) both solved: blocks, wall ratio (95%), median",
-            "(b) total wall, baseline -> arm",
-            "total wall ratio (95%)",
-            "total Qwen gen, baseline -> arm",
-            "Qwen gen ratio (95%)",
-            "(c) wall per pass, baseline -> arm",
-            "time-per-solve ratio (95%)",
+            "1. time on tasks the baseline solved, wall (blocks)",
+            "1. same, Qwen generation time (blocks)",
+            "2. both solved, wall (blocks)",
+            "3. total over all paired blocks (blocks)",
+            "4. median wall per session",
+            "extra: wall per pass (time to solve)",
         ],
         rows,
     )
     out.append("")
-    out.append("**3. Behaviour per arm (all finished sessions of the scope)**")
+    out.append("**Behaviour per arm (all finished sessions of the scope)**")
     out.append("")
     rows = []
-    for arm in ARMS:
+    for arm in arms:
         p = arm_profile(scope.sessions[arm])
         lat = []
         for name in ("router", "step", "trim"):
@@ -675,28 +746,23 @@ def rerun_split(scope: Scope) -> list[list[str]]:
         c = scope.comparisons[arm]
         if c is None:
             continue
-        for label, subset in (("side by side", [p for p in c.pairs if not p.rerun]), ("rerun", [p for p in c.pairs if p.rerun])):
+        for label, subset in (
+            ("side by side", [p for p in c.pairs if not p.rerun]),
+            ("rerun", [p for p in c.pairs if p.rerun]),
+        ):
             if not subset:
                 rows.append([arm, label, "0", "-", "-", "-"])
                 continue
-            t = sum_fields([p.fields for p in subset])
-            solved = [p.arm_wall / p.base_wall for p in subset if p.fields["solved_both"]]
+            s = statistics_of(sum_fields([p.fields for p in subset]))
             rows.append(
-                [
-                    arm,
-                    label,
-                    str(t["n"]),
-                    f"{pts((t['arm_pass'] - t['base_pass']) / t['n'])} pts",
-                    r2(t["arm_wall"] / t["base_wall"]),
-                    f"{r2(geomean(solved))} (n={len(solved)})" if solved else "-",
-                ]
+                [arm, label, str(len(subset)), f"{pts(s['diff'])} pts", r2(s["bs_total"]), r2(s["total_wall"])]
             )
     return rows
 
 
 def report(data: Data) -> str:
     pooled = build_scope("pooled", POOLED, data, SEED)
-    scopes = {b: build_scope(b, (b,), data, SEED + 100 * (i + 1)) for i, b in enumerate(BENCHMARKS)}
+    scopes = {s: build_scope(s, (s,), data, SEED + 100 * (i + 1)) for i, s in enumerate(SECTIONS)}
     tb2 = scopes["terminal-bench-2"]
     out = ["# Tonight's evaluation (2026-10-04/05): final report", ""]
     out.append(
@@ -716,33 +782,36 @@ def report(data: Data) -> str:
         "Arms: **a1-baseline** Qwen3.8-27B at xhigh thinking on every turn, Jeff off. **a2-off-guard** thinking off on "
         "every turn plus safeguards (loop guard, stuck output or 2 failed commands -> xhigh, 8,000-token thinking "
         "limit). **a3-jeff07 / a4-jeff06** Jeff routes each turn: off unless Jeff's P(xhigh) >= 0.7 / 0.6; Jeff may "
-        "take steps itself; same safeguards. A block is one task attempt run under all four arms on one Qwen server; "
-        "every comparison below pairs an arm's session with the baseline session of the same block."
+        "take steps itself; same safeguards. A block is one task attempt run under the arms on one Qwen server; every "
+        "comparison pairs an arm's session with the baseline session of the same block. swe-bench-verified ran a1 "
+        "and a4 only, so the pooled a2 and a3 lines hold no swe-bench-verified blocks."
     )
     out.append("")
     out.append(
-        f"Owner's target: **25% faster (time ratio <= {TARGET_RATIO}) at the same pass rate**. Read here as: total "
-        "wall time over the paired blocks (all outcomes) at most 0.75 x baseline, and the paired pass-rate "
-        f"difference's 95% interval staying above -{100 * SAME_PASS_MARGIN:.0f} points (the 5-point margin is this "
-        "report's choice; the owner did not set one)."
+        f"Owner's target: **25% faster at the same pass rate**. Read here as: on the tasks the baseline solved, the "
+        f"arm's total wall time is at most {TARGET_RATIO} x the baseline's (speed measure 1, ratio of totals), and "
+        f"the paired pass-rate difference's 95% interval stays above -{100 * SAME_PASS_MARGIN:.0f} points (the "
+        "5-point margin is this report's choice; the owner did not set one)."
     )
     out.append("")
     out.append(
-        f"Pooled = {', '.join(POOLED)}. Not pooled (shown below): "
+        "Speed measures (owner's choice, fixed before the final numbers), all paired by block, ratio = arm / "
+        "baseline, below 1 = faster: **1. time on tasks the baseline solved** (blocks where a1 passed; the arm's "
+        "session counts whatever its outcome; wall and Qwen generation time; ratio of totals, and geometric mean and "
+        "median of per-block ratios); **2. both solved** (blocks both passed); **3. total time over all paired "
+        "blocks** (all outcomes); **4. median wall time per session** over all paired blocks."
+    )
+    out.append("")
+    out.append(
+        f"Pooled = every round of {', '.join(sorted({s.split('#')[0] for s in POOLED}))}. Not pooled (shown below): "
         + "; ".join(f"{b} ({why})" for b, why in NOT_POOLED.items())
-        + "."
+        + ". Sections named BENCHMARK#2 are the second round (attempt 2) of that benchmark; Terminal-Bench 2.0 keeps "
+        "its three attempts in one section."
     )
     out.append("")
     out.append("## Headline: pooled and Terminal-Bench 2.0")
     out.append("")
     out += table(HEADLINE_HEADER, headline_rows(pooled) + headline_rows(tb2))
-    out.append("")
-    out.append(
-        "Ratios are arm / baseline (below 1 = faster) with 95% intervals; the pass difference is in percentage "
-        "points. 'Both solved' compares only blocks both arms passed (geometric mean of per-block ratios). 'Total "
-        "wall' and 'total Qwen gen' sum every paired block whatever the outcome (the throughput view). "
-        "'Time per solve' = total wall time / passes, arm over baseline."
-    )
     out.append("")
     out.append("## Verdict per arm")
     out.append("")
@@ -751,34 +820,36 @@ def report(data: Data) -> str:
     for arm in ARMS[1:]:
         out.append(f"- Terminal-Bench 2.0. {verdict(tb2.comparisons[arm], arm)}")
     out.append("")
-    out.append("Per benchmark (one line per arm; the pooled lines above are the ones to act on):")
+    out.append("Per section (the pooled lines above are the ones to act on):")
     out.append("")
-    for b in BENCHMARKS[1:]:
+    for s in SECTIONS[1:]:
         for arm in ARMS[1:]:
-            out.append(f"- {b}. {verdict(scopes[b].comparisons[arm], arm)}")
+            if scopes[s].comparisons[arm] is not None:
+                out.append(f"- {s}. {verdict(scopes[s].comparisons[arm], arm)}")
     out.append("")
     out.append("## Pooled")
     out.append("")
     out += scope_section(pooled)
     out.append("")
-    for b in BENCHMARKS:
-        out.append(f"## {b}" + (" (not pooled)" if b in NOT_POOLED else ""))
+    for s in SECTIONS:
+        out.append(f"## {s}" + (" (not pooled)" if s not in POOLED else ""))
         out.append("")
-        out += scope_section(scopes[b])
+        out += scope_section(scopes[s])
         out.append("")
-    out += caveats(data, pooled, tb2)
+    out += caveats(data, pooled)
     out += left_out_section(data, pooled, scopes)
     out.append("## Method")
     out.append("")
     out.append(
         f"- Pass rate interval: Wilson 95%. Paired intervals: percentile bootstrap, {RESAMPLES} resamples of whole "
-        f"tasks (seed {SEED}), so the three Terminal-Bench 2.0 attempts of a task move together. McNemar p: exact "
-        "binomial test on the blocks only one side passed. An interval marked 'n/a' had resamples where the "
-        "statistic is undefined (no block both solved, or no pass)."
+        f"tasks (seed {SEED}), so the attempts and rounds of a task move together. McNemar p: exact binomial test on "
+        "the blocks only one side passed. An interval marked 'n/a' had resamples where the statistic is undefined "
+        "(no block in the set, or no pass)."
     )
     out.append(
         "- Wall time = Harbor's agent execution time (agent start to end, Jeff time included); Qwen generation time = "
-        "the sum of the model time of every Qwen request in the trace. A pass is reward 1."
+        "the sum of the model time of every Qwen request in the trace. A pass is reward 1. Median of per-block "
+        "ratios: with an even count, the two middle ratios are averaged geometrically."
     )
     out.append(
         "- Behaviour counts: turns = first-attempt Qwen requests; turns at off = those sent at thinking off; "
@@ -795,25 +866,30 @@ def report(data: Data) -> str:
     return "\n".join(out)
 
 
-def caveats(data: Data, pooled: Scope, tb2: Scope) -> list[str]:
+def caveats(data: Data, pooled: Scope) -> list[str]:
     out = ["## Caveats", ""]
-    reruns = {arm: sum(p.rerun for p in (pooled.comparisons[arm].pairs if pooled.comparisons[arm] else [])) for arm in JEFF_ARMS}
+    reruns = {
+        arm: sum(p.rerun for p in (pooled.comparisons[arm].pairs if pooled.comparisons[arm] else []))
+        for arm in JEFF_ARMS
+    }
     out.append(
         "- **Jeff reruns ran later than their paired a1/a2 sessions.** Jeff-arm sessions that started before the Jeff "
         f"capacity fix (B200 22:59, casdgx01 23:01) are left out ({len(data.superseded)} sessions) and their task "
         "attempts were rerun on the same Qwen server, but hours later, so server load differs within those pairs. "
-        f"Pooled paired blocks that are reruns: {', '.join(f'{a} {n}' for a, n in reruns.items())}. Split:"
+        f"Pooled paired blocks that are reruns: {', '.join(f'{a} {n}' for a, n in reruns.items())}. Split "
+        "(measure 1 = time on tasks the baseline solved, ratio of totals; measure 3 = total wall):"
     )
     out.append("")
-    out += ["  " + line for line in table(
-        ["arm", "blocks", "n", "pass diff", "total wall ratio", "both-solved geomean"], rerun_split(pooled)
-    )]
+    out += [
+        "  " + line
+        for line in table(["arm", "blocks", "n", "pass diff", "measure 1", "measure 3"], rerun_split(pooled))
+    ]
     out.append("")
-    excluded = Counter((r["benchmark"], r["task"], r["arm"], r.get("reward")) for r in data.excluded if r["state"] == "finished")
     for (benchmark, task), why in EXCLUDED_TASKS.items():
+        sessions = [r for r in data.excluded if (r["benchmark"], r["task"]) == (benchmark, task)]
         outcome = ", ".join(
-            f"{arm} {sum(n for (b, t, a, rw), n in excluded.items() if (b, t, a) == (benchmark, task, arm) and rw == 1)}"
-            f"/{sum(n for (b, t, a, _), n in excluded.items() if (b, t, a) == (benchmark, task, arm))} passed"
+            f"{arm} {sum(r.get('reward') == 1 for r in sessions if r['arm'] == arm and r['state'] == 'finished')}"
+            f"/{sum(r['arm'] == arm and r['state'] == 'finished' for r in sessions)} passed"
             for arm in ARMS
         )
         out.append(f"- **{benchmark} {task} is left out of every comparison**: {why}. Outcomes: {outcome}.")
@@ -823,13 +899,12 @@ def caveats(data: Data, pooled: Scope, tb2: Scope) -> list[str]:
         "time. Pooled per arm: " + ", ".join(f"{a} {n}" for a, n in limit.items()) + ". A killed session whose "
         "verifier gave no reward is left out with its block (listed below)."
     )
-    running = Counter((r.get("benchmark"), r["arm"]) for r in data.active if r["state"] == "running")
+    running = sum(r["state"] == "running" for r in data.active)
     out.append(
-        "- **B200 sessions cut at 08:15 and unfinished sessions.** The B200 started a session only if its longest "
-        "possible duration ended by 08:15 BST; blocks that no longer fit moved to casdgx01. Sessions still running "
-        f"when these lines were collected: {sum(running.values())} (left out; their blocks are unpaired). The "
-        "follow-on benchmarks are partly finished, swe-rebench-leaderboard most of all, and which of their tasks "
-        "finished is not random (short tasks finish first)."
+        f"- **B200 sessions cut and unfinished sessions.** {len(data.cut)} sessions were cut (still running when the "
+        f"B200 evaluation stopped) and {running} were still running when these lines were collected; both are left "
+        "out and their blocks are unpaired. Which tasks finished in a partly run round is not random (short tasks "
+        "finish first), and a cut removes the longest sessions of the arms that were still running."
     )
     out.append(
         "- Hosts differ (B200 NVFP4 vLLM 0.29, casdgx01 H100 FP8 vLLM 0.30) and so do their loads; pairing by block "
@@ -845,38 +920,58 @@ def caveats(data: Data, pooled: Scope, tb2: Scope) -> list[str]:
 
 def left_out_section(data: Data, pooled: Scope, scopes: dict[str, Scope]) -> list[str]:
     out = ["## Left out (every session or block not in the comparisons)", ""]
-    sup = Counter((r["benchmark"], r["arm"]) for r in data.superseded)
-    out.append(
-        f"- Superseded (Jeff arm before the capacity fix, rerun instead): {len(data.superseded)} sessions: "
-        + ", ".join(f"{b} {a} {n}" for (b, a), n in sorted(sup.items()))
-        + "."
-    )
+    for label, rows in (
+        ("Superseded (Jeff arm before the capacity fix, rerun instead)", data.superseded),
+        ("Cut (still running when the B200 evaluation stopped)", data.cut),
+    ):
+        counts = Counter((r["section"], r["arm"]) for r in rows)
+        out.append(
+            f"- {label}: {len(rows)} sessions"
+            + (": " + ", ".join(f"{s} {a} {n}" for (s, a), n in sorted(counts.items())) if rows else "")
+            + "."
+        )
     out.append(
         f"- Excluded task (see caveats): {len(data.excluded)} sessions: "
         + ", ".join(sorted(f"{r['arm']} {r['task']} attempt {r['attempt']}" for r in data.excluded))
         + "."
     )
-    running = sorted(f"{r['benchmark']} {r['arm']} {r['task']} attempt {r['attempt']}" for r in data.active if r["state"] == "running")
-    out.append(f"- Still running when collected: {len(running)} sessions" + (": " + ", ".join(running) if running else "") + ".")
+    running = sorted(
+        f"{r['section']} {r['arm']} {r['task']} attempt {r['attempt']}" for r in data.active if r["state"] == "running"
+    )
+    out.append(
+        f"- Still running when collected: {len(running)} sessions" + (": " + ", ".join(running) if running else "") + "."
+    )
     unscored = [r for r in data.active if r["state"] == "finished" and r.get("reward") is None]
     out.append(f"- Finished without a reward: {len(unscored)} sessions:")
-    for r in sorted(unscored, key=lambda r: (r["benchmark"], r["task"], r["arm"])):
+    for r in sorted(unscored, key=lambda r: (r["section"], r["task"], r["arm"])):
         wall = "-" if r.get("agent_s") is None else f"{r['agent_s']:.0f} s"
         out.append(
-            f"  - {r['benchmark']} {r['task']} attempt {r['attempt']} {r['arm']} ({r['server']}, wall {wall}): "
+            f"  - {r['section']} {r['task']} attempt {r['attempt']} {r['arm']} ({r['server']}, wall {wall}): "
             f"{r.get('exception') or 'no exception'}; {(r.get('error') or 'no error').splitlines()[0][:140]}"
         )
-    out.append("- Unpaired or unscored blocks per arm comparison (benchmark, task, block: reason):")
-    for b in BENCHMARKS:
+    out.append("- Unpaired or unscored blocks per arm comparison (task, block: reason):")
+    for s in SECTIONS:
         for arm in ARMS[1:]:
-            items = scopes[b].left_out[arm]
+            items = scopes[s].left_out[arm]
             if items:
                 out.append(
-                    f"  - {b} {arm} ({len(items)}): "
-                    + "; ".join(f"{task} {block}: {why}" for (_, task, block), why in items)
+                    f"  - {s} {arm} ({len(items)}): " + "; ".join(f"{task} {block}: {why}" for (_, task, block), why in items)
                 )
-    pooled_counts = {arm: len(pooled.left_out[arm]) for arm in ARMS[1:]}
-    out.append("- Pooled totals left out: " + ", ".join(f"{a} {n} blocks" for a, n in pooled_counts.items()) + ".")
+    zero = [
+        f"{arm} {p.qwen_zero_note}"
+        for arm in ARMS[1:]
+        if pooled.comparisons[arm]
+        for p in pooled.comparisons[arm].pairs
+        if p.qwen_zero_note
+    ]
+    out.append(
+        f"- Paired blocks out of the per-block Qwen ratios (a side with zero Qwen time; still in the totals): {len(zero)}"
+        + (": " + "; ".join(zero) if zero else "")
+        + "."
+    )
+    out.append(
+        "- Pooled totals left out: " + ", ".join(f"{a} {len(pooled.left_out[a])} blocks" for a in ARMS[1:]) + "."
+    )
     out.append("")
     return out
 
