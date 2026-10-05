@@ -6,7 +6,7 @@
 
 <p align="center">
   A coding agent where a 0.8B decision model works alongside Qwen 3.8-27B.<br>
-  <b>32% less time per task on average, at the same pass rate.</b>
+  <b>Coding tasks 47% faster (32% less time) on average, at the same pass rate.</b>
 </p>
 
 <p align="center">
