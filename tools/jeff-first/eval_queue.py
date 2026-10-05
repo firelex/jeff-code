@@ -152,7 +152,10 @@ def followon(args: argparse.Namespace) -> None:
                 "image": task.image,
                 "benchmark": name,
             }
-            arms = list(ARMS[counter % 4 :] + ARMS[: counter % 4])
+            chosen = tuple(args.arms.split(",")) if args.arms else ARMS
+            if not set(chosen) <= set(ARMS):
+                raise SystemExit(f"--arms must be from {ARMS}, got {chosen}")
+            arms = list(chosen[counter % len(chosen) :] + chosen[: counter % len(chosen)])
             blocks.append({"block": f"{prefix}{k:03d}", "benchmark": name, "task": task_id, "attempt": args.attempt, "arms": arms})
             counter += 1
     queues: dict[str, list] = {h: [] for h in hosts}
@@ -329,6 +332,7 @@ def main() -> None:
     o.add_argument("--seed", type=int, required=True)
     o.add_argument("--multiplier", type=float, required=True)
     o.add_argument("--attempt", type=int, required=True)
+    o.add_argument("--arms", help="comma-separated subset of the arms (default all four); the order rotates per block")
     o.add_argument("--queue-name", required=True, help="output files QUEUE_NAME-HOST.json, e.g. queue2")
     o.add_argument("--first-block-to")
     o.add_argument("--first-block-of")

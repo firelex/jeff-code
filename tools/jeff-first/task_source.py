@@ -38,10 +38,11 @@ HUB_TASK = re.compile(r"^([a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*):([A-Za-z0-9
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 # Run without internet (harbor_agent/offline.py; only the model's host stays reachable): a SWE task's agent could
 # otherwise fetch the upstream fix from GitHub. SWE-rebench's tests pass offline (checked 2026-10-04, see the report).
-OFFLINE_DATASETS = {"swe-rebench/swe-rebench-leaderboard"}
+# SWE-bench Verified (evaluation, 2026-10-05) is run the same way: its task images are the same swebench/sweb.eval.* kind.
+OFFLINE_DATASETS = {"swe-rebench/swe-rebench-leaderboard", "swe-bench/swe-bench-verified"}
 # One large Docker Hub image per task (SWE-rebench: 671 images, ~1.3 TB): pulled before the session and removed after
 # it (hub_stream.sh), so the disk holds only the running tasks' images.
-ROTATED_DATASETS = {"swe-rebench/swe-rebench-leaderboard"}
+ROTATED_DATASETS = {"swe-rebench/swe-rebench-leaderboard", "swe-bench/swe-bench-verified"}
 
 
 def is_hub_task(task_id: str) -> bool:
