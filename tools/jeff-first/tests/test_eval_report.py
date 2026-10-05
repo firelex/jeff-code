@@ -1,3 +1,4 @@
+import json
 import math
 
 import pytest
@@ -5,8 +6,10 @@ import pytest
 from eval_report import (
     bootstrap_interval,
     error_kind,
+    exit_code,
     geomean,
     largest_differences,
+    load,
     mcnemar_p,
     nearest_rank,
     pair_up,
@@ -214,3 +217,29 @@ def test_error_kind_names_known_errors_and_refuses_unknown_ones():
     assert error_kind("image pull failed (pull-failed 1)") == "image pull failed"
     with pytest.raises(ValueError):
         error_kind("something new")
+
+
+def test_exit_code_reads_the_recorded_command_exit_and_flags_unrecorded_ones():
+    killed = {"exception": "ApiRateLimitError", "error": "ApiRateLimitError: Command failed (exit 137): . ~/.nvm"}
+    assert exit_code(killed) == "137"
+    assert exit_code({"exception": "NetworkConnectionError", "error": "NetworkConnectionError: Command failed (exit 143): x"}) == "143"
+    assert exit_code({"exception": None, "error": None}) is None
+    assert exit_code({"exception": "AgentTimeoutError", "error": None}) is None
+    assert exit_code({"exception": "RuntimeError", "error": "pi output unreadable: x has no agent/pi.txt"}) == "not recorded"
+
+
+def test_load_takes_every_session_of_a_block_with_a_killed_session_out(tmp_path):
+    base = {"task": "t1", "attempt": "1", "benchmark": "terminal-bench-2", "server": "s0", "host": "b200",
+            "state": "finished", "superseded": None, "cut": None, "reward": 0.0, "agent_s": 10.0, "error": None,
+            "exception": None, "started": "2026-10-05T01:00:00+01:00"}
+    rows = [
+        dict(base, arm="a1-baseline", block="b1", pair_block="b1", folder="f1"),
+        dict(base, arm="a3-jeff07", block="b1r", pair_block="b1", folder="f2", attempt="1r", exception="NonZeroAgentExitCodeError",
+             error="NonZeroAgentExitCodeError: Command failed (exit 137): pi"),
+        dict(base, arm="a1-baseline", block="b2", pair_block="b2", folder="f3", task="t2"),
+    ]
+    path = tmp_path / "units.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    data = load([str(path)])
+    assert [r["folder"] for r in data.active] == ["f3"]
+    assert sorted(r["folder"] for r in data.killed_blocks) == ["f1", "f2"]

@@ -22,6 +22,10 @@ Pass rate per arm (Wilson 95%) and the paired difference (task-bootstrap 95%, ex
 Also: behaviour per arm, a verdict per arm against the owner's target (25% faster at the same pass rate), caveats,
 and every session or block left out with the reason.
 
+Owner's ruling: every block in which a session was killed by the system (command exit 137, SIGKILL, e.g. out of
+memory, read from the recorded exit code) is left out of the pass rates and every time measure, in all arms; the
+blocks are listed.
+
 Intervals resample tasks (all rounds, attempts and arms of a task together). Wall time is the agent's execution time.
 A pass is reward 1 (partial rewards such as 0.667 count as not passed).
 
@@ -32,6 +36,7 @@ import datetime as dt
 import json
 import math
 import random
+import re
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -76,6 +81,21 @@ THIN_PAIRS = 30  # fewer paired blocks than this, or an interval wider than THIN
 THIN_WIDTH = 0.20
 RESAMPLES = 4000
 SEED = 20261005
+
+
+KILL_EXIT = "137"
+_EXIT = re.compile(r"Command failed \(exit (\d+)\)")
+
+
+def exit_code(row: dict) -> str | None:
+    """The agent command's exit code as recorded in the session's error, None when the trial had no exception (or only
+    the agent time limit), "not recorded" when it had another exception whose message holds no exit code."""
+    match = _EXIT.search(row.get("error") or "")
+    if match:
+        return match.group(1)
+    if row.get("exception") in (None, "AgentTimeoutError"):
+        return None
+    return "not recorded"
 
 
 def section_of(row: dict) -> str:
@@ -429,9 +449,11 @@ def arm_profile(sessions: list[dict]) -> dict:
 
 @dataclass
 class Data:
-    active: list[dict]  # not superseded, not cut, not of an excluded task
+    active: list[dict]  # not superseded, not cut, not of an excluded task, not in a block with a killed session
     superseded: list[dict]
     cut: list[dict]
+    killed_blocks: list[dict]  # every finished session of a block in which a session was killed (exit 137)
+    unrecorded_exit: list[dict]  # sessions with an exception but no recorded exit code (kept in)
     excluded: list[dict]
     inputs: list[tuple[str, int, str]]  # path, lines, modified time
 
@@ -467,8 +489,21 @@ def load(paths: list[str]) -> Data:
     cut = [r for r in rows if not r.get("superseded") and r.get("cut")]
     rest = [r for r in rows if not r.get("superseded") and not r.get("cut")]
     excluded = [r for r in rest if (r["benchmark"], r["task"]) in EXCLUDED_TASKS]
-    active = [r for r in rest if (r["benchmark"], r["task"]) not in EXCLUDED_TASKS]
-    return Data(active=active, superseded=superseded, cut=cut, excluded=excluded, inputs=inputs)
+    kept = [r for r in rest if (r["benchmark"], r["task"]) not in EXCLUDED_TASKS]
+    finished = [r for r in kept if r["state"] == "finished"]
+    killed = {r["pair_block"] for r in finished if exit_code(r) == KILL_EXIT}
+    killed_blocks = [r for r in finished if r["pair_block"] in killed]
+    active = [r for r in kept if not (r["state"] == "finished" and r["pair_block"] in killed)]
+    unrecorded = [r for r in active if r["state"] == "finished" and exit_code(r) == "not recorded"]
+    return Data(
+        active=active,
+        superseded=superseded,
+        cut=cut,
+        excluded=excluded,
+        inputs=inputs,
+        killed_blocks=killed_blocks,
+        unrecorded_exit=unrecorded,
+    )
 
 
 # ------------------------------------------------------------------------------------------------------------- format
@@ -960,6 +995,14 @@ def caveats(data: Data, pooled: Scope) -> list[str]:
             for arm in ARMS
         )
         out.append(f"- **{benchmark} {task} is left out of every comparison**: {why}. Outcomes: {outcome}.")
+    killed_blocks = len({r["pair_block"] for r in data.killed_blocks})
+    out.append(
+        f"- **Blocks with a system kill are left out (owner's ruling).** {killed_blocks} blocks in which a session was "
+        "killed by the system (agent command exit 137, SIGKILL, e.g. out of memory) are left out of every pass rate "
+        "and time measure in all arms, identified from the recorded exit code, not the outcome. A kill in a Jeff "
+        "rerun takes out the original block's a1/a2 sessions too. Sessions whose exception message holds no exit "
+        f"code ({len(data.unrecorded_exit)}) cannot be checked and stay in; they are listed below."
+    )
     limit = {arm: arm_profile(pooled.sessions[arm])["time_limit"] for arm in ARMS}
     out.append(
         "- **Sessions killed at the agent time limit** count as their verifier reward (usually 0) and their full wall "
@@ -997,6 +1040,27 @@ def left_out_section(data: Data, pooled: Scope, scopes: dict[str, Scope]) -> lis
             + (": " + ", ".join(f"{s} {a} {n}" for (s, a), n in sorted(counts.items())) if rows else "")
             + "."
         )
+    killed = [r for r in data.killed_blocks if exit_code(r) == KILL_EXIT]
+    blocks_by_section = Counter(s for s, _ in {(r["section"], r["pair_block"]) for r in data.killed_blocks})
+    out.append(
+        f"- Blocks with a session killed by the system (exit 137), left out in all arms: "
+        f"{sum(blocks_by_section.values())} blocks, {len(data.killed_blocks)} sessions; per section: "
+        + (", ".join(f"{s} {n}" for s, n in sorted(blocks_by_section.items())) or "none")
+        + ". Killed sessions (section, task, block, arm, server, start, exception):"
+    )
+    for r in sorted(killed, key=lambda r: (r["section"], r["task"], r["pair_block"], r["arm"])):
+        out.append(
+            f"  - {r['section']} {r['task']} {r['pair_block']} {r['arm']} {r['server']} {r['started']} {r['exception']}"
+        )
+    out.append(
+        f"- Sessions with an exception but no recorded exit code (kept in; mostly failures before pi started): "
+        f"{len(data.unrecorded_exit)}: "
+        + ", ".join(
+            f"{r['section']} {r['task']} {r['arm']} ({r['exception']})"
+            for r in sorted(data.unrecorded_exit, key=lambda r: (r["section"], r["task"], r["arm"]))
+        )
+        + "."
+    )
     out.append(
         f"- Excluded task (see caveats): {len(data.excluded)} sessions: "
         + ", ".join(sorted(f"{r['arm']} {r['task']} attempt {r['attempt']}" for r in data.excluded))

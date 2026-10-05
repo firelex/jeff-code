@@ -14,7 +14,7 @@ out=${2:-/private/tmp/claude-501/eval-tonight/report-$(date +%H%M%S)}
 mkdir -p "$out"
 case "$mode" in
 live)
-	ssh mstrasser@85.13.211.160 'cd /raid/work/jeff-first/eval-tonight/repo2/tools/jeff-first && python3 eval_units.py /raid/work/jeff-first/eval-tonight' > "$out/b200.jsonl"
+	ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=4 mstrasser@85.13.211.160 'cd /raid/work/jeff-first/eval-tonight/repo2/tools/jeff-first && python3 eval_units.py /raid/work/jeff-first/eval-tonight' > "$out/b200.jsonl"
 	;;
 final)
 	log=/private/tmp/claude-501/eval-tonight/b200_final.log
@@ -29,7 +29,7 @@ final)
 	exit 1
 	;;
 esac
-ssh -o ControlPath=none mstrasser@casdgx01 'cd ~/jeff-first/eval-tonight/repo2/tools/jeff-first && python3 eval_units.py ~/jeff-first/eval-tonight' > "$out/casdgx01.jsonl"
+ssh -o ControlPath=none -o ServerAliveInterval=30 -o ServerAliveCountMax=4 mstrasser@casdgx01 'cd ~/jeff-first/eval-tonight/repo2/tools/jeff-first && python3 eval_units.py ~/jeff-first/eval-tonight' > "$out/casdgx01.jsonl"
 python3 "$here/eval_report.py" "$repo/results/imitation/eval-tonight.md" "$out/b200.jsonl" "$out/casdgx01.jsonl"
 cp "$repo/results/imitation/eval-tonight.md" "$repo/.superpowers/sdd/2026-10-03-jeff-first-imitation-data/eval-tonight-final.md"
 echo "lines in $out"
