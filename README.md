@@ -46,7 +46,7 @@ switched off, thinking at full on every turn and no thinking limit, which is how
 | **A less cautious Jeff (threshold 0.7)** | −4.5 points |
 
 - **Why total time drops less than time per task:** in about 5% of tasks, Jeff-Code runs more than 30 minutes longer
-  than Qwen alone, because it keeps going where Qwen alone gives up after a few minutes. Sometimes that pays off: in
+  than Qwen alone, because it keeps going where Qwen alone gives up after a few minutes. The good news is, sometimes that pays off: in
   those tasks Jeff-Code solved 26 to Qwen's 24.
 - **Only tasks Jeff never saw in training.** SWE-bench Verified ran in full (500 tasks; none of its repositories were
   used for training). For the benchmarks we also trained on, the tasks were split and every held-out task was run:
