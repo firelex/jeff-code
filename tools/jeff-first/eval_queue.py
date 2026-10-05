@@ -11,8 +11,8 @@ claim   gives a stream on one server its next session: the next arm of a block a
         first block not yet started (it opens on that server). With --deadline, a session starts only if its longest
         possible duration ends before the deadline; a block whose task does not fit is skipped and stays unstarted.
         Prints "BLOCK ARM TASK ATTEMPT BENCHMARK" (TB2 blocks: terminal-bench-2). Exit 3: nothing to start now; exit 4: nothing left that can ever start here.
-followon writes the follow-on queues (queue2-HOST.json): for each benchmark in the order given, its task ids shuffled
-        with the seed, one attempt each, one block per task (block ids PREFIX + number), arm order rotating as in plan;
+followon writes follow-on queues (QUEUE_NAME-HOST.json): for each benchmark in the order given, its task ids shuffled
+        with the seed, one block per task for the given attempt number, one block per task (block ids PREFIX + number), arm order rotating as in plan;
         blocks dealt to the hosts in proportion to their stream counts in queue order. Agent time per task as
         task_source.py gives it (at most 15 minutes x the multiplier). --first-block-to HOST puts the first block of
         the benchmark named by --first-block-of into a one-block queue (queue-check-HOST.json) for a check run.
@@ -153,7 +153,7 @@ def followon(args: argparse.Namespace) -> None:
                 "benchmark": name,
             }
             arms = list(ARMS[counter % 4 :] + ARMS[: counter % 4])
-            blocks.append({"block": f"{prefix}{k:03d}", "benchmark": name, "task": task_id, "attempt": 1, "arms": arms})
+            blocks.append({"block": f"{prefix}{k:03d}", "benchmark": name, "task": task_id, "attempt": args.attempt, "arms": arms})
             counter += 1
     queues: dict[str, list] = {h: [] for h in hosts}
     check = None
@@ -165,7 +165,7 @@ def followon(args: argparse.Namespace) -> None:
         host = min(hosts, key=lambda h: (len(queues[h]) + 1) / target[h])
         queues[host].append(b)
     out = Path(args.out)
-    files = {f"queue2-{h}.json": (h, q) for h, q in queues.items()}
+    files = {f"{args.queue_name}-{h}.json": (h, q) for h, q in queues.items()}
     if check:
         files[f"queue-check-{args.first_block_to}.json"] = (args.first_block_to, [check])
     for fname, (host, qblocks) in files.items():
@@ -328,6 +328,8 @@ def main() -> None:
     o.add_argument("--host", action="append", required=True, help="NAME:STREAMS")
     o.add_argument("--seed", type=int, required=True)
     o.add_argument("--multiplier", type=float, required=True)
+    o.add_argument("--attempt", type=int, required=True)
+    o.add_argument("--queue-name", required=True, help="output files QUEUE_NAME-HOST.json, e.g. queue2")
     o.add_argument("--first-block-to")
     o.add_argument("--first-block-of")
     u = sub.add_parser("upcoming")
