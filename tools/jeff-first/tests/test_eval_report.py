@@ -179,6 +179,14 @@ def test_section_of_keeps_tb2_whole_and_splits_later_rounds():
     assert section_of({"benchmark": "terminal-bench-2", "attempt": "3r"}) == "terminal-bench-2"
     assert section_of({"benchmark": "skillsbench", "attempt": "1"}) == "skillsbench"
     assert section_of({"benchmark": "skillsbench", "attempt": "2"}) == "skillsbench#2"
+
+
+def test_section_of_puts_replacement_reruns_in_their_rounds_section():
+    # k = rerun after an out-of-memory kill, t = rerun after a time cut, e = rerun after an infrastructure error
+    assert section_of({"benchmark": "skillsbench", "attempt": "1e"}) == "skillsbench"
+    assert section_of({"benchmark": "swe-rebench-leaderboard", "attempt": "2k"}) == "swe-rebench-leaderboard#2"
+    assert section_of({"benchmark": "terminal-bench-pro", "attempt": "1t"}) == "terminal-bench-pro"
+    assert section_of({"benchmark": "terminal-bench-2", "attempt": "2rk"}) == "terminal-bench-2"
     assert section_of({"benchmark": "skillsbench", "attempt": "1r"}) == "skillsbench"
 
 

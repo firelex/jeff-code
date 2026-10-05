@@ -99,7 +99,8 @@ def exit_code(row: dict) -> str | None:
 
 
 def section_of(row: dict) -> str:
-    attempt = str(row["attempt"]).removesuffix("r")
+    # Rerun suffixes: r = Jeff-capacity rerun, k = out-of-memory rerun, t = time-cut rerun, e = infrastructure-error rerun.
+    attempt = str(row["attempt"]).rstrip("rkte")
     if row["benchmark"] == "terminal-bench-2" or attempt == "1":
         return row["benchmark"]
     return f"{row['benchmark']}#{attempt}"
