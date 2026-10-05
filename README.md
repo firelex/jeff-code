@@ -59,6 +59,26 @@ switched off, thinking at full on every turn and no thinking limit, which is how
 - **Thinking-off comparison:** it had the same safeguards and thinking limit as Jeff-Code (below); the only difference
   is Jeff's decisions.
 
+### Per benchmark
+
+| Benchmark | Paired tasks | Qwen alone | Jeff-Code | Difference, points (95% interval) | Time per task |
+|---|---:|---:|---:|---|---:|
+| SWE-bench Verified | 486 | 70.6% | 70.8% | +0.4 (−3.5 to +4.3) | 0.63× (0.57-0.69) |
+| SWE-rebench, round 1 | 184 | 57.1% | 59.8% | +2.7 (−3.8 to +8.7) | 0.63× (0.55-0.71) |
+| SWE-rebench, round 2 | 186 | 60.8% | 56.5% | −4.3 (−10.2 to +2.2) | 0.70× (0.62-0.80) |
+| Terminal-Bench Pro, round 1 | 98 | 60.6% | 60.2% | 0.0 (−9.2 to +9.2) | 0.63× (0.52-0.77) |
+| Terminal-Bench Pro, round 2 | 97 | 61.9% | 65.3% | +3.1 (−3.1 to +10.3) | 0.66× (0.52-0.83) |
+| Terminal-Bench 2.0 (40 tasks, 3 attempts each) | 108 | 75.9% | 70.0% | −4.6 (−12.1 to +3.7) | 0.96× (0.78-1.16) |
+| SkillsBench | 42 | 28.6% | 31.0% | +2.4 (−11.9 to +16.7) | 0.91× (0.68-1.20) |
+| Harbor Index | 41 | 12.2% | 9.8% | −2.4 (−12.2 to +7.3) | 0.71× (0.51-0.99) |
+| **All six, pooled** | **1,242** | **62.8%** | **62.4%** | **−0.2 (−2.6 to +2.1)** | **0.68× (0.64-0.72)** |
+
+No benchmark shows a clear pass-rate difference: every interval includes zero. Time per task is the geometric mean of
+the per-task time ratios (Jeff-Code's time divided by Qwen alone's), below 1 is faster. The pass rates count every
+finished session; the difference counts only tasks finished in both settings, so it is not exactly the gap between the
+two pass rates. Terminal-Bench (original) and Terminal-Bench Science also ran, but Qwen alone and Jeff-Code both solve
+0% of their tasks, so they are left out.
+
 Full report: [results/imitation/eval-tonight.md](results/imitation/eval-tonight.md).
 
 ## How the adapters were trained
@@ -86,8 +106,6 @@ Jeff predicts what Qwen would do next.
   that would otherwise hit the 32K output limit, which ends a Pi session.
 - **Jeff steps:** before each Qwen turn, Jeff-Code builds a menu of concrete next steps from what is already known, and
   Jeff takes them when it is confident.
-- **Output shortening (experimental):** Jeff can be asked whether a long tool output may be shortened. It was switched
-  on in the evaluation but never shortened anything.
 - **Jeff server pool and trace logging:** one Jeff server per GPU behind one address, and every Qwen request and Jeff
   decision is logged as JSON Lines.
 
@@ -127,7 +145,7 @@ export JEFF_FIRST_JEFF_STEP_ADAPTER=jeff-step
 export JEFF_FIRST_JEFF_STEP_THRESHOLD=0.40               # Jeff's top option needs 0.40, otherwise Qwen takes over
 export JEFF_FIRST_THINKING_ROUTER=jeff-off-unless:jeff-router:0.6
 export JEFF_FIRST_THINKING_LIMIT=8000
-export JEFF_FIRST_OUTPUT_TRIM=off                      # the evaluation asked a shortening adapter at threshold 1.0, which never shortened; off behaves the same without the extra Jeff question
+export JEFF_FIRST_OUTPUT_TRIM=off                      # required; leave off
 export JEFF_FIRST_RUN_APPROVAL=all                       # all, seen or never: may Jeff run scripts Qwen wrote
 export JEFF_FIRST_DRIVER_BUILD=qwen3.8-27b               # the exact Qwen build, written to the trace
 export JEFF_FIRST_TRACE_FILE=$HOME/jeff-code/trace.jsonl # its folder must exist
