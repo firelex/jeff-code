@@ -1,7 +1,7 @@
 // A background task that owns a child conversation.
 // Run from packages/durable:
 //   node --conditions=source --experimental-strip-types test/examples/03-owned-conversations.ts
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { type ConversationId, createSession, defineDoc, defineTask, MemoryStorage } from "../../src/index.ts";
 
 const context = BACKGROUND_CONTEXT;

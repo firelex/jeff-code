@@ -1,4 +1,4 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage } from "@jeffhub/jeff-code-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PromptDisposition } from "../../../src/core/agent-session.ts";
 import { createHarness, getMessageText, getUserTexts, type Harness } from "../harness.ts";

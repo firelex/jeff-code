@@ -1,9 +1,9 @@
 ---
 name: release
-description: Prepare, publish, verify, and recover pi releases. Use for release preparation, local release smoke tests, publishing, and failed release CI or announcements.
+description: Prepare, publish, verify, and recover Jeff-Code releases. Use for release preparation, local release smoke tests, publishing, and failed release CI or announcements.
 ---
 
-# Releasing pi
+# Releasing Jeff-Code
 
 Run repository commands from the repo root (two directories above this skill), unless instructed otherwise.
 
@@ -13,31 +13,31 @@ Run repository commands from the repo root (two directories above this skill), u
 
 2. **Local smoke test**: build an unpublished release and smoke test from outside the repo (so it can't resolve workspace files):
    ```bash
-   npm run release:local -- --out /tmp/pi-local-release --force
+   npm run release:local -- --out /tmp/jeff-local-release --force
    cd /tmp
 
    # Node package install smoke tests
-   /tmp/pi-local-release/node/pi --help
-   /tmp/pi-local-release/node/pi --version
-   /tmp/pi-local-release/node/pi --list-models
-   /tmp/pi-local-release/node/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/node/pi
+   /tmp/jeff-local-release/node/jeff --help
+   /tmp/jeff-local-release/node/jeff --version
+   /tmp/jeff-local-release/node/jeff --list-models
+   /tmp/jeff-local-release/node/jeff -p "Say exactly: ok"
+   /tmp/jeff-local-release/node/jeff
 
    # Bun binary smoke tests
-   /tmp/pi-local-release/bun/pi --help
-   /tmp/pi-local-release/bun/pi --version
-   /tmp/pi-local-release/bun/pi --list-models
-   /tmp/pi-local-release/bun/pi -p "Say exactly: ok"
-   /tmp/pi-local-release/bun/pi
+   /tmp/jeff-local-release/bun/jeff --help
+   /tmp/jeff-local-release/bun/jeff --version
+   /tmp/jeff-local-release/bun/jeff --list-models
+   /tmp/jeff-local-release/bun/jeff -p "Say exactly: ok"
+   /tmp/jeff-local-release/bun/jeff
    ```
-   Verify both Node and Bun startup, model/account listing, interactive startup, and at least one real prompt with the intended default provider. The bare commands `/tmp/pi-local-release/node/pi` and `/tmp/pi-local-release/bun/pi` start interactive mode; run each in tmux, submit a prompt, and wait for the model reply before considering the interactive smoke test passed. Failures are release blockers unless the user explicitly accepts the risk.
+   Verify both Node and Bun startup, model/account listing, interactive startup, and at least one real prompt with the intended default provider. The bare commands `/tmp/jeff-local-release/node/jeff` and `/tmp/jeff-local-release/bun/jeff` start interactive mode; run each in tmux, submit a prompt, and wait for the model reply before considering the interactive smoke test passed. Failures are release blockers unless the user explicitly accepts the risk.
 
    Load and follow [interactive-testing.md](interactive-testing.md) for the tmux workflow. Start each release binary from `/tmp`, not the repo root.
 
 3. **Run the release script**:
    ```bash
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch    # fixes + additions
-   PI_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:minor    # breaking changes
+   JEFF_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:patch    # fixes + additions
+   JEFF_ALLOW_LOCKFILE_CHANGE=1 npm_config_min_release_age=0 npm run release:minor    # breaking changes
    ```
    Use `npm_config_min_release_age=0` only for the release command. The repo's normal npm age gate can otherwise block the release lockfile refresh when the current workspace package version was published recently. Review any lockfile or shrinkwrap diffs the release creates before push.
 

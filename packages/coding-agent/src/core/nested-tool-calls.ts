@@ -14,8 +14,8 @@ import type {
 	AgentToolCallOutcome,
 	AgentToolResult,
 	AgentToolUpdateCallback,
-} from "@earendil-works/pi-agent-core";
-import type { JsonObject, NestedToolCallRecord, NestedToolCalls, TextContent, Usage } from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-agent-core";
+import type { JsonObject, NestedToolCallRecord, NestedToolCalls, TextContent, Usage } from "@jeffhub/jeff-code-ai";
 import { combineUsage } from "./usage-totals.ts";
 
 /**

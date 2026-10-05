@@ -1,4 +1,4 @@
-import { defineTask, MemoryStorage, type TaskId, type TaskInspection } from "@earendil-works/pi-durable";
+import { defineTask, MemoryStorage, type TaskId, type TaskInspection } from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { chatSetup, openChat, unanswered, waitFor } from "./chat-support.ts";
 import { context } from "./session-support.ts";

@@ -8,7 +8,7 @@ import {
 	createAssistantMessageEventStream,
 	type Model,
 	type ToolResultMessage,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { trimQuestion } from "../src/core/jeff-first/output-trim.ts";

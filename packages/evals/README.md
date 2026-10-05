@@ -1,6 +1,6 @@
-# Pi evals
+# Jeff-Code evals
 
-Behavioral evals for Pi's coding agent, built with `vitest-evals`.
+Behavioral evals for the Jeff-Code coding agent, built with `vitest-evals`.
 
 ## File conventions
 
@@ -21,10 +21,10 @@ Eval suites and their fixtures live under `evals/`. Image build files live in `d
 
 ## Run evals
 
-Host evals (smoke, documentation audit) and documentation-lift evals need `PI_PROVIDER` and `PI_MODEL`.
+Host evals (smoke, documentation audit) and documentation-lift evals need `JEFF_PROVIDER` and `JEFF_MODEL`.
 
 ```bash
-PI_PROVIDER=openai-codex PI_MODEL=gpt-5.6-sol npm run eval -w packages/evals
+JEFF_PROVIDER=openai-codex JEFF_MODEL=gpt-5.6-sol npm run eval -w packages/evals
 ```
 
 That runs host evals, then the documentation comparison. Extra CLI flags after `--` go to `eval:docs` only.
@@ -32,13 +32,13 @@ That runs host evals, then the documentation comparison. Extra CLI flags after `
 Host only:
 
 ```bash
-PI_PROVIDER=openai-codex PI_MODEL=gpt-5.6-sol npm run eval:host -w packages/evals
+JEFF_PROVIDER=openai-codex JEFF_MODEL=gpt-5.6-sol npm run eval:host -w packages/evals
 ```
 
 One host suite:
 
 ```bash
-PI_PROVIDER=openai-codex PI_MODEL=gpt-5.6-sol \
+JEFF_PROVIDER=openai-codex JEFF_MODEL=gpt-5.6-sol \
   npm run eval:host -w packages/evals -- evals/documentation-audit.eval.ts
 ```
 
@@ -52,7 +52,7 @@ npm run eval:docs -w packages/evals -- \
   --model gpt-5.6-sol
 ```
 
-`PI_PROVIDER` and `PI_MODEL` provide the same defaults. Both values are required.
+`JEFF_PROVIDER` and `JEFF_MODEL` provide the same defaults. Both values are required.
 
 The default is one run per variant. Increase repetitions explicitly when measuring stability:
 
@@ -62,7 +62,7 @@ npm run eval:docs -w packages/evals -- \
   --runs-per-variant 5
 ```
 
-`PI_EVAL_RUNS_PER_VARIANT=5` is equivalent. Vitest filters are applied during discovery:
+`JEFF_EVAL_RUNS_PER_VARIANT=5` is equivalent. Vitest filters are applied during discovery:
 
 ```bash
 npm run eval:docs -w packages/evals -- -t "adds the model"
@@ -81,11 +81,11 @@ Repetition order alternates by run number to reduce order bias.
 
 ## Documentation variants
 
-`without_docs` omits the coding-agent `README.md`, `CHANGELOG.md`, `docs/`, and `examples/`, then removes the Pi documentation-routing section from the default system prompt.
+`without_docs` omits the coding-agent `README.md`, `CHANGELOG.md`, `docs/`, and `examples/`, then removes the Jeff-Code documentation-routing section from the default system prompt.
 
 `with_docs` includes those files and uses the unchanged default prompt.
 
-Both variants install the same local workspace tarballs. Existing npm overrides ensure coding-agent's internal Pi dependencies also come from the current repository rather than the registry. Documentation and source files from internal dependency packages are removed symmetrically so they cannot act as alternate instructions. Startup validates the image allowlist and verifies that the installed coding-agent package resolves from `dist/`. Eval definitions, evaluator helpers, fixtures, and Vitest configuration are root-owned and unreadable after the harness permanently drops to an unprivileged UID. Each run receives a new home, agent directory, workspace, session directory, and container filesystem.
+Both variants install the same local workspace tarballs. Existing npm overrides ensure coding-agent's internal Jeff-Code dependencies also come from the current repository rather than the registry. Documentation and source files from internal dependency packages are removed symmetrically so they cannot act as alternate instructions. Startup validates the image allowlist and verifies that the installed coding-agent package resolves from `dist/`. Eval definitions, evaluator helpers, fixtures, and Vitest configuration are root-owned and unreadable after the harness permanently drops to an unprivileged UID. Each run receives a new home, agent directory, workspace, session directory, and container filesystem.
 
 Documentation evals allow only `read`, `write`, `edit`, `grep`, `find`, and `ls` by default. They do not expose shell or web-search tools. Provider traffic still requires container network access, so Docker alone cannot prove that arbitrary code written by an agent never uses the network.
 
@@ -97,7 +97,7 @@ Each invocation creates an ignored `.eval/<timestamp>_<id>/` directory containin
 - `expected-runs.json`: the complete planned cohort.
 - `observations.jsonl`: normalized outcomes and telemetry.
 - `tasks/*/vitest.json`: native JSON for each isolated arm.
-- `<variant>/sessions/*/session.jsonl`: native Pi sessions.
+- `<variant>/sessions/*/session.jsonl`: native Jeff-Code sessions.
 - `report.json` and `report.txt`: paired comparisons.
 
 A pair contributes to pass-rate lift only when both arms produce exactly one score. Missing, duplicate, skipped, pending, unscored, or errored arms block the pair. If any pair in an eval set is blocked, headline pass rates are withheld. Missing telemetry remains unavailable rather than being treated as zero.

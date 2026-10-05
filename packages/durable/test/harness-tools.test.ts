@@ -1,7 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JsonValue } from "@earendil-works/chord";
 import {
 	type AssistantMessage,
 	type FauxResponseStep,
@@ -11,7 +10,8 @@ import {
 	type SystemMessage,
 	type ToolResultMessage,
 	Type,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
+import type { JsonValue } from "@jeffhub/jeff-code-chord";
 import {
 	AgentDoc,
 	type Conversation,
@@ -30,7 +30,7 @@ import {
 	type ToolRegistration,
 	ToolResultEntry,
 	ToolTask,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { NodeExecutionEnv } from "../src/env/node.ts";
 import { createBashTool, createEditTool, createReadTool } from "../src/tools/index.ts";
@@ -400,7 +400,7 @@ describe("tool results", () => {
 		expect(byId.get("ok")).toEqual([false, ""]);
 		expect(byId.get("invalid")![0]).toBe(true);
 		expect(byId.get("invalid")![1]).toContain("Validation failed");
-		// pi-ai coerces a number to a string before the first validation.
+		// jeff-code-ai coerces a number to a string before the first validation.
 		expect(byId.get("coerced")).toEqual([false, ""]);
 		expect(seen).toEqual(expect.arrayContaining([{ text: "1!" }, { text: "x!" }]));
 		expect(seen).toHaveLength(2);

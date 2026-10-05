@@ -1,5 +1,5 @@
 /**
- * The `system` theme: pi's colors derived from the terminal's own theme.
+ * The `system` theme: Jeff-Code's colors derived from the terminal's own theme.
  *
  * Every token belongs to a color family (its hue) and has contrast rules: it must reach a contrast level
  * on the background and on the panels it is drawn on. Hue and saturation come from the terminal's palette
@@ -29,7 +29,7 @@ import {
 	oklchColor,
 	type RgbColor,
 	rgbColor,
-} from "@earendil-works/pi-tui";
+} from "@jeffhub/jeff-code-tui";
 import type { ThemeAppearance, ThemeBg, ThemeColor, ThemeToken } from "./theme.ts";
 
 export const SYSTEM_THEME_NAME = "system";

@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { JsonValue } from "@earendil-works/chord";
 import {
 	type AssistantMessage,
 	fauxAssistantMessage,
@@ -9,7 +8,8 @@ import {
 	fauxToolCall,
 	type ToolResultMessage,
 	Type,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
+import type { JsonValue } from "@jeffhub/jeff-code-chord";
 import {
 	defineTool,
 	type EntryRecord,
@@ -20,7 +20,7 @@ import {
 	type ToolRegistration,
 	ToolResultEntry,
 	ToolTask,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExecutionEnv } from "../src/env/index.ts";
 import { NodeExecutionEnv } from "../src/env/node.ts";

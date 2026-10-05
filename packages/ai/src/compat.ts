@@ -1,11 +1,11 @@
 /**
- * Temporary compatibility entrypoint preserving the old global pi-ai API
+ * Temporary compatibility entrypoint preserving the old global jeff-code-ai API
  * surface: api-dispatch `stream()`/`complete()` with env API key injection,
  * the api-registry, generated catalog reads (`getModel`/`getModels`/
  * `getProviders`), per-API lazy stream wrappers, and image generation.
  *
- * Existing apps switch imports from "@earendil-works/pi-ai" to
- * "@earendil-works/pi-ai/compat" unchanged; new code uses `createModels()`
+ * Existing apps switch imports from "@jeffhub/jeff-code-ai" to
+ * "@jeffhub/jeff-code-ai/compat" unchanged; new code uses `createModels()`
  * and the provider factories. This module is deleted with the coding-agent
  * ModelManager migration.
  */
@@ -61,13 +61,13 @@ import type {
 } from "./types.ts";
 import { normalizeContext } from "./utils/transcript.ts";
 
-/** @deprecated Static catalog read. Use `getBuiltinModel` from "@earendil-works/pi-ai/providers/all" or `Models.getModel()`. */
+/** @deprecated Static catalog read. Use `getBuiltinModel` from "@jeffhub/jeff-code-ai/providers/all" or `Models.getModel()`. */
 export const getModel = getBuiltinModel;
 
-/** @deprecated Static catalog read. Use `getBuiltinModels` from "@earendil-works/pi-ai/providers/all" or `Models.getModels()`. */
+/** @deprecated Static catalog read. Use `getBuiltinModels` from "@jeffhub/jeff-code-ai/providers/all" or `Models.getModels()`. */
 export const getModels = getBuiltinModels;
 
-/** @deprecated Static catalog read. Use `getBuiltinProviders` from "@earendil-works/pi-ai/providers/all" or `Models.getProviders()`. */
+/** @deprecated Static catalog read. Use `getBuiltinProviders` from "@jeffhub/jeff-code-ai/providers/all" or `Models.getProviders()`. */
 export const getProviders = getBuiltinProviders;
 
 export type ApiStreamFunction = (

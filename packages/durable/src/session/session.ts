@@ -1,6 +1,6 @@
-import { type Context, type JsonValue, replicatedState } from "@earendil-works/chord";
-import { awaitWithContext, withoutAbortSignal } from "@earendil-works/chord/context";
-import { type Op, track } from "@earendil-works/chord/delta";
+import { type Context, type JsonValue, replicatedState } from "@jeffhub/jeff-code-chord";
+import { awaitWithContext, withoutAbortSignal } from "@jeffhub/jeff-code-chord/context";
+import { type Op, track } from "@jeffhub/jeff-code-chord/delta";
 import {
 	type AnyDocToken,
 	checkRecordScope,

@@ -1,27 +1,27 @@
-import type { Context } from "@earendil-works/chord";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel } from "@jeffhub/jeff-code-ai";
+import type { Context } from "@jeffhub/jeff-code-chord";
 import {
 	createRegistry,
 	type EnvTarget,
 	type HarnessSettings,
 	type ModelRef,
 	type Registry,
-} from "@earendil-works/pi-durable";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { CodingTools } from "@earendil-works/pi-durable/tools";
+} from "@jeffhub/jeff-code-durable";
+import { NodeExecutionEnv } from "@jeffhub/jeff-code-durable/env/node";
+import { CodingTools } from "@jeffhub/jeff-code-durable/tools";
 import { applyHttpProxySettings, configureHttpDispatcher } from "../../core/http-dispatcher.ts";
 import { findInitialModel, resolveCliModel } from "../../core/model-resolver.ts";
 import type { ModelRuntime } from "../../core/model-runtime.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { createPiPrompt } from "./prompt.ts";
 
-/** pi's HTTP setup: proxy, idle timeouts, and one undici for fetch. Without it, some provider streams break off. */
+/** Jeff-Code's HTTP setup: proxy, idle timeouts, and one undici for fetch. Without it, some provider streams break off. */
 export function configureHarnessHttp(settingsManager: SettingsManager): void {
 	applyHttpProxySettings(settingsManager.getGlobalSettings().httpProxy);
 	configureHttpDispatcher(settingsManager.getHttpIdleTimeoutMs());
 }
 
-/** Harness settings read at every use from pi's settings as loaded at startup. */
+/** Harness settings read at every use from Jeff-Code's settings as loaded at startup. */
 export function createHarnessSettings(settingsManager: SettingsManager): HarnessSettings {
 	return {
 		get stream() {
@@ -48,7 +48,7 @@ export function createHarnessSettings(settingsManager: SettingsManager): Harness
 	};
 }
 
-/** A registry with pi's coding tools and system prompt. */
+/** A registry with Jeff-Code's coding tools and system prompt. */
 export function createCodingRegistry(settingsManager: SettingsManager, cwd: string): Registry {
 	const registry = createRegistry();
 	registry.install(CodingTools);
@@ -87,7 +87,7 @@ export interface InitialModel {
 	readonly fallbackMessage?: string;
 }
 
-/** The model a new root conversation starts with: an explicit `--provider`/`--model`, or pi's default resolution. */
+/** The model a new root conversation starts with: an explicit `--provider`/`--model`, or Jeff-Code's default resolution. */
 export async function findInitialAgentModel(
 	settingsManager: SettingsManager,
 	modelRuntime: ModelRuntime,

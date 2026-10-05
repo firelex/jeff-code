@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type AssistantMessage, fauxAssistantMessage, fauxText, fauxToolCall, Type } from "@earendil-works/pi-ai";
+import { type AssistantMessage, fauxAssistantMessage, fauxText, fauxToolCall, Type } from "@jeffhub/jeff-code-ai";
 import {
 	type Conversation,
 	type ConversationHandle,
@@ -19,7 +19,7 @@ import {
 	StorageRejected,
 	type Submission,
 	type TaskId,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqliteStorage } from "../src/storage/sqlite/node.ts";
 import { chatSetup, openChat } from "./chat-support.ts";

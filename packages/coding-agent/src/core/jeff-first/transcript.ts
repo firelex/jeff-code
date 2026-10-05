@@ -1,10 +1,10 @@
-import type { Message, ToolCall, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { Message, ToolCall, ToolResultMessage, UserMessage } from "@jeffhub/jeff-code-ai";
 import { JEFF_PROVIDER } from "./provider.ts";
 
-/** One tool call in the conversation (by the large model or by the scout), with the output pi recorded for it. */
+/** One tool call in the conversation (by the large model or by the scout), with the output Jeff-Code recorded for it. */
 export interface Step {
 	call: ToolCall;
-	/** null when pi recorded no result for this call (for example, the turn was aborted). */
+	/** null when Jeff-Code recorded no result for this call (for example, the turn was aborted). */
 	output: string | null;
 	isError: boolean;
 	/** true when the scout took this step, false when the large model did. */
@@ -34,7 +34,7 @@ export function activeToolNames(messages: Message[]): Set<string> {
 	return names;
 }
 
-/** One tool call with the result pi recorded for it (undefined when none), as the large model's step. */
+/** One tool call with the result Jeff-Code recorded for it (undefined when none), as the large model's step. */
 export function stepOf(call: ToolCall, result: ToolResultMessage | undefined): Step {
 	return {
 		call,

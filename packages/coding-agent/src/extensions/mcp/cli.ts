@@ -1,5 +1,5 @@
 /**
- * `pi mcp`: add, remove, and check MCP servers and sign in to them outside a session. Agents run it
+ * `jeff mcp`: add, remove, and check MCP servers and sign in to them outside a session. Agents run it
  * through bash to configure servers, verify an `mcp.json` they wrote, and start an OAuth sign-in;
  * the user only approves access in the browser. Running sessions pick up new credentials on their
  * next turn.
@@ -124,7 +124,7 @@ function createConnection(entry: McpServerEntry, options: McpCommandOptions, cre
 	});
 }
 
-/** Short spellings of options. `-l`/`--local` match `pi install`. */
+/** Short spellings of options. `-l`/`--local` match `jeff install`. */
 const OPTION_ALIASES = new Map([["-l", "--local"]]);
 
 interface ParsedOptions {
@@ -179,7 +179,7 @@ function parseOptions(
 	return { positional, values, lists };
 }
 
-/** Run `pi mcp <args>` and return the exit code. */
+/** Run `jeff mcp <args>` and return the exit code. */
 export async function runMcpCommand(args: string[], options: McpCommandOptions): Promise<number> {
 	const log = options.log ?? ((line: string) => console.log(line));
 	const error = options.error ?? ((line: string) => console.error(line));
@@ -485,7 +485,7 @@ async function list(
 		return failed ? 1 : 0;
 	}
 	if (reports.length === 0 && loaded.errors.length === 0) {
-		log(`No MCP servers configured. Add them to ${join(options.agentDir, "mcp.json")} or .pi/mcp.json.`);
+		log(`No MCP servers configured. Add them to ${join(options.agentDir, "mcp.json")} or .jeff/mcp.json.`);
 	}
 	for (const report of reports) {
 		const state =

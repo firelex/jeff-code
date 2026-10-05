@@ -11,7 +11,7 @@ import {
 	type TuiMouseEvent,
 	type TuiMouseEventResult,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
+} from "@jeffhub/jeff-code-tui";
 import { theme } from "../theme/theme.ts";
 import { formatKeyText } from "./keybinding-hints.ts";
 
@@ -831,7 +831,7 @@ export class PiLogoAnimation implements Component {
 		this.background = colors.background;
 		this.onDone = onDone;
 		this.timer = setInterval(() => {
-			// Also stop when no longer rendered, e.g. when pi hides all overlays on exit.
+			// Also stop when no longer rendered, e.g. when Jeff-Code hides all overlays on exit.
 			if ((this.exit && this.exitProgress() >= 1) || performance.now() - this.lastRender > 1000) this.finish();
 			else this.tui.requestRender();
 		}, FRAME_MS);

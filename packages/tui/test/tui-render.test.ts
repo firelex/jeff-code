@@ -143,7 +143,7 @@ describe("TUI debug logging", () => {
 	it("writes redraw logs to the provided directory", async () => {
 		const logDir = mkdtempSync(join(tmpdir(), "pi-tui-log-"));
 		try {
-			await withEnv({ PI_TUI_DEBUG_REDRAW: "1" }, async () => {
+			await withEnv({ JEFF_TUI_DEBUG_REDRAW: "1" }, async () => {
 				const terminal = new VirtualTerminal(40, 10);
 				const tui: TUI = new TuiMainScreen(terminal, undefined, logDir);
 				const component = new TestComponent();

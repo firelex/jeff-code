@@ -11,8 +11,8 @@ import type {
   JsonRepresentation,
   JsonValue,
   ReplicatedState,
-} from "@earendil-works/chord";
-import type { Op } from "@earendil-works/chord/delta";
+} from "@jeffhub/jeff-code-chord";
+import type { Op } from "@jeffhub/jeff-code-chord/delta";
 import type {
   AssistantMessage,
   CacheRetention,
@@ -27,14 +27,14 @@ import type {
   ToolResultMessage,
   Transport,
   UserMessage,
-} from "@earendil-works/pi-ai";
-import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+} from "@jeffhub/jeff-code-ai";
+import type { ExecutionEnv } from "@jeffhub/jeff-code-durable/env";
 
 type JsonObject = { [key: string]: JsonValue };
 type TaskOutcomeError = { message: string; detail?: JsonValue };
 ```
 
-Pico5 targets the transcript `SystemMessage` contract from pi-ai PR
+Pico5 targets the transcript `SystemMessage` contract from upstream pi-ai PR
 [#9548](https://github.com/earendil-works/pi/pull/9548). `Message` includes that
 type once the PR lands.
 
@@ -118,7 +118,7 @@ type ConversationRecord = {
 };
 ```
 
-The referenced pi-ai member is:
+The referenced jeff-code-ai member is:
 
 ```ts
 interface SystemMessage {
@@ -131,7 +131,7 @@ interface SystemMessage {
 }
 ```
 
-In pi-ai, `content` is the base prompt on the leading message and additional
+In jeff-code-ai, `content` is the base prompt on the leading message and additional
 instruction text on later messages. `sections` is an ordered named patch: a
 string adds or replaces a section, while `null` removes it. `toolsRemoved` is
 applied before `toolsAdded` within one message. Replaying every system message
@@ -342,7 +342,7 @@ type AnyTask = {
 };
 
 type HarnessOptions<Tool extends ToolRegistration = ToolRegistration> = {
-  readonly models: Models; // the pi-ai Models interface
+  readonly models: Models; // the jeff-code-ai Models interface
   readonly registry: RegistryReader<Tool>; // section 7.1
   readonly settings?: HarnessSettings;
   /** Builds a conversation's environment. Never called on the Session line; may be async. */
@@ -356,7 +356,7 @@ type HarnessOptions<Tool extends ToolRegistration = ToolRegistration> = {
   readonly onReport?: (error: unknown) => void;
 };
 
-/** Curated pi-ai request options; absent fields use pi-ai defaults. */
+/** Curated jeff-code-ai request options; absent fields use jeff-code-ai defaults. */
 type ConversationStreamOptions = {
   transport?: Transport;
   timeoutMs?: number;
@@ -369,7 +369,7 @@ type ConversationStreamOptions = {
   deferred?: boolean | { window?: "15m" | "1h" | "24h" };
 };
 
-/** Durable generation attempt retries; the JSON shape of pi-ai `RetryPolicy`. */
+/** Durable generation attempt retries; the JSON shape of jeff-code-ai `RetryPolicy`. */
 type ConversationRetryPolicy = {
   enabled: boolean;
   maxRetries: number;
@@ -2345,7 +2345,7 @@ The `Tool` parameter lets an application attach metadata, such as prompt
 snippets, to its tools and read it typed in its section renderers. The Harness
 only relies on `ToolRegistration`; its own surfaces, such as `runtime.agent()`,
 use the default. Metadata fields must be optional: the registry does not check
-them, and a default-typed extension may be installed. Pi-ai declarations derived from a tool keep only pi-ai `Tool`
+them, and a default-typed extension may be installed. Declarations derived from a tool keep only jeff-code-ai `Tool`
 fields (`toToolDeclaration`), so application metadata never enters the
 transcript.
 
@@ -2757,7 +2757,7 @@ rewrite buys a proportionally longer pause. Changes made during the delay
 coalesce into the next commit. The throttle is Harness policy, not part of
 `outputLimits`, which only bounds what is retained. Explicit
 text in explicit result content is bounded by the same limits before transcript
-persistence; non-text content is retained as declared by its pi-ai type. When
+persistence; non-text content is retained as declared by its jeff-code-ai type. When
 bounding drops text, the Harness adds a `warn` diagnostic with code `truncated`
 stating the dropped lines and bytes.
 
@@ -2964,7 +2964,7 @@ A tool result may request `addTools`, `terminate`, or `handoff`. The
 generation's `tools` phase (section 8.5) adds the named tools to the
 conversation's stored tools filter; they take effect at the next preparation. The round
 terminates only when every result of the round requests `terminate`, as in the
-pi agent loop; the `tools` phase then uses a final boundary. Any
+Jeff-Code agent loop; the `tools` phase then uses a final boundary. Any
 `handoff` in the round, the last one in call order when several ask, ends the
 run the same way after appending a `pi.reset` entry with `head: "self"` and the
 handoff text as a user message (section 8.1), exactly what `reset(handoff)`
@@ -2989,7 +2989,7 @@ diagnostic with one of the codes `tool_unavailable`, `invalid_arguments`,
 and the error text as its message. Their content is the durable partial output,
 if any, and `details` is the tool's last reported value, if any.
 
-`@earendil-works/pi-durable/tools` provides `read`, `write`, `edit`, and `bash`
+`@jeffhub/jeff-code-durable/tools` provides `read`, `write`, `edit`, and `bash`
 factories, ported from the agent harness tools, and the `CodingTools` extension
 with all four. They use only `api.env`; nothing
 installs them automatically. `read` does not return images yet. `edit` and
@@ -3113,7 +3113,7 @@ values and `null` removals.
 
 Tool changes are planned separately and ride on the last planned entry, or on
 one entry of their own when sections are unchanged. Declarations are compared
-with pi-ai `declarationsEqual()` and written with `toToolDeclaration()`, so
+with jeff-code-ai `declarationsEqual()` and written with `toToolDeclaration()`, so
 application metadata never enters the transcript. A changed declaration is
 removed and re-added in the same message. Replay keeps retained tools in place
 and appends additions; when that would not yield the desired order, the message
@@ -3121,7 +3121,7 @@ removes every offered tool and re-adds the desired tools in order. A head
 rebaseline adds every desired tool.
 
 The rendered strings stored in historical `SystemMessage.sections` remain
-authoritative even if the current renderer changes. Pi-ai decides whether to
+authoritative even if the current renderer changes. jeff-code-ai decides whether to
 send the messages positionally to a capable provider or fold them into one
 leading system message; Pico does not rewrite its stored transcript for provider
 compatibility.
@@ -3176,12 +3176,12 @@ The initial implementation provides:
 | `pi.compaction` | select a transcript range, summarize, place a headed summary |
 
 Generation uses `HarnessOptions.models` without a Pico-specific model adapter. It
-resolves `models.getModel(ref.provider, ref.modelId)`, builds a pi-ai `Context`
+resolves `models.getModel(ref.provider, ref.modelId)`, builds a jeff-code-ai `Context`
 from the prepared prompt/messages/tools, and calls `models.streamSimple()` with
 the task invocation's abort signal, the agent's thinking level, and the
 settings' stream options. Deferred
 continuation calls `models.fetchDeferred()` and `models.cancelDeferred()` with
-that same model and signal. Missing models and synchronous/streamed pi-ai errors
+that same model and signal. Missing models and synchronous/streamed jeff-code-ai errors
 are classified into the durable generation outcomes below.
 
 Generation and tool progress are throttled durable document commits. A crash may
@@ -3373,7 +3373,7 @@ The run's inputs live in `pi.live.run`, not in the task input.
   `contextWindow` is positive, and `compacted` is absent. The estimate starts at
   the newest assistant message in the committed model context whose entry was
   appended after the head marker (all qualify without one) and whose usage is
-  nonzero: pi-ai `calculateContextTokens()` of its usage, plus pi-ai
+  nonzero: jeff-code-ai `calculateContextTokens()` of its usage, plus jeff-code-ai
   `estimateMessageTokens()` of every context message after it and of the planned
   system messages. Its request included the marker, because a head is placed
   only while no request is in flight. Without such a message, every message is
@@ -3419,7 +3419,7 @@ The run's inputs live in `pi.live.run`, not in the task input.
   - `toolUse` with at least one tool call: the commit appends the assistant
     entry and starts the tool round described below, moving to `waiting` in the
     `tools` phase. A `toolUse` message without calls is classified like `stop`.
-  - `error` that pi-ai `isContextOverflow()` recognizes, while the settings'
+  - `error` that jeff-code-ai `isContextOverflow()` recognizes, while the settings'
     compaction policy is enabled, `compacted` is absent, and range selection finds a cut:
     the commit appends the error entry, removes `generation`, creates a
     compaction owned by the generation with reason `overflow`, adds its status,
@@ -3448,7 +3448,7 @@ The run's inputs live in `pi.live.run`, not in the task input.
 
 A tool round starts in the commit that appends the tool-calling answer:
 
-1. The offered tools are replayed with pi-ai `getCurrentTools()` from the
+1. The offered tools are replayed with jeff-code-ai `getCurrentTools()` from the
    committed model context through `cutoff`: `request` already holds it, and
    `poll` derives it again. A call to a tool not offered gets its
    `tool_unavailable` result entry here, without a task.
@@ -3487,7 +3487,7 @@ because the terminal record keeps it; the call is read from the assistant entry.
 
 - `call` reads the call with `runtime.entry()`, resolves the tool among the
   phase's agent `tools` (section 7.3), validates
-  the arguments with pi-ai
+  the arguments with jeff-code-ai
   `validateToolArguments()`, runs the `beforeTool` chain, and validates again
   (section 7.3). One commit then records intent: it moves to `execute` with the
   final arguments and the tool's replay policy and sets the slot `running`. The
@@ -3638,7 +3638,7 @@ markers, and the settings' `keepRecentTokens`.
    candidates, so a kept assistant message keeps its tool results. A user entry
    is not a candidate either while a result for a call of the assistant before
    it follows it, before the next assistant (section 2.1, rule 7).
-2. Walk the non-marker entries from newest to oldest, adding pi-ai
+2. Walk the non-marker entries from newest to oldest, adding jeff-code-ai
    `estimateMessageTokens()` of each contribution. At the first entry where the
    sum reaches `keepRecentTokens`, the cut is the first candidate at or after
    that entry in transcript order, or the newest candidate when none follows.
@@ -4479,7 +4479,7 @@ These are contracts, not invitations to add defensive machinery:
   that summary still describes 10-84. Place such writes before compacting.
 - **Summary timestamps:** a queued summary's user message carries the time its
   compaction finished, not its placement. Code that judges usage staleness by
-  message timestamps, such as pi-ai `estimateContextTokens()` over view
+  message timestamps, such as jeff-code-ai `estimateContextTokens()` over view
   messages, can misjudge; the Harness estimate uses entry order (section 8.3).
 - **Raw head writes into the past:** a head written directly with `tx.appendEntry()`
   that targets an entry before the conversation's active range changes model

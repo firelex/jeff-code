@@ -1,4 +1,4 @@
-import { backgroundAnsi, foregroundAnsi, isAppleTerminalSession, rgbColor } from "@earendil-works/pi-tui";
+import { backgroundAnsi, foregroundAnsi, isAppleTerminalSession, rgbColor } from "@jeffhub/jeff-code-tui";
 import { theme } from "../theme/theme.ts";
 
 const CORAL = rgbColor(228, 138, 122);
@@ -7,7 +7,7 @@ const YELLOW = rgbColor(234, 182, 93);
 const RESET = "\x1b[0m";
 
 /**
- * The pi logo: 4 cells wide and 2 lines tall. Each cell shows two square pixels with half blocks:
+ * The logo, a pi symbol kept from upstream pi: 4 cells wide and 2 lines tall. Each cell shows two square pixels with half blocks:
  *
  *   coral coral coral .
  *   blue  .     coral .
@@ -33,8 +33,8 @@ export function supportsPiLogo(): boolean {
 	return !isAppleTerminalSession();
 }
 
-/** Text fallback for the logo: "Pi" with the logo's coral and yellow. */
+/** Text fallback for the logo: "Jeff-Code" with the logo's coral and yellow. */
 export function piWordmark(): string {
 	const mode = theme.getColorMode();
-	return `${foregroundAnsi(CORAL, mode)}P${RESET}${foregroundAnsi(YELLOW, mode)}i${RESET}`;
+	return `${foregroundAnsi(CORAL, mode)}Jeff${RESET}${foregroundAnsi(YELLOW, mode)}-Code${RESET}`;
 }

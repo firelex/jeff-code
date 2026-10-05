@@ -1,6 +1,6 @@
 """How much of Qwen's time goes to recovering from errors, and which errors could a fixed action fix?
 
-Reads recorded pi sessions (read-only) with ceiling.py's loader and writes results/imitation/errors.md.
+Reads recorded Jeff-Code sessions (read-only) with ceiling.py's loader and writes results/imitation/errors.md.
 
 Usage (needs the `tokenizers` package, for ceiling.py's loader):
     uv run --with tokenizers python errors.py --tokenizer TOKENIZER_DIR --out OUT.md RUN_DIR...
@@ -555,7 +555,7 @@ def main():
 
     w("## Definitions\n")
     w("- A Qwen turn **follows an error** when a call of the turn just before it failed: a non-zero exit "
-      "(\"Command exited with code N\"), a timeout, a tool call pi rejected, or an error message in the output even "
+      "(\"Command exited with code N\"), a timeout, a tool call Jeff-Code rejected, or an error message in the output even "
       "with exit 0 (Python traceback, \"command not found\", \"No such file or directory\", \"Permission denied\", "
       "missing module, SyntaxError, compiler `error:`, test failures such as `3 failed` or `AssertionError`). Exit 0 "
       "with an error message is common because Qwen pipes output (`python3 x.py 2>&1 | tail`, whose exit status is "

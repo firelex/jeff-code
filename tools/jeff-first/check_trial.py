@@ -2,7 +2,7 @@
 error and with a trace.
 
 Harbor exits with status 0 even when a trial failed (for example when Docker could not start the task, or when the
-scout failed and pi ended the session with a "JeffFirst:" error), so the run script calls this after each job and stops
+scout failed and Jeff-Code ended the session with a "JeffFirst:" error), so the run script calls this after each job and stops
 that task with a clear error instead of reporting it as done.
 
 Usage: python check_trial.py <Harbor job folder> [--expect-thinking]
@@ -20,7 +20,7 @@ TASK_OUTCOME_EXCEPTIONS = {"AgentTimeoutError"}
 
 
 def model_turns(trial: Path) -> list[dict]:
-    """The large model's assistant messages in pi's session files (the scout's own messages are left out)."""
+    """The large model's assistant messages in Jeff-Code's session files (the scout's own messages are left out)."""
     turns = []
     for session in sorted((trial / "agent" / "pi" / "sessions").glob("*.jsonl")):
         for line in session.read_text().splitlines():
@@ -56,7 +56,7 @@ def check_job(job: Path, expect_thinking: bool) -> str:
             if with_thinking == 0:
                 raise RuntimeError(
                     f"{trial.name}: thinking was on, but none of the model's {len(turns)} turns holds thinking content; "
-                    "check the model entry pi was given (reasoning and compat.thinkingFormat)"
+                    "check the model entry Jeff-Code was given (reasoning and compat.thinkingFormat)"
                 )
         lines.append(f"{trial.name}: ok{note}, {count} trace lines")
     return "\n".join(lines)

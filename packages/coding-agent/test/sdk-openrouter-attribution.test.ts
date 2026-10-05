@@ -9,7 +9,7 @@ import {
 	normalizeContext,
 	type ProviderHeaders,
 	type SimpleStreamOptions,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -29,15 +29,15 @@ describe("createAgentSession provider attribution headers", () => {
 		agentDir = join(tempDir, "agent");
 		mkdirSync(cwd, { recursive: true });
 		mkdirSync(agentDir, { recursive: true });
-		originalTelemetryEnv = process.env.PI_TELEMETRY;
-		delete process.env.PI_TELEMETRY;
+		originalTelemetryEnv = process.env.JEFF_TELEMETRY;
+		delete process.env.JEFF_TELEMETRY;
 	});
 
 	afterEach(() => {
 		if (originalTelemetryEnv === undefined) {
-			delete process.env.PI_TELEMETRY;
+			delete process.env.JEFF_TELEMETRY;
 		} else {
-			process.env.PI_TELEMETRY = originalTelemetryEnv;
+			process.env.JEFF_TELEMETRY = originalTelemetryEnv;
 		}
 		if (tempDir && existsSync(tempDir)) {
 			rmSync(tempDir, { recursive: true, force: true });

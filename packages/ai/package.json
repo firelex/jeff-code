@@ -1,5 +1,5 @@
 {
-	"name": "@earendil-works/pi-ai",
+	"name": "@jeffhub/jeff-code-ai",
 	"version": "0.99.2",
 	"description": "Unified LLM API with automatic model discovery and provider configuration",
 	"type": "module",
@@ -49,7 +49,7 @@
 		}
 	},
 	"bin": {
-		"pi-ai": "dist/cli.js"
+		"jeff-code-ai": "dist/cli.js"
 	},
 	"files": [
 		"dist",
@@ -69,7 +69,7 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.124.0",
 		"@aws-sdk/client-bedrock-runtime": "3.1127.0",
-		"@earendil-works/pi-telemetry": "^0.99.2",
+		"@jeffhub/jeff-code-telemetry": "^0.99.2",
 		"@google/genai": "2.21.0",
 		"@smithy/node-http-handler": "4.12.1",
 		"http-proxy-agent": "9.1.0",
@@ -92,7 +92,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/ai"
 	},
 	"engines": {

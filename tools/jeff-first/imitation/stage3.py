@@ -106,7 +106,7 @@ class Conversion:
 
 def calls_other_tool(session: Path, cut: str | None) -> bool:
     """Whether the coding model called a tool other than bash in this session file (record_rows raises on such a
-    session; Qwen on NVFP4 sometimes names a tool that does not exist, e.g. "bbyte", and pi answers with an error)."""
+    session; Qwen on NVFP4 sometimes names a tool that does not exist, e.g. "bbyte", and Jeff-Code answers with an error)."""
     entries, _ = _json_lines(session, cut)
     return any(
         part.get("type") == "toolCall" and part.get("name") != "bash"

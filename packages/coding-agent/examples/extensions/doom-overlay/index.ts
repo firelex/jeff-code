@@ -1,7 +1,7 @@
 /**
  * DOOM Overlay Demo - Play DOOM as an overlay
  *
- * Usage: pi --extension ./examples/extensions/doom-overlay
+ * Usage: jeff --extension ./examples/extensions/doom-overlay
  *
  * Commands:
  *   /doom-overlay - Play DOOM in an overlay (Q to pause/exit)
@@ -9,7 +9,7 @@
  * This demonstrates that overlays can handle real-time game rendering at 35 FPS.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@jeffhub/jeff-code";
 import { DoomOverlayComponent } from "./doom-component.ts";
 import { DoomEngine } from "./doom-engine.ts";
 import { ensureWadFile } from "./wad-finder.ts";

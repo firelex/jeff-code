@@ -175,7 +175,7 @@ def test_length_buckets():
 
 
 def test_builder_output_on_a_real_session_shape(tmp_path):
-    """trim_requests.ts rebuilds a request with the newest output cut to its last 40 lines (pi's own code)."""
+    """trim_requests.ts rebuilds a request with the newest output cut to its last 40 lines (Jeff-Code's own code)."""
     import subprocess
 
     repo = Path(__file__).resolve().parents[3]

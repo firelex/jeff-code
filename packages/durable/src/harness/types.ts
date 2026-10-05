@@ -1,4 +1,3 @@
-import type { AttachedReplicatedState, Context, JsonValue } from "@earendil-works/chord";
 import type {
 	AssistantMessage,
 	CacheRetention,
@@ -13,7 +12,8 @@ import type {
 	TSchema,
 	Usage,
 	UserMessage,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
+import type { AttachedReplicatedState, Context, JsonValue } from "@jeffhub/jeff-code-chord";
 import type { ExecutionEnv } from "../env/index.ts";
 import type {
 	ConversationId,
@@ -43,7 +43,7 @@ import type { TaskGraph, TaskGraphWatch } from "./task-graph.ts";
 import type { UsageState } from "./usage.ts";
 import type { ConversationView } from "./view.ts";
 
-/** Provider and model ID resolved through pi-ai `Models`. */
+/** Provider and model ID resolved through jeff-code-ai `Models`. */
 export type ModelRef = {
 	readonly provider: string;
 	readonly modelId: string;
@@ -195,7 +195,7 @@ export interface ToolExecutionApi<TDetails extends JsonValue = JsonValue> extend
 }
 
 /**
- * Executable tool registered in a registry. Only pi-ai `Tool` fields enter the transcript. `args` are typed by
+ * Executable tool registered in a registry. Only jeff-code-ai `Tool` fields enter the transcript. `args` are typed by
  * `parameters`, which the Harness validates them against before `execute()`; `defineTool()` infers both generics.
  */
 export type ToolRegistration<
@@ -346,7 +346,7 @@ export type ConversationCreateOptions = {
 	readonly init?: ConversationInit;
 };
 
-/** Curated pi-ai request options; absent fields use pi-ai defaults. */
+/** Curated jeff-code-ai request options; absent fields use jeff-code-ai defaults. */
 export type ConversationStreamOptions = {
 	transport?: Transport;
 	timeoutMs?: number;
@@ -359,7 +359,7 @@ export type ConversationStreamOptions = {
 	deferred?: boolean | { window?: "15m" | "1h" | "24h" };
 };
 
-/** Durable generation attempt retries; the JSON shape of pi-ai `RetryPolicy`. */
+/** Durable generation attempt retries; the JSON shape of jeff-code-ai `RetryPolicy`. */
 export type ConversationRetryPolicy = {
 	enabled: boolean;
 	maxRetries: number;
@@ -421,7 +421,7 @@ export type EnvTarget = {
 };
 
 export type HarnessOptions<Tool extends ToolRegistration = ToolRegistration> = {
-	/** pi-ai model access used by generation. */
+	/** jeff-code-ai model access used by generation. */
 	readonly models: Models;
 	readonly registry: RegistryReader<Tool>;
 	readonly settings?: HarnessSettings;

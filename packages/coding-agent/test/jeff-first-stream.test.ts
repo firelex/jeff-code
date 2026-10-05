@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@jeffhub/jeff-code-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -10,7 +10,7 @@ import {
 	type Message,
 	type Model,
 	normalizeContext,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createShadowStreamFn } from "../src/core/jeff-first/stream.ts";
 import { TraceWriter } from "../src/core/jeff-first/trace.ts";

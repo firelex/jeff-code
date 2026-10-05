@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-telemetry",
+	"name": "@jeffhub/jeff-code-telemetry",
 	"version": "0.99.2",
-	"description": "Vendor-neutral telemetry contracts and typed schema utilities for pi",
+	"description": "Vendor-neutral telemetry contracts and typed schema utilities for Jeff-Code",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -34,7 +34,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/telemetry"
 	},
 	"engines": {

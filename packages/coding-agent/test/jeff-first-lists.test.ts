@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolCall } from "@earendil-works/pi-ai";
+import type { ToolCall } from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type FileFacts, liveFacts } from "../src/core/jeff-first/facts.ts";
 import { ARGUMENT_LIMIT, type ArgumentOption, buildLists, type ListsInput } from "../src/core/jeff-first/lists.ts";

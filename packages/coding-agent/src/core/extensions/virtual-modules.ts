@@ -1,13 +1,13 @@
-import * as bundledPiAgentCore from "@earendil-works/pi-agent-core";
-import * as bundledPiAiCompat from "@earendil-works/pi-ai/compat";
-import * as bundledPiAiOauth from "@earendil-works/pi-ai/oauth";
-import * as bundledPiAiProviders from "@earendil-works/pi-ai/providers/all";
-import * as bundledPiTui from "@earendil-works/pi-tui";
+import * as bundledPiAgentCore from "@jeffhub/jeff-code-agent-core";
+import * as bundledPiAiCompat from "@jeffhub/jeff-code-ai/compat";
+import * as bundledPiAiOauth from "@jeffhub/jeff-code-ai/oauth";
+import * as bundledPiAiProviders from "@jeffhub/jeff-code-ai/providers/all";
+import * as bundledPiTui from "@jeffhub/jeff-code-tui";
 import * as bundledTypebox from "typebox";
 import * as bundledTypeboxCompile from "typebox/compile";
 import * as bundledTypeboxValue from "typebox/value";
 // This import is safe because loader.ts exports are not re-exported from index.ts.
-// Extensions can therefore import from @earendil-works/pi-coding-agent.
+// Extensions can therefore import from @jeffhub/jeff-code.
 import * as bundledPiCodingAgent from "../../index.ts";
 
 /** Modules available to extensions in source and compiled binary runtimes. */
@@ -18,11 +18,18 @@ export const VIRTUAL_MODULES: Record<string, unknown> = {
 	"@sinclair/typebox": bundledTypebox,
 	"@sinclair/typebox/compile": bundledTypeboxCompile,
 	"@sinclair/typebox/value": bundledTypeboxValue,
-	"@earendil-works/pi-agent-core": bundledPiAgentCore,
-	"@earendil-works/pi-tui": bundledPiTui,
+	"@jeffhub/jeff-code-agent-core": bundledPiAgentCore,
+	"@jeffhub/jeff-code-tui": bundledPiTui,
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old
 	// global API keep working at runtime until compat is removed.
+	"@jeffhub/jeff-code-ai": bundledPiAiCompat,
+	"@jeffhub/jeff-code-ai/compat": bundledPiAiCompat,
+	"@jeffhub/jeff-code-ai/oauth": bundledPiAiOauth,
+	"@jeffhub/jeff-code-ai/providers/all": bundledPiAiProviders,
+	"@jeffhub/jeff-code": bundledPiCodingAgent,
+	"@earendil-works/pi-agent-core": bundledPiAgentCore,
+	"@earendil-works/pi-tui": bundledPiTui,
 	"@earendil-works/pi-ai": bundledPiAiCompat,
 	"@earendil-works/pi-ai/compat": bundledPiAiCompat,
 	"@earendil-works/pi-ai/oauth": bundledPiAiOauth,

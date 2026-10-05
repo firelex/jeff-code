@@ -45,7 +45,7 @@ def pct(a: int, b: int) -> str:
 lines = [
     "# Stage 1 conversion statistics (ukisai/Qwen3.8-27B-multi-turn-agent-sft)",
     "",
-    "Converter: jeff-pi `tools/jeff-first/imitation/` after fix wave 4 (labels: 57404bc06, 9cd19790e, b5a2f4a9a,",
+    "Converter: Jeff-Code `tools/jeff-first/imitation/` after fix wave 4 (labels: 57404bc06, 9cd19790e, b5a2f4a9a,",
     "11d4a091e, 27831e7ff, a0a498d05; empty task folder: 9a6b680ae). Source: the dataset's parquet, keeping the latest episode of each trial. Leak check:",
     "`leak-check-ukisai.md` (0 sessions dropped).",
     f"Rows: `{OUT}/stage1-rows.jsonl` (stage 1, quality \"approximate\": menus rebuilt",

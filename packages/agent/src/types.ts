@@ -13,7 +13,7 @@ import type {
 	ToolResultMessage,
 	TranscriptContext,
 	Usage,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import type { Static, TSchema } from "typebox";
 
 /**
@@ -344,7 +344,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 /**
  * Thinking/reasoning level for models that support it.
  * Note: "xhigh" and "max" are only supported by selected model families. Use model
- * thinking-level metadata from @earendil-works/pi-ai to detect support for a concrete model.
+ * thinking-level metadata from @jeffhub/jeff-code-ai to detect support for a concrete model.
  */
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 

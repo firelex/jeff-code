@@ -1,5 +1,5 @@
-import type { Context } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { Context } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	type CommitPublication,
 	type ConversationId,
@@ -12,7 +12,7 @@ import {
 	MemoryStorage,
 	type Seq,
 	type StorageWrite,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { SessionImpl } from "../src/session/session.ts";
 
 export const context: Context = BACKGROUND_CONTEXT;

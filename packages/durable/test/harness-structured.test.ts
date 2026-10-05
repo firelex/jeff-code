@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Context, JsonValue } from "@earendil-works/chord";
 import {
 	fauxAssistantMessage,
 	fauxText,
@@ -9,7 +8,8 @@ import {
 	type Models,
 	type ToolResultMessage,
 	Type,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
+import type { Context, JsonValue } from "@jeffhub/jeff-code-chord";
 import {
 	type AgentEvent,
 	type Conversation,
@@ -34,7 +34,7 @@ import {
 	ToolResultEntry,
 	type Tx,
 	watchEvents,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNodeSqliteStorage } from "../src/storage/sqlite/node.ts";
 import { allEntries, chatSetup, openChat, waitFor } from "./chat-support.ts";

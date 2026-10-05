@@ -99,7 +99,7 @@ beforeEach(() => {
 	googleGenAiMock.streamChunks = undefined;
 });
 
-const PI_USER_AGENT = `pi (${platform()} ${release()}; ${arch()})`;
+const JEFF_USER_AGENT = `jeff-code (${platform()} ${release()}; ${arch()})`;
 
 const context = normalizeContext({
 	messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
@@ -250,8 +250,8 @@ describe("Google provider stream events", () => {
 });
 
 describe("Google Generative AI user agent", () => {
-	it("uses pi's User-Agent by default", async () => {
-		expect((await captureGoogleHeaders())["User-Agent"]).toBe(PI_USER_AGENT);
+	it("uses Jeff-Code's User-Agent by default", async () => {
+		expect((await captureGoogleHeaders())["User-Agent"]).toBe(JEFF_USER_AGENT);
 	});
 
 	it("lets explicit headers override the default User-Agent", async () => {

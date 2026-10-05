@@ -1,4 +1,4 @@
-import { contentText } from "@earendil-works/pi-ai";
+import { contentText } from "@jeffhub/jeff-code-ai";
 import { describeEval, StructuredOutputJudge, ToolCallJudge } from "vitest-evals";
 import { createPiDocumentationEvalHarness, DOCUMENTATION_EVAL_TOOLS } from "../src/harness.ts";
 
@@ -47,7 +47,7 @@ describeEval(
 				{
 					type: "prompt",
 					content:
-						"Configure this running Pi installation with an extension containing a hello tool that takes a name and returns a greeting. Do not create project source. For example, passing Bob should return `Hello, Bob!`.",
+						"Configure this running Jeff-Code installation with an extension containing a hello tool that takes a name and returns a greeting. Do not create project source. For example, passing Bob should return `Hello, Bob!`.",
 				},
 				{ type: "reload" },
 				{

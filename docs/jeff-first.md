@@ -7,18 +7,18 @@ Jeff's place: it chooses steps before every large-model turn, and its choices be
 
 ## Modes
 
-Set by environment variables when pi starts:
+Set by environment variables when Jeff-Code starts:
 
 | Variable | Meaning |
 |---|---|
-| `JEFF_FIRST_MODE` | unset or `off`: plain pi. `shadow`: build and log the menu at every model turn; Jeff is never asked and never acts. `teacher`: before every large-model turn, the teacher model chooses a tool and then its argument from lists built by code; the step runs; after 8 steps, or when the teacher hands over, the large model takes its turn. Any other value stops pi with an error. |
+| `JEFF_FIRST_MODE` | unset or `off`: Jeff is off; Jeff-Code behaves as upstream pi. `shadow`: build and log the menu at every model turn; Jeff is never asked and never acts. `teacher`: before every large-model turn, the teacher model chooses a tool and then its argument from lists built by code; the step runs; after 8 steps, or when the teacher hands over, the large model takes its turn. Any other value stops Jeff-Code with an error. |
 | `JEFF_FIRST_TRACE_FILE` | required in `shadow` and `teacher`: the JSON Lines file to append to. Its folder must exist. |
 | `JEFF_FIRST_TASK_ID` | required in `shadow` and `teacher`: written on every line, so traces from many tasks can share a file. |
 | `JEFF_FIRST_TEACHER_URL` | required in `teacher`: the teacher's OpenAI-compatible address without `/v1`. Use the GLM proxy on datigator; the container never holds the real key. |
 | `JEFF_FIRST_TEACHER_MODEL` | required in `teacher`: the teacher's model id, for example `scissero-glm-5.3`. |
 
 If the menu cannot be built or a trace line cannot be written, the turn fails with an error starting with
-`JeffFirst:`. pi does not retry these errors.
+`JeffFirst:`. Jeff-Code does not retry these errors.
 
 ## Trace lines
 

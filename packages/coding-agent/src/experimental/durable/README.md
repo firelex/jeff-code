@@ -1,7 +1,7 @@
 # durable
 
-A small local coding agent on `@earendil-works/pi-durable`. One process owns the model runtime, the durable
-Harness, its SQLite storage, and the TUI. It reuses pi's model runtime, auth, settings, system prompt, keybindings,
+A small local coding agent on `@jeffhub/jeff-code-durable`. One process owns the model runtime, the durable
+Harness, its SQLite storage, and the TUI. It reuses Jeff-Code's model runtime, auth, settings, system prompt, keybindings,
 theme, and interactive components; the agent itself is the durable Harness with its built-in `CodingTools`.
 
 ```bash
@@ -9,10 +9,10 @@ node --import ./packages/coding-agent/src/experimental/source-resolver.ts packag
 node --import ./packages/coding-agent/src/experimental/source-resolver.ts packages/coding-agent/src/experimental/durable/main.ts --continue
 ```
 
-A new session starts with pi's default model and thinking level from `settings.json`. `--continue` opens the newest
+A new session starts with Jeff-Code's default model and thinking level from `settings.json`. `--continue` opens the newest
 session for the current directory. Sessions live under
-`~/.pi/agent/experimental/durable-sessions/<cwd-hash>/<session>/session.sqlite`; a lock keeps a second process out
-(a lock left by a crash goes stale after 10 seconds, and the next start waits for that). Log in with pi itself;
+`~/.jeff/agent/experimental/durable-sessions/<cwd-hash>/<session>/session.sqlite`; a lock keeps a second process out
+(a lock left by a crash goes stale after 10 seconds, and the next start waits for that). Log in with Jeff-Code itself;
 credentials are shared.
 
 ## What it shows
@@ -42,7 +42,7 @@ credentials are shared.
 - `/agents`: switch conversations
 - `/tasks`: hide or show the task panel
 - tools expand key (Ctrl+O): expand tool output and compaction summaries
-- clear key (Ctrl+C) or Ctrl+D: exit at once, unlike pi's clear-first Ctrl+C; work in flight resumes with
+- clear key (Ctrl+C) or Ctrl+D: exit at once, unlike Jeff-Code's clear-first Ctrl+C; work in flight resumes with
   `--continue`
 
 ## Layout
@@ -52,12 +52,12 @@ credentials are shared.
 | `main.ts` | arguments, open, run, close |
 | `sessions.ts` | session directories and the lock |
 | `runtime.ts` | Harness, registry, settings, environments; the plain `DurableView` and `DurableController` |
-| `prompt.ts` | pi's system prompt sections (tools, rules, docs, AGENTS.md, skills, cwd) as one extension |
+| `prompt.ts` | Jeff-Code's system prompt sections (tools, rules, docs, AGENTS.md, skills, cwd) as one extension |
 | `subagent.ts` | the foreground subagent tool |
-| `tui.ts` | rendering with pi's interactive components |
+| `tui.ts` | rendering with Jeff-Code's interactive components |
 
-Compaction thresholds, retry policy, queue modes, and request timeouts come from pi's `settings.json` as loaded at
-startup, read through Harness settings getters at each use. pi's HTTP dispatcher is configured as in pi; without it some provider streams end
+Compaction thresholds, retry policy, queue modes, and request timeouts come from Jeff-Code's `settings.json` as loaded at
+startup, read through Harness settings getters at each use. Jeff-Code's HTTP dispatcher is configured as in Jeff-Code; without it some provider streams end
 early.
 
 A turn that ends without an answer shows a notice; one recovered after a restart does not, since only submissions

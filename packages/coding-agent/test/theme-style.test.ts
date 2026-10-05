@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { colorToHex, okhslColor, styleText } from "@earendil-works/pi-tui";
+import { colorToHex, okhslColor, styleText } from "@jeffhub/jeff-code-tui";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadThemeFromPath, setTerminalColors } from "../src/modes/interactive/theme/theme.ts";
 

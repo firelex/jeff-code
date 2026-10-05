@@ -103,7 +103,7 @@ class TaskSets:
         if row["gpus"]:
             raise ValueError(f"{task_id} needs a GPU ({row['gpus']}); collection runs without GPUs")
         if row["mcp_servers"]:
-            raise ValueError(f"{task_id} needs MCP tools; pi gives the model only bash")
+            raise ValueError(f"{task_id} needs MCP tools; Jeff-Code gives the model only bash")
         image = None
         if hub in ROTATED_DATASETS:
             image = row["dockerfile_base"]

@@ -11,16 +11,16 @@
  * or `write` tool call, the next request of the same turn goes to Luna, and the session stays
  * there. A session therefore switches models once and accepts a single prompt-cache miss.
  *
- * The phase is router state: Pi stores it on the session branch, so it follows the session tree
+ * The phase is router state: Jeff-Code stores it on the session branch, so it follows the session tree
  * and survives compaction. The selected thinking level passes through as the reasoning effort of
  * the chosen model. Requests outside the agent loop, such as compaction summaries, go to Luna.
  *
  * Requires TypeSafe credentials (TYPESAFE_API_KEY) and an OpenAI Codex login.
- * Usage: pi -e ./jev-router.ts --model jev/auto
+ * Usage: jeff -e ./jev-router.ts --model jev/auto
  */
 
-import type { Message } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext, ModelRoute, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ModelRoute, ModelRouteRequest } from "@jeffhub/jeff-code";
+import type { Message } from "@jeffhub/jeff-code-ai";
 
 const PROVIDER = "openai-codex";
 const SOL = "gpt-5.6-sol";

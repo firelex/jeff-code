@@ -1,16 +1,16 @@
 /**
- * Rebuild the exact chat-completions request body pi sent for one recorded Qwen turn, using pi's own code (session
+ * Rebuild the exact chat-completions request body Jeff-Code sent for one recorded Qwen turn, using Jeff-Code's own code (session
  * projection, message conversion and the openai-completions request builder), for the routing labels
  * (routing_labels.py). A long-running filter: one job per input line, one answer per output line, in order.
  *
  * Usage (Node 24 strips the types; on the hosts the esbuild bundle routing_requests.mjs runs instead):
  *   node results/imitation/scripts/routing_requests.ts < jobs.jsonl > bodies.jsonl
  *
- * Each input line: {"id": string, "session": path to the pi session .jsonl, "entryId": id of the assistant message
+ * Each input line: {"id": string, "session": path to the Jeff-Code session .jsonl, "entryId": id of the assistant message
  * entry whose request is rebuilt}.
  * Each output line: {"id": string, "body": the request body at thinking level xhigh (what the xhigh collection
  * sent), "task": the session's first user message text, "kwargs": {"off"|"low"|"medium"|"xhigh": the
- * chat_template_kwargs pi sends at that level}}.
+ * chat_template_kwargs Jeff-Code sends at that level}}.
  * The bodies of the four levels are built separately and checked to differ only in chat_template_kwargs, so the
  * caller may send the xhigh body with another level's kwargs; any other difference throws.
  */
@@ -33,8 +33,8 @@ interface Job {
 	entryId: string;
 }
 
-// The model entry pi built from Harbor's models.json (harbor_agent/jeff_pi.py): provider harbor-endpoint, reasoning on,
-// thinkingFormat qwen-chat-template, maxTokens 32768; contextWindow is pi's default for custom models (128000).
+// The model entry Jeff-Code built from Harbor's models.json (harbor_agent/jeff_code.py): provider harbor-endpoint, reasoning on,
+// thinkingFormat qwen-chat-template, maxTokens 32768; contextWindow is Jeff-Code's default for custom models (128000).
 const model: Model<"openai-completions"> = {
 	id: "qwen3.8-27b",
 	name: "qwen3.8-27b",
@@ -49,7 +49,7 @@ const model: Model<"openai-completions"> = {
 	compat: { thinkingFormat: "qwen-chat-template" },
 };
 
-// pi's thinking level per routing level; undefined = thinking off.
+// Jeff-Code's thinking level per routing level; undefined = thinking off.
 const LEVELS: Record<string, ThinkingLevel | undefined> = {
 	off: undefined,
 	low: "low",

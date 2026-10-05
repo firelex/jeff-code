@@ -223,7 +223,7 @@ def test_pair_up_refuses_a_pair_on_two_servers():
 
 def test_error_kind_names_known_errors_and_refuses_unknown_ones():
     assert error_kind("NonZeroAgentExitCodeError: Command failed (exit 137)") == "NonZeroAgentExitCodeError"
-    assert error_kind("pi output unreadable: x has no agent/pi.txt") == "no pi output"
+    assert error_kind("pi output unreadable: x has no agent/pi.txt") == "no Jeff-Code output"
     assert error_kind("JeffFirst: JeffFirst: turn 660 ran away") == "JeffFirst error"
     assert error_kind("0 result.json files") == "no Harbor result"
     assert error_kind("image pull failed (pull-failed 1)") == "image pull failed"

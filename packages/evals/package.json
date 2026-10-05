@@ -1,5 +1,5 @@
 {
-	"name": "@earendil-works/pi-evals",
+	"name": "@jeffhub/jeff-code-evals",
 	"version": "0.99.2",
 	"private": true,
 	"type": "module",
@@ -11,8 +11,8 @@
 		"test": "vitest run --config vitest.test.config.ts"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-ai": "^0.99.2",
-		"@earendil-works/pi-coding-agent": "^0.99.2",
+		"@jeffhub/jeff-code-ai": "^0.99.2",
+		"@jeffhub/jeff-code": "^0.99.2",
 		"@types/node": "22.19.19",
 		"@vitest-evals/core": "0.15.0",
 		"autoevals": "0.3.0",

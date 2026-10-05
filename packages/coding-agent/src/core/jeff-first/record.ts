@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
-import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AgentEvent, StreamFn } from "@jeffhub/jeff-code-agent-core";
+import type { AssistantMessage, ToolCall, ToolResultMessage } from "@jeffhub/jeff-code-ai";
 import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
 import type { RunApproval } from "./config.ts";
 import { liveFacts } from "./facts.ts";
@@ -53,7 +53,7 @@ export interface Recorder {
 }
 
 /**
- * Record mode: plain Qwen works alone, exactly as plain pi. Before each of its turns, this builds and logs the
+ * Record mode: plain Qwen works alone, exactly as plain Jeff-Code (no router). Before each of its turns, this builds and logs the
  * scout's full option lists (every tool, every argument option, up to the usual limit per tool) so that a converter
  * can later label each point with Qwen's actual next action, or "hand over". It never acts on Qwen's behalf: it
  * always calls the inner model and forwards its message unchanged.
@@ -62,7 +62,7 @@ export interface Recorder {
  * ran. When one of Qwen's turns makes several tool calls, the converter can label each of them as one stint step, so
  * after each call that another call of the turn follows, the lists are built and logged again from the disk as it is
  * then, with the turn's steps so far credited to the scout (byScout), as a live stint shows them: the turn's earlier
- * steps were the scout's own. This needs the turn's calls to run one after another (pi's sequential tool execution),
+ * steps were the scout's own. This needs the turn's calls to run one after another (Jeff-Code's sequential tool execution),
  * so the disk holds exactly the effects of the steps before the point.
  */
 export function createRecorder(options: RecordOptions): Recorder {
@@ -171,7 +171,7 @@ export function createRecorder(options: RecordOptions): Recorder {
 			});
 			prepared = { state: trimState(task, steps), lists, checks, listsMs: performance.now() - started };
 		} catch (error) {
-			// Not a fallback: the turn ends here, as an error the agent loop shows and pi does not retry.
+			// Not a fallback: the turn ends here, as an error the agent loop shows and Jeff-Code does not retry.
 			return errorStream(
 				model,
 				`${JEFF_FIRST_ERROR_PREFIX} could not build the lists for turn ${thisTurn}: ${describeError(error)}`,

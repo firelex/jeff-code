@@ -151,7 +151,7 @@ def render(s: dict[str, Any], trials: dict[str, float | None]) -> str:
         lines += [f"Menu building time: median {s['menu_ms'][0]:.1f} ms, 95th percentile {s['menu_ms'][1]:.1f} ms", ""]
     scored = {t: r for t, r in trials.items() if r is not None}
     lines += [
-        "## Task results (check that the shadow wrapper did not change pi's behaviour)",
+        "## Task results (check that the shadow wrapper did not change Jeff-Code's behaviour)",
         "",
         f"Passed: {sum(1 for r in scored.values() if r >= 1)} of {len(scored)} tasks with a verifier result",
     ]

@@ -258,7 +258,7 @@ function writeJsonLine(socket: Socket, message: unknown): Promise<void> {
 }
 
 // This process is intentionally a transport shim. It depends only on Node
-// built-ins and never interprets Pi, session, worker, or lifecycle payloads.
+// built-ins and never interprets Jeff-Code, session, worker, or lifecycle payloads.
 
 const EMPTY_STARTUP_GRACE_MS = 30_000;
 const EMPTY_SHUTDOWN_GRACE_MS = 250;

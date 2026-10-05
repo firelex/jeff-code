@@ -32,7 +32,7 @@ describeEval("Add model to existing provider", { harness, judges: [judge], judge
 		await run([
 			{
 				type: "prompt",
-				content: `Configure this running Pi installation with a new \`${PROVIDER_ID}/${MODEL_ID}\` model. Do not create project-local configuration. Show it as “${MODEL_NAME}”. It accepts text, supports reasoning, has a 32,768-token context window and a 4,096-token maximum output, and has no usage cost.`,
+				content: `Configure this running Jeff-Code installation with a new \`${PROVIDER_ID}/${MODEL_ID}\` model. Do not create project-local configuration. Show it as “${MODEL_NAME}”. It accepts text, supports reasoning, has a 32,768-token context window and a 4,096-token maximum output, and has no usage cost.`,
 			},
 			{ type: "reload" },
 		]);

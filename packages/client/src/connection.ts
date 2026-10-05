@@ -6,7 +6,7 @@ import {
 	type ServerHello,
 	type ServerMessage,
 	ServerMessageDecoder,
-} from "@earendil-works/pi-protocol";
+} from "@jeffhub/jeff-code-protocol";
 import { DisconnectedError, ServerError, toDisconnectedError, toError } from "./errors.ts";
 import { createPromiseResolvers, type PromiseResolvers } from "./promise.ts";
 import type { ByteTransport, ByteTransportFactory, ByteTransportHandlers } from "./transport.ts";

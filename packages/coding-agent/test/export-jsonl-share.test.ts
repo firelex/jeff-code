@@ -1,8 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai/compat";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import type { AssistantMessage, ToolResultMessage } from "@jeffhub/jeff-code-ai/compat";
+import { getModel } from "@jeffhub/jeff-code-ai/compat";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineTool } from "../src/core/extensions/types.ts";

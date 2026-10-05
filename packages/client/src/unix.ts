@@ -6,7 +6,7 @@ import {
 	isServerId,
 	ProtocolValidationError,
 	type ServerId,
-} from "@earendil-works/pi-protocol";
+} from "@jeffhub/jeff-code-protocol";
 import { Client } from "./client.ts";
 import { DisconnectedError, ServerError } from "./errors.ts";
 import type { ByteTransport, ByteTransportFactory, ByteTransportHandlers } from "./transport.ts";

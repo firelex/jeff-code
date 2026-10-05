@@ -1,5 +1,5 @@
 {
-	"name": "@earendil-works/chord",
+	"name": "@jeffhub/jeff-code-chord",
 	"version": "0.99.2",
 	"description": "Application composition runtime for services, replicated state, RPC, and plugins",
 	"type": "module",
@@ -56,7 +56,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/chord"
 	},
 	"engines": {

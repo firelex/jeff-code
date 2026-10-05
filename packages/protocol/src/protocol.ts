@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@jeffhub/jeff-code-chord";
 import Type, { type Static } from "typebox";
 import { Check } from "typebox/value";
 

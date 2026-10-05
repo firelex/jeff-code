@@ -1,16 +1,17 @@
 """Task containers without internet (SWE-rebench: the agent could otherwise fetch the upstream fix from GitHub).
 
 Harbor sets a container's network from task.toml only, and SWE-rebench tasks leave it public. These pieces cut it off
-at run time instead, after the agent's setup (installing node and pi needs the internet) and before the agent runs:
+at run time instead, after the agent's setup (installing node and Jeff-Code needs the internet) and before the agent runs:
 - EgressDocker: Harbor's Docker environment, always started with Harbor's egress-control sidecar, which can switch a
   running container's network policy (Harbor starts it only when task.toml asks for a restricted network). Use with
   `harbor run --env harbor_agent.offline:EgressDocker`. If the host kernel cannot run the sidecar's rules, Harbor
   leaves the sidecar out and the policy switch below raises.
-- JeffPi's `allowed_hosts` option (jeff_pi.py) switches to an allowlist of the model's host just before pi runs.
+- JeffCode's `allowed_hosts` option (jeff_code.py) switches to an allowlist of the model's host just before Jeff-Code
+  runs.
 - OfflineDocker: EgressDocker with no network at all from the moment the container has started, for checking with
   Harbor's oracle agent (`-a oracle`, which runs the task's reference solution and needs no setup) that a task's
   solution and tests work offline.
-JeffPi switches the policy back after pi, so the tests run with the internet (tests that run `uv run` sync packages;
+JeffCode switches the policy back after Jeff-Code, so the tests run with the internet (tests that run `uv run` sync packages;
 checked 2026-10-04: confluence-markdown-exporter-92's reference solution passes online and fails offline).
 """
 

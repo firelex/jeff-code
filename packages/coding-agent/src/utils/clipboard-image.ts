@@ -1,4 +1,4 @@
-import { getNativeClipboard } from "@earendil-works/pi-tui";
+import { getNativeClipboard } from "@jeffhub/jeff-code-tui";
 import { randomUUID } from "crypto";
 import { readFileSync, unlinkSync } from "fs";
 import { tmpdir } from "os";

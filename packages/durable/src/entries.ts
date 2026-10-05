@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@jeffhub/jeff-code-chord";
 import type { CompactionReason, ToolDiagnostic } from "./harness/types.ts";
 import type { Entry, EntryRecord, TypedEntry } from "./types.ts";
 

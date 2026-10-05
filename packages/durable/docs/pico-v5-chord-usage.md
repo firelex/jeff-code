@@ -35,12 +35,12 @@ conversation object and `Entry`/`Task` are typed definitions. The imports:
 import {
   createFacetHost, createRemoteServiceBinding, defineFacet, defineService,
   type Context, type Facet, type FacetHost, type RemoteServiceTransport, type ReplicatedState,
-} from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+} from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
   type ConversationId, defineDoc, defineDocFamily, type DocumentObserver,
   type Harness, type Session, type TaskId, type TaskRuntime,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 ```
 
 A `Harness` is a `Session`, so every function below also takes an open Harness.

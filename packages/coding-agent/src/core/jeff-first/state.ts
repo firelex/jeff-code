@@ -1,4 +1,4 @@
-import type { JsonObject } from "@earendil-works/pi-ai";
+import type { JsonObject } from "@jeffhub/jeff-code-ai";
 import { shellQuote } from "./probes.ts";
 import type { Step } from "./transcript.ts";
 
@@ -25,7 +25,7 @@ export interface JeffState {
 	stepsLeftOut: number;
 }
 
-/** The shell command a step ran, or for another pi tool the shell command that does the same (read: cat or sed -n,
+/** The shell command a step ran, or for another Jeff-Code tool the shell command that does the same (read: cat or sed -n,
  * ls: ls -la, grep: grep -rn, find: find, write: cat with a here-document). A call whose arguments do not fit that
  * shape is shown as the tool's name and its arguments, which is what it was. */
 export function shellCommand(call: Step["call"]): string {

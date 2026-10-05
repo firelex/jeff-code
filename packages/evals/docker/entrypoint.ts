@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const variant = process.env.PI_EVAL_VARIANT;
+const variant = process.env.JEFF_EVAL_VARIANT;
 
 function parseId(name: string): number {
 	const value = Number(process.env[name]);
@@ -13,8 +13,8 @@ function parseId(name: string): number {
 	return value;
 }
 
-const sandboxUid = parseId("PI_EVAL_SANDBOX_UID");
-const sandboxGid = parseId("PI_EVAL_SANDBOX_GID");
+const sandboxUid = parseId("JEFF_EVAL_SANDBOX_UID");
+const sandboxGid = parseId("JEFF_EVAL_SANDBOX_GID");
 
 function assertDirectoryEntries(path: string, expectedEntries: readonly string[]): void {
 	const actual = readdirSync(path).sort();
@@ -28,13 +28,13 @@ function assertWorkspace(): void {
 	assertDirectoryEntries("/repo", ["node_modules", "package.json", "packages", "vitest.base.ts"]);
 	assertDirectoryEntries("/repo/packages", ["evals"]);
 	assertDirectoryEntries("/repo/packages/evals", ["docker", "evals", "package.json", "src", "vitest.evals.config.ts"]);
-	const codingAgentDir = "/repo/node_modules/@earendil-works/pi-coding-agent";
+	const codingAgentDir = "/repo/node_modules/@jeffhub/jeff-code";
 	for (const name of ["package.json", "npm-shrinkwrap.json", "dist/index.js"]) {
 		if (!existsSync(join(codingAgentDir, name))) throw new Error(`Installed coding-agent is missing ${name}.`);
 	}
-	const internalScope = "/repo/node_modules/@earendil-works";
+	const internalScope = "/repo/node_modules/@jeffhub";
 	for (const packageName of readdirSync(internalScope)) {
-		if (packageName === "pi-coding-agent") continue;
+		if (packageName === "jeff-code") continue;
 		const packageDirectory = join(internalScope, packageName);
 		for (const entry of readdirSync(packageDirectory, { withFileTypes: true })) {
 			if (
@@ -51,7 +51,7 @@ function assertWorkspace(): void {
 		}
 		return;
 	}
-	if (variant !== "with_docs") throw new Error("Eval image has no valid PI_EVAL_VARIANT.");
+	if (variant !== "with_docs") throw new Error("Eval image has no valid JEFF_EVAL_VARIANT.");
 	for (const path of [
 		join(codingAgentDir, "README.md"),
 		join(codingAgentDir, "CHANGELOG.md"),
@@ -99,9 +99,9 @@ for (const path of [
 	assertRootOnly(path);
 	assertSandboxCannotRead(path);
 }
-const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
-if (codingAgentEntry !== "/repo/node_modules/@earendil-works/pi-coding-agent/dist/index.js") {
-	throw new Error(`Eval does not resolve pi-coding-agent from dist: ${codingAgentEntry}`);
+const codingAgentEntry = fileURLToPath(import.meta.resolve("@jeffhub/jeff-code"));
+if (codingAgentEntry !== "/repo/node_modules/@jeffhub/jeff-code/dist/index.js") {
+	throw new Error(`Eval does not resolve @jeffhub/jeff-code from dist: ${codingAgentEntry}`);
 }
 
 const agentDir = "/tmp/pi-eval-host-agent";
@@ -112,8 +112,8 @@ chownTree(agentDir, sandboxUid, sandboxGid);
 chownTree("/artifacts", sandboxUid, sandboxGid);
 process.env.HOME = "/tmp/pi-eval-bootstrap";
 process.env.USERPROFILE = process.env.HOME;
-process.env.PI_CODING_AGENT_DIR = agentDir;
-process.env.PI_EVAL_CONTAINER = "1";
+process.env.JEFF_CODING_AGENT_DIR = agentDir;
+process.env.JEFF_EVAL_CONTAINER = "1";
 process.umask(0o022);
 
 const require = createRequire(import.meta.url);
@@ -144,9 +144,9 @@ const commandArgs = discover
 const result = spawnSync(process.execPath, commandArgs, { cwd: packageRoot, stdio: "inherit", env: process.env });
 if (result.error) throw result.error;
 
-const artifactUid = process.env.PI_EVAL_ARTIFACT_UID;
-const artifactGid = process.env.PI_EVAL_ARTIFACT_GID;
+const artifactUid = process.env.JEFF_EVAL_ARTIFACT_UID;
+const artifactGid = process.env.JEFF_EVAL_ARTIFACT_GID;
 if (artifactUid !== undefined && artifactGid !== undefined) {
-	chownTree("/artifacts", parseId("PI_EVAL_ARTIFACT_UID"), parseId("PI_EVAL_ARTIFACT_GID"));
+	chownTree("/artifacts", parseId("JEFF_EVAL_ARTIFACT_UID"), parseId("JEFF_EVAL_ARTIFACT_GID"));
 }
 process.exit(result.status ?? 1);

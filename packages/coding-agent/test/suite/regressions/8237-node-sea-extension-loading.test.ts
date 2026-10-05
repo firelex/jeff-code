@@ -27,7 +27,7 @@ vi.mock("../../../src/core/extensions/virtual-modules.ts", () => {
 	return {
 		VIRTUAL_MODULES: {
 			typebox: {},
-			"@earendil-works/pi-coding-agent": {},
+			"@jeffhub/jeff-code": {},
 		},
 	};
 });
@@ -66,6 +66,6 @@ describe("Node SEA extension loading", () => {
 		expect(options.tryNative).toBe(false);
 		expect(options.alias).toBeUndefined();
 		expect(options.virtualModules?.typebox).toBeDefined();
-		expect(options.virtualModules?.["@earendil-works/pi-coding-agent"]).toBeDefined();
+		expect(options.virtualModules?.["@jeffhub/jeff-code"]).toBeDefined();
 	});
 });

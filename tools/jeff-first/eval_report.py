@@ -70,7 +70,7 @@ NOT_POOLED = {
 POOLED = tuple(s for s in SECTIONS if s.split("#")[0] not in NOT_POOLED)
 EXCLUDED_TASKS = {
     ("terminal-bench-2", "pytorch-model-recovery"): (
-        "harness bug: the instruction starts with '- ', so pi stopped with 'Unknown option' before doing anything in "
+        "harness bug: the instruction starts with '- ', so Jeff-Code stopped with 'Unknown option' before doing anything in "
         "every a1/a2 session (and the a3/a4 sessions started before the fix); the a3/a4 reruns ran with the fix, so "
         "the arms did not get the same task"
     ),
@@ -397,7 +397,7 @@ def compare(pairs: list[Pair], arm: str, seed: int) -> Comparison | None:
 
 ERROR_KINDS = (
     ("JeffFirst: ", "JeffFirst error"),
-    ("pi output unreadable: ", "no pi output"),
+    ("pi output unreadable: ", "no Jeff-Code output"),
     ("image pull failed", "image pull failed"),
 )
 
@@ -997,7 +997,7 @@ def report(data: Data) -> str:
         "(router: thinking level; step: per candidate level; trim: output shortening)."
     )
     out.append(
-        "- Errors: trial exceptions other than the agent time limit, JeffFirst errors, missing pi output or result. "
+        "- Errors: trial exceptions other than the agent time limit, JeffFirst errors, missing Jeff-Code output or result. "
         "Sessions with an error but a reward stay in (scored as their reward); sessions without a reward are left "
         "out with their block and listed below."
     )

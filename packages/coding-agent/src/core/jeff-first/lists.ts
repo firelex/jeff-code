@@ -95,9 +95,9 @@ const TOOL_ORDER: ToolKind[] = [
 	"repeat",
 ];
 
-/** The pi tool each kind needs; a kind is offered only when that tool is active. Every option is a bash command,
+/** The Jeff-Code tool each kind needs; a kind is offered only when that tool is active. Every option is a bash command,
  * so the coding model, which works with bash alone, sees the scout's steps as commands it could have run itself. */
-const PI_TOOL: Record<ToolKind, string> = {
+const JEFF_TOOL: Record<ToolKind, string> = {
 	read: "bash",
 	peek: "bash",
 	list: "bash",
@@ -163,7 +163,7 @@ const FAILED_PYTEST = /^FAILED (\S+::\S+)/gm;
 /** A bash command that only shows a file's text: cat, head, tail or sed -n, with no pipe, redirect or second command. */
 const READ_COMMAND = /^(?:cat|head|tail|sed -n)\s[^|;&<>]*$/;
 
-/** Whether a step shows a file's text: pi's read tool, or a bash command that only prints a file. */
+/** Whether a step shows a file's text: Jeff-Code's read tool, or a bash command that only prints a file. */
 function isReadStep(step: MenuInput["steps"][number]): boolean {
 	if (step.call.name === "read") return true;
 	const command = step.call.arguments.command;
@@ -190,7 +190,7 @@ function unique(values: string[]): string[] {
 	return [...new Set(values)];
 }
 
-/** Whether a text file is small enough for pi's read tool to return whole: at most DEFAULT_MAX_BYTES bytes and
+/** Whether a text file is small enough for Jeff-Code's read tool to return whole: at most DEFAULT_MAX_BYTES bytes and
  * fewer than DEFAULT_MAX_LINES lines (counted as newline characters). Larger files go to Data peek instead. undefined when a fact needed to decide
  * is unknown. The size is checked before the lines are counted, so a huge file is never read whole. */
 export function readLimitFit(facts: FileFacts, path: string): boolean | undefined {
@@ -211,7 +211,7 @@ export function fitsReadLimit(facts: FileFacts, path: string): boolean {
 	return readLimitFit(facts, path) === true;
 }
 
-/** The parts of a bash step's command, each with its folder (pi runs every bash call in a new shell in the working
+/** The parts of a bash step's command, each with its folder (Jeff-Code runs every bash call in a new shell in the working
  * folder), or none for another tool or a call without command text. */
 function bashParts(input: MenuInput, step: MenuInput["steps"][number]): ShellPart[] {
 	const command = step.call.arguments.command;
@@ -655,7 +655,7 @@ export function buildLists(input: ListsInput): Lists {
 	const argumentsByTool: Partial<Record<ToolKind, ArgumentOption[]>> = {};
 	const tools: ToolOption[] = [];
 	for (const kind of TOOL_ORDER) {
-		if (!input.activeTools.has(PI_TOOL[kind])) continue;
+		if (!input.activeTools.has(JEFF_TOOL[kind])) continue;
 		const options: ArgumentOption[] = [];
 		for (const built of BUILDERS[kind](input)) {
 			const key = callKey(built.call, input.cwd);

@@ -1,4 +1,4 @@
-import type { AssistantMessage, ToolResultMessage, Usage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ToolResultMessage, Usage, UserMessage } from "@jeffhub/jeff-code-ai";
 import type {
 	ConversationId,
 	EntryRecord,
@@ -7,7 +7,7 @@ import type {
 	TaskGraph,
 	TaskGraphNode,
 	UsageState,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import {
 	Box,
 	type Component,
@@ -29,7 +29,7 @@ import {
 	TruncatedText,
 	TuiAltScreen,
 	VStack,
-} from "@earendil-works/pi-tui";
+} from "@jeffhub/jeff-code-tui";
 import { getAgentDir } from "../../config.ts";
 import { KeybindingsManager } from "../../core/keybindings.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
@@ -170,7 +170,7 @@ class DurableTui {
 	/** Call IDs whose cards the streaming answer created; its entry takes them over. */
 	readonly #streamingCalls = new Set<string>();
 	readonly #summaries: CompactionComponent[] = [];
-	/** Tool output and summaries shown in full; toggled like pi. */
+	/** Tool output and summaries shown in full; toggled like Jeff-Code. */
 	#expanded = false;
 	#renderedEntryIds: number[] = [];
 	#streaming: AssistantMessageComponent | undefined;
@@ -638,7 +638,7 @@ export async function runDurableTui(
 		cycleThinking: () => void controller.cycleThinking(),
 	});
 
-	// pi's theme handling: the theme setting (also light/dark pairs) resolved against the terminal's reported colors.
+	// Jeff-Code's theme handling: the theme setting (also light/dark pairs) resolved against the terminal's reported colors.
 	const themes = new InteractiveThemeController(view.ui, {
 		getSettingsManager: () => settings,
 		showError: (message) => console.error(message),

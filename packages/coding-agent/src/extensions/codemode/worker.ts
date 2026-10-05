@@ -3,4 +3,4 @@
  * build this file as a separate entrypoint because pi-codemode's own worker file is not on disk
  * there; `getCodemodeWorkerSpecifier()` in config.ts resolves it.
  */
-import "@earendil-works/pi-codemode/worker";
+import "@jeffhub/jeff-code-codemode/worker";

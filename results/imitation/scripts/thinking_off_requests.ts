@@ -1,16 +1,16 @@
 /**
- * Rebuild the exact chat-completions request body pi sent for one recorded Qwen turn, using pi's own code
+ * Rebuild the exact chat-completions request body Jeff-Code sent for one recorded Qwen turn, using Jeff-Code's own code
  * (session projection, message conversion and the openai-completions request builder), with thinking on or off.
  *
  * Usage (from packages/coding-agent, Node 24 strips the types):
  *   node ../../results/imitation/scripts/thinking_off_requests.ts < jobs.jsonl > bodies.jsonl
  *
- * Each input line: {"id": string, "session": path to the pi session .jsonl, "entryId": id of the assistant message
+ * Each input line: {"id": string, "session": path to the Jeff-Code session .jsonl, "entryId": id of the assistant message
  * entry whose request is rebuilt, "thinking": "medium" | "off", "cut": boolean}.
  * With cut, the messages are reduced to the system prompt, the task message (the session's first user message) and
  * the last 3 tool steps before the turn (each tool call with its result), as a subagent with a clean context would
  * get them.
- * Each output line: {"id": string, "body": the request body as pi would send it}.
+ * Each output line: {"id": string, "body": the request body as Jeff-Code would send it}.
  */
 import { createInterface } from "node:readline";
 import { streamSimple } from "../../../packages/ai/src/api/openai-completions.ts";
@@ -32,8 +32,8 @@ interface Job {
 	cut: boolean;
 }
 
-// The model entry pi built from Harbor's models.json (harbor_agent/jeff_pi.py): provider harbor-endpoint, reasoning on,
-// thinkingFormat qwen-chat-template, maxTokens 32768; contextWindow is pi's default for custom models (128000).
+// The model entry Jeff-Code built from Harbor's models.json (harbor_agent/jeff_code.py): provider harbor-endpoint, reasoning on,
+// thinkingFormat qwen-chat-template, maxTokens 32768; contextWindow is Jeff-Code's default for custom models (128000).
 const model: Model<"openai-completions"> = {
 	id: "qwen3.8-27b",
 	name: "qwen3.8-27b",

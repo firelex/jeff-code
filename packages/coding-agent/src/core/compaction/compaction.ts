@@ -5,7 +5,7 @@
  * and after compaction the session is reloaded.
  */
 
-import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, StreamFn, ThinkingLevel } from "@jeffhub/jeff-code-agent-core";
 import {
 	contentText,
 	getCurrentSystemMessage,
@@ -14,7 +14,7 @@ import {
 	type RetryPolicy,
 	retryAssistantCall,
 	uuidv7,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import type {
 	AssistantMessage,
 	Model,
@@ -22,8 +22,8 @@ import type {
 	SystemMessage,
 	TranscriptContext,
 	Usage,
-} from "@earendil-works/pi-ai/compat";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
+} from "@jeffhub/jeff-code-ai/compat";
+import { completeSimple } from "@jeffhub/jeff-code-ai/compat";
 import { convertToLlm } from "../messages.ts";
 import {
 	buildSessionProjection,
@@ -64,7 +64,7 @@ function extractFileOperations(
 ): FileOperations {
 	const fileOps = createFileOps();
 
-	// Collect from previous compaction's details (if pi-generated)
+	// Collect from previous compaction's details (if Jeff-Code-generated)
 	if (prevCompactionIndex >= 0) {
 		const prevCompaction = entries[prevCompactionIndex] as CompactionEntry;
 		if (!prevCompaction.fromHook && prevCompaction.details) {

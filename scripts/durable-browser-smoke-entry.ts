@@ -1,7 +1,7 @@
-import * as durable from "@earendil-works/pi-durable";
-import * as environment from "@earendil-works/pi-durable/env";
-import * as jsonl from "@earendil-works/pi-durable/storage/jsonl";
-import * as sqlite from "@earendil-works/pi-durable/storage/sqlite";
+import * as durable from "@jeffhub/jeff-code-durable";
+import * as environment from "@jeffhub/jeff-code-durable/env";
+import * as jsonl from "@jeffhub/jeff-code-durable/storage/jsonl";
+import * as sqlite from "@jeffhub/jeff-code-durable/storage/sqlite";
 
 // Keep runtime-neutral public entry points live so the browser smoke build
 // catches accidental imports of Node-only adapters or built-ins.

@@ -6,6 +6,11 @@ commands that each match a menu option, the scout would have taken them one afte
 for the second step must be the one built after the first step ran. Those menus were never logged, so they are built
 here, in a container of the task's own image that has run exactly the session's commands so far.
 
+The recorded sessions were made before Jeff-Code was renamed from its upstream, pi: the `pi` command, PI_* environment
+variables, the npm package @earendil-works/pi-coding-agent and the JeffPi Harbor agent (now JeffCode in
+harbor_agent/jeff_code.py, which installs to /tmp/jeff-code.tgz and runs `jeff`). The setup patterns, environment and
+paths here match those recordings, so this replay reads trials recorded with a pre-rename build only.
+
 For each trial (see `replay_trial`):
 
 1. A container of the task's image starts (`stage3replay-<trial>`, the task's CPU and memory limits, the default
@@ -100,7 +105,7 @@ TRUNCATION_NOTICE = re.compile(
     r"\n\n\[Showing (?:lines \d+-\d+ of \d+(?: \([^)]*\))?|last [^\]]*?)\. Full output: ([^\]]*)\]"
     r"(?=(?:\n\nCommand (?:exited with code -?\d+|timed out after [\d.]+ seconds))?$)"
 )
-# The commands Harbor's JeffPi agent runs before pi (harbor_agent/jeff_pi.py and Harbor's Pi agent), as trial.log
+# The commands Harbor's JeffPi agent ran before pi (harbor_agent/jeff_pi.py then, and Harbor's Pi agent), as trial.log
 # shows them; the curl install runs only when the image has no curl.
 SETUP_PATTERNS = (
     re.compile(r"^apt-get update && apt-get install -y curl$"),
@@ -341,7 +346,7 @@ def agent_file_prefixes(files: dict[str, tuple[str, str]]) -> Callable[[int], di
 
 def setup_commands(trial_log: str) -> list[str]:
     """The agent setup commands of a trial, in order, from its trial.log (each "Running command:" line before pi's
-    own run). Each must be one Harbor's JeffPi agent runs (SETUP_PATTERNS); anything else raises."""
+    own run). Each must be one Harbor's JeffPi agent ran (SETUP_PATTERNS); anything else raises."""
     commands: list[str] = []
     for line in trial_log.splitlines():
         if not line.startswith("Running command: "):

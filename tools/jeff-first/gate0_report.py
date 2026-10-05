@@ -1,6 +1,6 @@
 """Gate 0 of the scout design: does a strong scout (GLM in teacher mode) save the large model work?
 
-Compares two arms run on the same tasks with the same large model: the baseline (shadow mode, plain pi behaviour)
+Compares two arms run on the same tasks with the same large model: the baseline (shadow mode, plain Jeff-Code behaviour)
 and the teacher arm. The gate passes when, summed over the tasks, the large model's turns and its own seconds both
 fall by at least 25%, and the teacher arm passes at most one task fewer. A task that ran out of its agent time limit in
 only one arm leaves the gate not judged: the time limit, not the scout, would decide that task.

@@ -7,10 +7,10 @@
  * The arguments are the command that starts a stdio MCP server.
  */
 
-import { Agent } from "@earendil-works/pi-agent-core";
-import { createModels } from "@earendil-works/pi-ai";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { McpClient, StdioTransport } from "@earendil-works/pi-mcp";
+import { Agent } from "@jeffhub/jeff-code-agent-core";
+import { createModels } from "@jeffhub/jeff-code-ai";
+import { anthropicProvider } from "@jeffhub/jeff-code-ai/providers/anthropic";
+import { McpClient, StdioTransport } from "@jeffhub/jeff-code-mcp";
 import { createCodemodeTool, createMcpTools, createNestedToolRunner } from "./tools.ts";
 
 const [command, ...args] = process.argv.slice(2);
@@ -24,7 +24,7 @@ models.setProvider(anthropicProvider());
 const model = models.getModel("anthropic", "claude-sonnet-4-6");
 if (!model) throw new Error("Model not found");
 
-const client = new McpClient({ name: "pi-agent-example", version: "1.0.0" });
+const client = new McpClient({ name: "jeff-code-agent-example", version: "1.0.0" });
 await client.connect(new StdioTransport({ command, args }));
 
 try {

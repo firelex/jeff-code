@@ -1,4 +1,4 @@
-import { defineDoc, defineDocFamily } from "@earendil-works/pi-durable";
+import { defineDoc, defineDocFamily } from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { getReplicatedStateInternals } from "../../chord/src/services/state-internals.ts";
 import { context, createConversation, documentChanges, flush, openTestSession } from "./session-support.ts";

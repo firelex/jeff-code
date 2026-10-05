@@ -1,4 +1,4 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@jeffhub/jeff-code-chord";
 import { type ExecutionEnv, getOrThrow } from "../env/index.ts";
 
 /** Tail of the mutation chain of each file, keyed by file system id and canonical path. */

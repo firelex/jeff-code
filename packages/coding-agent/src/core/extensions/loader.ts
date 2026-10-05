@@ -7,8 +7,8 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Provider } from "@earendil-works/pi-ai";
-import type { KeyId } from "@earendil-works/pi-tui";
+import type { Provider } from "@jeffhub/jeff-code-ai";
+import type { KeyId } from "@jeffhub/jeff-code-tui";
 import type { createJiti } from "jiti";
 import { CONFIG_DIR_NAME, getAgentDir, isBunBinary, isBundledNode } from "../../config.ts";
 import { resolvePath } from "../../utils/paths.ts";
@@ -85,19 +85,26 @@ function getAliases(): Record<string, string> {
 	};
 
 	const piCodingAgentEntry = packageIndex;
-	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@earendil-works/pi-agent-core");
-	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@earendil-works/pi-tui");
+	const piAgentCoreEntry = resolveWorkspaceOrImport("agent/dist/index.js", "@jeffhub/jeff-code-agent-core");
+	const piTuiEntry = resolveWorkspaceOrImport("tui/dist/index.js", "@jeffhub/jeff-code-tui");
 	// Extensions resolve the pi-ai root to the compat entrypoint (a strict
 	// superset of the core entrypoint): existing extensions using the old
 	// global API keep working at runtime until compat is removed.
-	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@earendil-works/pi-ai/compat");
-	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@earendil-works/pi-ai/oauth");
+	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@jeffhub/jeff-code-ai/compat");
+	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@jeffhub/jeff-code-ai/oauth");
 	const piAiProvidersEntry = resolveWorkspaceOrImport(
 		"ai/dist/providers/all.js",
-		"@earendil-works/pi-ai/providers/all",
+		"@jeffhub/jeff-code-ai/providers/all",
 	);
 
 	_aliases = {
+		"@jeffhub/jeff-code": piCodingAgentEntry,
+		"@jeffhub/jeff-code-agent-core": piAgentCoreEntry,
+		"@jeffhub/jeff-code-tui": piTuiEntry,
+		"@jeffhub/jeff-code-ai/providers/all": piAiProvidersEntry,
+		"@jeffhub/jeff-code-ai/compat": piAiCompatEntry,
+		"@jeffhub/jeff-code-ai/oauth": piAiOauthEntry,
+		"@jeffhub/jeff-code-ai": piAiCompatEntry,
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
 		"@earendil-works/pi-agent-core": piAgentCoreEntry,
 		"@earendil-works/pi-tui": piTuiEntry,

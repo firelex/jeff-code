@@ -1,5 +1,5 @@
-import { type Context, defineService, type ReplicatedState } from "@earendil-works/chord";
-import type { ServerId } from "@earendil-works/pi-protocol";
+import { type Context, defineService, type ReplicatedState } from "@jeffhub/jeff-code-chord";
+import type { ServerId } from "@jeffhub/jeff-code-protocol";
 
 export interface SessionAddress {
 	serverId: ServerId;

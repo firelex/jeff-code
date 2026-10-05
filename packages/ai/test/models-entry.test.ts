@@ -28,13 +28,13 @@ const preload = `data:text/javascript,${encodeURIComponent(`
 `)}`;
 
 describe("lightweight models entry", () => {
-	it.each([sourceEntry, "@earendil-works/pi-ai/models"])(
+	it.each([sourceEntry, "@jeffhub/jeff-code-ai/models"])(
 		"runs a faux completion without TypeBox, catalogs, or SDKs through %s",
 		(entry) => {
 			const script = `
 				import assert from "node:assert/strict";
 				import { createModels, createProvider } from ${JSON.stringify(entry)};
-				import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+				import { fauxAssistantMessage, fauxProvider } from "@jeffhub/jeff-code-ai/providers/faux";
 				assert.equal(typeof createProvider, "function");
 				const models = createModels();
 				assert.deepEqual(models.getModels(), []);

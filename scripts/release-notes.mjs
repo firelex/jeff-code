@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const DEFAULT_REPO = "earendil-works/pi";
+const DEFAULT_REPO = "firelex/jeff-code";
 const DEFAULT_BASE_PATH = "packages/coding-agent";
 const DEFAULT_CHANGELOG = "packages/coding-agent/CHANGELOG.md";
 const DEFAULT_FIX_SINCE_TAG = "v0.74.0";
@@ -291,7 +291,7 @@ function uniqueChanges(changes) {
 }
 
 function updateGithubRelease(repo, tag, body) {
-	const tempDir = mkdtempSync(path.join(tmpdir(), "pi-release-notes-"));
+	const tempDir = mkdtempSync(path.join(tmpdir(), "jeff-release-notes-"));
 	try {
 		const notesPath = path.join(tempDir, "notes.md");
 		writeFileSync(notesPath, body);

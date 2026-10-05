@@ -1,6 +1,6 @@
 /**
  * Log messages MCP servers send with `notifications/message`, appended to `mcp.log` in the agent
- * directory. Several pi processes may write to the same file, so every message is one synchronous
+ * directory. Several Jeff-Code processes may write to the same file, so every message is one synchronous
  * append. The file is rotated to `mcp.log.1` once it grows past `MAX_LOG_BYTES`.
  */
 

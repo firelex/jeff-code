@@ -1,4 +1,4 @@
-import { type TUI, TuiAltScreen } from "@earendil-works/pi-tui";
+import { type TUI, TuiAltScreen } from "@jeffhub/jeff-code-tui";
 
 /**
  * Plays the logo easter egg (see pi-logo-animation.ts), which loads on the first click. Only fullscreen mode

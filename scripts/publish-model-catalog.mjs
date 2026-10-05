@@ -287,7 +287,7 @@ async function main() {
 		return;
 	}
 
-	const temporaryDir = mkdtempSync(join(tmpdir(), "pi-model-catalog-"));
+	const temporaryDir = mkdtempSync(join(tmpdir(), "jeff-model-catalog-"));
 	try {
 		const currentIndexPath = join(temporaryDir, "index-current.json");
 		const hasCurrentIndex = downloadIndex(options.bucket, options.endpoint, currentIndexPath);

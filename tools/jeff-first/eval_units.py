@@ -12,7 +12,7 @@ Read from each session folder EVAL_DIR/runs/ARM/TASK/attemptK/:
     thinking-limit cuts (limit_cut set, any attempt), router seconds (timings_ms.router);
   - decision lines: Jeff steps taken (action kind step) and hand-overs;
   - output_trim lines: trim questions and cuts (shortened);
-- JeffFirst errors in pi's output (pi_errors.jeff_first_errors).
+- JeffFirst errors in Jeff-Code's output (pi_errors.jeff_first_errors).
 An error is a trial exception other than the agent time limit, a JeffFirst error, or a finished session without a
 result. Usage: python3 eval_units.py EVAL_DIR
 """

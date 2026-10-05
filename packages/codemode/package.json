@@ -1,5 +1,5 @@
 {
-	"name": "@earendil-works/pi-codemode",
+	"name": "@jeffhub/jeff-code-codemode",
 	"version": "0.99.2",
 	"description": "Sandboxed JavaScript execution where the only capability is calling injected tools",
 	"type": "module",
@@ -38,7 +38,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"keywords": [
-		"pi",
+		"jeff-code",
 		"codemode",
 		"sandbox",
 		"quickjs",
@@ -48,7 +48,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/codemode"
 	},
 	"engines": {

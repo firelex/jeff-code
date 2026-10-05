@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import { getModel } from "@jeffhub/jeff-code-ai/compat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -15,8 +15,8 @@ const strictToolNames = ["read", "bash", "powershell", "edit", "write"] as const
 describe("strict built-in tools", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
-	it.each([undefined, "0", "1"])("prefers strict sampling with PI_EXPERIMENTAL=%s", (experimental) => {
-		vi.stubEnv("PI_EXPERIMENTAL", experimental);
+	it.each([undefined, "0", "1"])("prefers strict sampling with JEFF_EXPERIMENTAL=%s", (experimental) => {
+		vi.stubEnv("JEFF_EXPERIMENTAL", experimental);
 		const definitions = createAllToolDefinitions(process.cwd());
 		const tools = createAllTools(process.cwd());
 		for (const name of strictToolNames) {

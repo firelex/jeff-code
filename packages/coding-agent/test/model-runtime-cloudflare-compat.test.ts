@@ -1,4 +1,4 @@
-import { complete, resetApiProviders } from "@earendil-works/pi-ai/compat";
+import { complete, resetApiProviders } from "@jeffhub/jeff-code-ai/compat";
 import { describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";

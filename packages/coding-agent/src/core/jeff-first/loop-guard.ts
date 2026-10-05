@@ -1,4 +1,4 @@
-import type { Message, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { Message, ToolCall, ToolResultMessage } from "@jeffhub/jeff-code-ai";
 import { JEFF_PROVIDER } from "./provider.ts";
 
 /**
@@ -115,7 +115,7 @@ function callText(call: ToolCall): string {
 
 /**
  * Whether a new tool call matches an earlier one: the same tool, and for a shell command that writes no file a
- * near-identical command (compareTexts); every other call (a shell write, pi's other tools) must be equal after
+ * near-identical command (compareTexts); every other call (a shell write, Jeff-Code's other tools) must be equal after
  * white space normalisation.
  */
 export function compareCalls(next: ToolCall, previous: ToolCall): CallComparison {
@@ -150,7 +150,7 @@ const WRITING_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Whether a tool call (probably) writes a file: pi's write and edit tools, or a shell command that redirects into a
+ * Whether a tool call (probably) writes a file: Jeff-Code's write and edit tools, or a shell command that redirects into a
  * file, edits in place, or runs a file-changing program. A heuristic: a missed write makes the guard re-ask a reply
  * that was a fair retry (one extra request); a wrongly counted write lets one loop through.
  */
@@ -211,7 +211,7 @@ export function shellFileWrites(command: string): {
 
 /**
  * What a call that writes did to the files: `changed` is false when every file it wrote got the same content it had
- * the last time it was written (a write that changes nothing is not progress), or when pi's write or edit tool failed.
+ * the last time it was written (a write that changes nothing is not progress), or when Jeff-Code's write or edit tool failed.
  */
 export interface WriteEffect {
 	changed: boolean;
@@ -358,7 +358,7 @@ export function stuckOutputs(messages: Message[]): StuckOutputs | null {
 }
 
 /** Qwen's last LOOP_GUARD.failedInARow tool results are failed shell commands (a non-zero exit, a timeout or an
- * abort: pi's bash tool marks each as an error). */
+ * abort: Jeff-Code's bash tool marks each as an error). */
 export interface FailedCommands {
 	rule: "failed_commands";
 	/** The last line of each failed command's output, oldest first, for example "Command exited with code 1". */

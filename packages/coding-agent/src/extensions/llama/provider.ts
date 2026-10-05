@@ -8,9 +8,9 @@ import {
 	type Provider,
 	type ProviderStreamOptions,
 	type RefreshModelsContext,
-} from "@earendil-works/pi-ai";
-import { llamaCppClassifyApi } from "@earendil-works/pi-ai/api/llama-cpp-classify.lazy";
-import { stream, streamSimple } from "@earendil-works/pi-ai/compat";
+} from "@jeffhub/jeff-code-ai";
+import { llamaCppClassifyApi } from "@jeffhub/jeff-code-ai/api/llama-cpp-classify.lazy";
+import { stream, streamSimple } from "@jeffhub/jeff-code-ai/compat";
 import {
 	LlamaClient,
 	type LlamaModelInfo,

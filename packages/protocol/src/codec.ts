@@ -1,4 +1,4 @@
-import { isJsonValue } from "@earendil-works/chord";
+import { isJsonValue } from "@jeffhub/jeff-code-chord";
 import { Check } from "typebox/value";
 import { decodeCbor, encodeCbor } from "./cbor/index.ts";
 import { DEFAULT_MAX_FRAME_LENGTH, encodeFrame, FrameDecoder, type FrameDecoderOptions } from "./framing.ts";

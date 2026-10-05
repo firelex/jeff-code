@@ -1,4 +1,4 @@
-# Runs the repo's /is prompt against an issue when the `pi-analyze` label is added
+# Runs the repo's /is prompt against an issue when the `jeff-analyze` label is added
 # or when a staff member comments `@issuron analyze` anywhere on an issue.
 #
 # Comment triggers can include one `#run-on-*` tag anywhere in the text:
@@ -10,19 +10,19 @@
 # intentionally restricted to hardcoded aliases in the authorization step.
 #
 # Setup required before this works:
-#   1. Create a `pi-analyze` GitHub environment on the repo and add a
-#      `PI_AUTH_JSON` secret containing the contents of a pi auth.json
-#      (~/.pi/agent/auth.json).
-#   2. Create the `pi-analyze` label.
+#   1. Create a `jeff-analyze` GitHub environment on the repo and add a
+#      `JEFF_AUTH_JSON` secret containing the contents of a Jeff-Code auth.json
+#      (~/.jeff/agent/auth.json).
+#   2. Create the `jeff-analyze` label.
 #   3. Add a repository secret `EARENDIL_ORG_READ_TOKEN` with permission to
 #      read `earendil-works` org membership. The authorization job uses it to
 #      verify that the label actor is an active member of `earendil-works/staff`.
-#   4. Add an environment secret `PI_GIST_TOKEN` on `pi-analyze` with gist
+#   4. Add an environment secret `JEFF_GIST_TOKEN` on `jeff-analyze` with gist
 #      creation permission. The analysis job uses it to upload the exported
 #      session gist.
-#   5. Add an environment secret `PI_AUTH_UPDATE_TOKEN` on `pi-analyze` with
+#   5. Add an environment secret `JEFF_AUTH_UPDATE_TOKEN` on `jeff-analyze` with
 #      permission to update this repo's environment secrets. The analysis job
-#      uses it to write back refreshed `PI_AUTH_JSON` contents. Fine-grained
+#      uses it to write back refreshed `JEFF_AUTH_JSON` contents. Fine-grained
 #      tokens need repository permission `Environments: read and write` on this
 #      repo; classic tokens need the `repo` scope. The `Secrets` permission is
 #      not enough: it only covers repository-level Actions secrets, while every
@@ -31,7 +31,7 @@
 #      accessible by personal access token" and the stored credential goes stale
 #      until its refresh token is rejected.
 #
-# `PI_AUTH_JSON` must come from a login dedicated to this workflow. OpenAI Codex
+# `JEFF_AUTH_JSON` must come from a login dedicated to this workflow. OpenAI Codex
 # rotates refresh tokens on every refresh, so sharing one auth.json with a
 # developer machine invalidates whichever copy refreshes second, and analysis
 # then fails with "OAuth refresh failed for openai-codex".
@@ -42,8 +42,8 @@
 #
 # The session runs in a high-entropy checkout directory so the recorded cwd is
 # a unique string. Import the session into a local checkout with the
-# /ir extension command (.pi/extensions/import-repro.ts):
-#   pi "/ir <gist-id | gist-url | pi.dev/session URL>"
+# /ir extension command (.jeff/extensions/import-repro.ts):
+#   jeff "/ir <gist-id | gist-url | pi.dev/session URL>"
 
 name: Issue Analysis
 
@@ -78,7 +78,7 @@ jobs:
           ORG_READ_TOKEN: ${{ secrets.EARENDIL_ORG_READ_TOKEN }}
         with:
           script: |
-            const ANALYZE_LABEL = 'pi-analyze';
+            const ANALYZE_LABEL = 'jeff-analyze';
             const TRIGGER_RE = /@issuron\s+analyze\b/i;
             const RUN_ON_TAG_RE = /#run-on-([a-z0-9][a-z0-9_-]*)\b/gi;
             const RUNNER_PROFILES = {
@@ -111,7 +111,7 @@ jobs:
 
             if (context.eventName === 'issues') {
               if (context.payload.action !== 'labeled' || context.payload.label?.name !== ANALYZE_LABEL) {
-                console.log('Not a pi-analyze label event');
+                console.log('Not a jeff-analyze label event');
                 return;
               }
             } else if (context.eventName === 'issue_comment') {
@@ -255,10 +255,10 @@ jobs:
     needs: authorize
     if: needs.authorize.outputs.should_run == 'true'
     runs-on: ${{ fromJSON(needs.authorize.outputs.runs_on) }}
-    environment: pi-analyze
+    environment: jeff-analyze
     timeout-minutes: 45
     concurrency:
-      group: issue-analysis-pi-auth
+      group: issue-analysis-jeff-auth
       cancel-in-progress: false
     env:
       ISSUE_ANALYSIS_MODEL: openai-codex/gpt-5.5
@@ -270,7 +270,7 @@ jobs:
         with:
           script: |
             const crypto = require('crypto');
-            core.setOutput('name', `pi-ci-${crypto.randomBytes(16).toString('hex')}`);
+            core.setOutput('name', `jeff-ci-${crypto.randomBytes(16).toString('hex')}`);
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -333,18 +333,18 @@ jobs:
         id: write_auth
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PI_AUTH_JSON: ${{ secrets.PI_AUTH_JSON }}
+          JEFF_AUTH_JSON: ${{ secrets.JEFF_AUTH_JSON }}
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
 
-            const authJson = process.env.PI_AUTH_JSON;
+            const authJson = process.env.JEFF_AUTH_JSON;
             if (!authJson) {
-              throw new Error('PI_AUTH_JSON secret is not configured for the pi-analyze environment');
+              throw new Error('JEFF_AUTH_JSON secret is not configured for the jeff-analyze environment');
             }
 
-            const agentDir = path.join(process.env.RUNNER_TEMP, 'pi-agent');
+            const agentDir = path.join(process.env.RUNNER_TEMP, 'jeff-agent');
             fs.mkdirSync(agentDir, { recursive: true });
             const authPath = path.join(agentDir, 'auth.json');
             fs.writeFileSync(authPath, authJson, { mode: 0o600 });
@@ -352,11 +352,11 @@ jobs:
               fs.chmodSync(authPath, 0o600);
             }
 
-      - name: Run pi /is
+      - name: Run jeff /is
         id: run_pi
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
+          JEFF_CODING_AGENT_DIR: ${{ runner.temp }}/jeff-agent
           GH_TOKEN: ${{ github.token }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
           EXTRA_INSTRUCTIONS: ${{ needs.authorize.outputs.extra_instructions }}
@@ -368,7 +368,7 @@ jobs:
             const { spawn } = require('child_process');
 
             const workdir = path.join(process.env.GITHUB_WORKSPACE, process.env.WORKDIR);
-            const outDir = path.join(process.env.RUNNER_TEMP, 'pi-out');
+            const outDir = path.join(process.env.RUNNER_TEMP, 'jeff-out');
             const sessionDir = path.join(outDir, 'session');
             fs.mkdirSync(sessionDir, { recursive: true });
 
@@ -412,16 +412,16 @@ jobs:
             await new Promise((resolve) => output.end(resolve));
 
             if (exitCode !== 0) {
-              throw new Error(`pi /is failed with exit code ${exitCode}`);
+              throw new Error(`jeff /is failed with exit code ${exitCode}`);
             }
 
       - name: Persist refreshed auth.json
         if: always() && steps.write_auth.outcome == 'success'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_TOKEN: ${{ secrets.PI_AUTH_UPDATE_TOKEN }}
-          PI_AUTH_JSON: ${{ secrets.PI_AUTH_JSON }}
-          PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
+          GH_TOKEN: ${{ secrets.JEFF_AUTH_UPDATE_TOKEN }}
+          JEFF_AUTH_JSON: ${{ secrets.JEFF_AUTH_JSON }}
+          JEFF_CODING_AGENT_DIR: ${{ runner.temp }}/jeff-agent
         with:
           script: |
             const fs = require('fs');
@@ -429,10 +429,10 @@ jobs:
             const { spawn } = require('child_process');
 
             if (!process.env.GH_TOKEN) {
-              throw new Error('PI_AUTH_UPDATE_TOKEN is not configured for the pi-analyze environment');
+              throw new Error('JEFF_AUTH_UPDATE_TOKEN is not configured for the jeff-analyze environment');
             }
 
-            const authPath = path.join(process.env.PI_CODING_AGENT_DIR, 'auth.json');
+            const authPath = path.join(process.env.JEFF_CODING_AGENT_DIR, 'auth.json');
             if (!fs.existsSync(authPath)) {
               core.warning('auth.json was not created; skipping auth persistence');
               return;
@@ -451,7 +451,7 @@ jobs:
               throw new Error('Refusing to persist auth.json without openai-codex OAuth refresh credentials');
             }
 
-            if (authJson === process.env.PI_AUTH_JSON) {
+            if (authJson === process.env.JEFF_AUTH_JSON) {
               console.log('auth.json is unchanged; skipping secret update');
               return;
             }
@@ -459,7 +459,7 @@ jobs:
             await new Promise((resolve, reject) => {
               const child = spawn(
                 'gh',
-                ['secret', 'set', 'PI_AUTH_JSON', '--env', 'pi-analyze', '--repo', process.env.GITHUB_REPOSITORY],
+                ['secret', 'set', 'JEFF_AUTH_JSON', '--env', 'jeff-analyze', '--repo', process.env.GITHUB_REPOSITORY],
                 { env: process.env, stdio: ['pipe', 'inherit', 'pipe'] },
               );
               const stderrChunks = [];
@@ -477,7 +477,7 @@ jobs:
                 reject(
                   new Error(
                     `gh secret set failed with exit code ${code}${details ? `: ${details}` : ''}. ` +
-                      'PI_AUTH_UPDATE_TOKEN needs repository permission "Environments: read and write" on this repo.',
+                      'JEFF_AUTH_UPDATE_TOKEN needs repository permission "Environments: read and write" on this repo.',
                   ),
                 );
               });
@@ -489,7 +489,7 @@ jobs:
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
+          JEFF_CODING_AGENT_DIR: ${{ runner.temp }}/jeff-agent
           WORKDIR: ${{ steps.workdir.outputs.name }}
         with:
           script: |
@@ -512,7 +512,7 @@ jobs:
               return undefined;
             }
 
-            const outDir = path.join(process.env.RUNNER_TEMP, 'pi-out');
+            const outDir = path.join(process.env.RUNNER_TEMP, 'jeff-out');
             const sessionFile = findFirstJsonl(path.join(outDir, 'session'));
             if (!sessionFile) {
               throw new Error('No session jsonl file found');
@@ -541,18 +541,18 @@ jobs:
         if: always() && steps.export_session_files.outcome == 'success'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PI_GIST_TOKEN: ${{ secrets.PI_GIST_TOKEN }}
+          JEFF_GIST_TOKEN: ${{ secrets.JEFF_GIST_TOKEN }}
         with:
-          github-token: ${{ secrets.PI_GIST_TOKEN }}
+          github-token: ${{ secrets.JEFF_GIST_TOKEN }}
           script: |
             const fs = require('fs');
             const path = require('path');
 
-            if (!process.env.PI_GIST_TOKEN) {
-              throw new Error('PI_GIST_TOKEN is not configured');
+            if (!process.env.JEFF_GIST_TOKEN) {
+              throw new Error('JEFF_GIST_TOKEN is not configured');
             }
 
-            const outDir = path.join(process.env.RUNNER_TEMP, 'pi-out');
+            const outDir = path.join(process.env.RUNNER_TEMP, 'jeff-out');
             const files = {};
             for (const filename of ['session.html', 'session.jsonl']) {
               files[filename] = { content: fs.readFileSync(path.join(outDir, filename), 'utf8') };
@@ -575,7 +575,7 @@ jobs:
           GIST_URL: ${{ steps.gist.outputs.url }}
           GIST_ID: ${{ steps.gist.outputs.id }}
           SHARE_URL: ${{ steps.gist.outputs.share_url }}
-          SESSION_JSONL: ${{ runner.temp }}/pi-out/session.jsonl
+          SESSION_JSONL: ${{ runner.temp }}/jeff-out/session.jsonl
         with:
           script: |
             const fs = require('fs');
@@ -621,7 +621,7 @@ jobs:
             const shareUrl = process.env.SHARE_URL;
             const lastAgentMessage = extractLastAgentMessage(process.env.SESSION_JSONL);
             const body = [
-              'Pi issue analysis finished.',
+              'Jeff-Code issue analysis finished.',
               '',
               `Share URL: ${shareUrl}`,
               `Gist: ${gistUrl}`,
@@ -629,7 +629,7 @@ jobs:
               'Continue locally from a checkout with:',
               '',
               '```sh',
-              `pi "/ir ${gistId}"`,
+              `jeff "/ir ${gistId}"`,
               '```',
               '',
               '<details>',
@@ -656,7 +656,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
-            const lines = ['Pi issue analysis failed; no analysis was produced.', '', `Run: ${process.env.RUN_URL}`];
+            const lines = ['Jeff-Code issue analysis failed; no analysis was produced.', '', `Run: ${process.env.RUN_URL}`];
             if (process.env.SHARE_URL) {
               lines.push(`Partial session: ${process.env.SHARE_URL}`);
             }
@@ -681,7 +681,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                name: 'pi-analyze',
+                name: 'jeff-analyze',
               });
             } catch (error) {
               if (error.status !== 404) throw error;

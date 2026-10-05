@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@jeffhub/jeff-code-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -11,7 +11,7 @@ import {
 	type ThinkingContent,
 	type ToolCall,
 	type Usage,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { failedCommands, repeatedAction, stuckOutputs } from "./loop-guard.ts";
 import { findRunaway } from "./runaway.ts";
 import { trimState } from "./state.ts";
@@ -41,7 +41,7 @@ export interface ThinkingControlOptions {
 /** The thinking of a reply cut at the limit: the text so far and the server's output-token count at the cut. */
 interface ThinkingCut {
 	thinking: string;
-	/** The field the server streamed the thinking in (pi's thinkingSignature), kept on the joined reply. */
+	/** The field the server streamed the thinking in (Jeff-Code's thinkingSignature), kept on the joined reply. */
 	signature: string | undefined;
 	tokens: number;
 	/** The events of the reply up to the cut (the cut thinking's own events). */
@@ -67,7 +67,7 @@ interface Attempt {
 type LimitMode = { kind: "none" } | { kind: "limit"; tokens: number } | { kind: "continue"; thinking: string };
 
 /**
- * The request body changes the thinking limit needs, on top of pi's own body:
+ * The request body changes the thinking limit needs, on top of Jeff-Code's own body:
  * - limit: every streamed chunk carries the output tokens so far (vLLM stream_options.continuous_usage_stats), so the
  *   thinking is counted as the server counts output tokens;
  * - continue: the request ends with the cut reply as an assistant message (its thinking in the "reasoning" field, no
@@ -79,7 +79,7 @@ type LimitMode = { kind: "none" } | { kind: "limit"; tokens: number } | { kind: 
 function limitPayload(payload: unknown, mode: LimitMode): unknown {
 	if (mode.kind === "none") return payload;
 	if (payload === null || typeof payload !== "object") {
-		throw new Error("the thinking limit needs pi's request body as an object");
+		throw new Error("the thinking limit needs Jeff-Code's request body as an object");
 	}
 	const body = payload as { stream_options?: object; messages?: unknown };
 	const counted = {
@@ -87,7 +87,8 @@ function limitPayload(payload: unknown, mode: LimitMode): unknown {
 		stream_options: { ...body.stream_options, include_usage: true, continuous_usage_stats: true },
 	};
 	if (mode.kind === "limit") return counted;
-	if (!Array.isArray(body.messages)) throw new Error("the thinking limit's continuation needs pi's request messages");
+	if (!Array.isArray(body.messages))
+		throw new Error("the thinking limit's continuation needs Jeff-Code's request messages");
 	return {
 		...counted,
 		messages: [...body.messages, { role: "assistant", content: "", reasoning: mode.thinking }],
@@ -96,7 +97,7 @@ function limitPayload(payload: unknown, mode: LimitMode): unknown {
 	};
 }
 
-/** Reads enable_thinking and reasoning_effort from the request body pi sent (chat_template_kwargs). */
+/** Reads enable_thinking and reasoning_effort from the request body Jeff-Code sent (chat_template_kwargs). */
 function sentThinking(payload: unknown): QwenRequestRecord["sent"] {
 	const kwargs =
 		payload !== null && typeof payload === "object"
@@ -312,7 +313,7 @@ function replay(attempt: Attempt): AssistantMessageEventStream {
 /**
  * Thinking control for the coding model (Qwen) in teacher and record modes, wrapped around the model request:
  *
- * 1. The router chooses each request's thinking level (off, low, medium or xhigh), sent as pi's thinking level.
+ * 1. The router chooses each request's thinking level (off, low, medium or xhigh), sent as Jeff-Code's thinking level.
  * 2. Loop guard (loop-guard.ts): a reply generated at "off" or "low" whose tool calls repeat (equal or near-identical)
  *    one of Qwen's previous 6 actions, with no file changed since, is discarded (it never enters the session) and the
  *    turn is asked again once at "xhigh". Before the request, the turn is set to "xhigh" whatever the router chose
@@ -412,7 +413,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 			const level: QwenThinkingLevel = forced.length > 0 ? REASK_LEVEL : choice.level;
 			if (level !== "off" && !model.reasoning) {
 				throw new Error(
-					`the router ${options.router.name} chose thinking "${level}", but the model ${model.id} is not marked as able to think (model.reasoning), so pi would send no thinking`,
+					`the router ${options.router.name} chose thinking "${level}", but the model ${model.id} is not marked as able to think (model.reasoning), so Jeff-Code would send no thinking`,
 				);
 			}
 
@@ -461,7 +462,7 @@ export function createThinkingControlStreamFn(options: ThinkingControlOptions): 
 			writeLine(second, 2, "kept", null);
 			return replay(second);
 		} catch (error) {
-			// Not a fallback: the turn ends here, as an error the agent loop shows and pi does not retry.
+			// Not a fallback: the turn ends here, as an error the agent loop shows and Jeff-Code does not retry.
 			return errorStream(
 				model,
 				`${JEFF_FIRST_ERROR_PREFIX} the thinking control failed on turn ${thisTurn}: ${describeError(error)}`,

@@ -1,5 +1,5 @@
-import { defineFacet, type FacetLoader } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { defineFacet, type FacetLoader } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import { describe, expect, test, vi } from "vitest";
 import { SessionPlugins } from "../src/experimental/services/plugins.ts";
 import { createSessionWorkerServices } from "../src/experimental/services/worker.ts";

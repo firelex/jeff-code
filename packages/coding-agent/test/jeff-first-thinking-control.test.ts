@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@jeffhub/jeff-code-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -12,7 +12,7 @@ import {
 	normalizeContext,
 	type SimpleStreamOptions,
 	type ToolCall,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fixedRouter, type QwenThinkingLevel, type ThinkingRouter } from "../src/core/jeff-first/thinking.ts";
 import { createThinkingControlStreamFn } from "../src/core/jeff-first/thinking-control.ts";

@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore } from "@jeffhub/jeff-code-ai";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	getModelCatalogProviderKey,

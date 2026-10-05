@@ -11,12 +11,12 @@
  * - Minimal: Shows only tool call, no output (this extension's collapsed mode)
  *
  * Usage:
- *   pi -e ./minimal-mode.ts
+ *   jeff -e ./minimal-mode.ts
  *
  * Then use ctrl+o to toggle between minimal (collapsed) and full (expanded) views.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@jeffhub/jeff-code";
 import {
 	createBashToolDefinition,
 	createEditToolDefinition,
@@ -25,8 +25,8 @@ import {
 	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+} from "@jeffhub/jeff-code";
+import { Text } from "@jeffhub/jeff-code-tui";
 import { homedir } from "os";
 
 /**

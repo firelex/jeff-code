@@ -1,6 +1,6 @@
-import { type AttachedReplicatedState, type Context, type JsonValue, replicatedState } from "@earendil-works/chord";
-import { withoutAbortSignal } from "@earendil-works/chord/context";
-import { applyImmutable, type Op } from "@earendil-works/chord/delta";
+import { type AttachedReplicatedState, type Context, type JsonValue, replicatedState } from "@jeffhub/jeff-code-chord";
+import { withoutAbortSignal } from "@jeffhub/jeff-code-chord/context";
+import { applyImmutable, type Op } from "@jeffhub/jeff-code-chord/delta";
 import { CommittedStateSource, CommittedWatch } from "../session/observation.ts";
 import type { SessionImpl } from "../session/session.ts";
 import type {

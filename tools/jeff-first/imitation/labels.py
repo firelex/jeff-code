@@ -13,7 +13,7 @@ How a match is decided:
    `export`, `sleep`, a plain `echo`) is NEUTRAL; a part that acts (writes or edits a file, compiles, runs its own
    inline script, `apt-get update`, anything not in the table) is OTHER.
 2. Each option's target is read from its description with the description patterns of scout_value.py (the same fixed
-   sentences pi writes). Run and Check options are compared by their own command, exactly (runcheck-report.md): a run
+   sentences Jeff-Code writes). Run and Check options are compared by their own command, exactly (runcheck-report.md): a run
    matches when it runs the same script or program (resolved in each one's own folder: the option's `cd FOLDER`),
    with the same words otherwise (interpreter, environment assignments, arguments; `time`, `timeout N`, `nice` and
    `stdbuf` left out, and output redirections such as `2>&1`); a check (pytest, make, npm test, ...) matches the same

@@ -159,7 +159,7 @@ async function runScenario(
 		],
 		{
 			cwd: workDir,
-			env: { ...conformanceEnv(), PI_MCP_CONFORMANCE_REPORT: reportPath },
+			env: { ...conformanceEnv(), JEFF_MCP_CONFORMANCE_REPORT: reportPath },
 			timeoutMs: SCENARIO_TIMEOUT_MS + 30_000,
 		},
 	);

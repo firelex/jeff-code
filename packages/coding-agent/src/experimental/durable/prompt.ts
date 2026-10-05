@@ -1,4 +1,4 @@
-import { defineExtension, type PromptInput, section } from "@earendil-works/pi-durable";
+import { defineExtension, type PromptInput, section } from "@jeffhub/jeff-code-durable";
 import { getAgentDir } from "../../config.ts";
 import { loadProjectContextFiles } from "../../core/resource-loader.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
@@ -16,12 +16,12 @@ const CONTRIBUTIONS = {
 	write: writeToolSystemPromptContribution,
 };
 
-/** pi's section order; `buildSystemPromptSections()` omits the ones without content. */
+/** Jeff-Code's section order; `buildSystemPromptSections()` omits the ones without content. */
 const KEYS = ["preamble", "tools", "rules", "docs", "project_context", "skills", "cwd"] as const;
 
 /**
- * pi's system prompt as one extension: the sections of `buildSystemPromptSections()` for the request's tools and the
- * conversation's directory. Context files and skills load once per directory, like pi at startup.
+ * Jeff-Code's system prompt as one extension: the sections of `buildSystemPromptSections()` for the request's tools and the
+ * conversation's directory. Context files and skills load once per directory, like Jeff-Code at startup.
  */
 export function createPiPrompt(settings: SettingsManager, fallbackCwd: string) {
 	const resources = new Map<string, { contextFiles: { path: string; content: string }[]; skills: Skill[] }>();

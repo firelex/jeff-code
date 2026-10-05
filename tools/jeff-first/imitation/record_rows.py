@@ -1,9 +1,9 @@
-"""Stage 3: Jeff training rows from our own record-mode sessions (bash-only pi with Qwen3.8-27B).
+"""Stage 3: Jeff training rows from our own record-mode sessions (bash-only Jeff-Code with Qwen3.8-27B).
 
-In record mode the scout never acts. Before each of the coding model's turns pi logs one trace line (schema
+In record mode the scout never acts. Before each of the coding model's turns Jeff-Code logs one trace line (schema
 "jeff-first-trace/4", kind "record"; see packages/coding-agent/src/core/jeff-first/trace.ts, RecordRecord) holding the
 scout's full option lists at that moment (`lists`: `tools` and `arguments_by_tool`) and the coding model's action
-(`action.tool_calls`). The pi session file (agent/pi/sessions/*.jsonl: a "session" header line with the session id
+(`action.tool_calls`). The Jeff-Code session file (agent/pi/sessions/*.jsonl: a "session" header line with the session id
 and working folder, then one line per message) holds every command with its full output.
 
 Each logged turn's first point is labelled with the option matched by the turn's first command that is not neutral
@@ -14,7 +14,7 @@ Rows are tagged quality "exact".
 Two trace schemas (all lines of one session must have the same one):
 - "jeff-first-trace/4": menus are logged only before each coding-model turn, so the points inside a stint (after a
   scout step) have no menu and only the turn's first point is labelled (`follow_stints` False).
-- "jeff-first-trace/5": pi also logs a "record_step" line after each call of a turn that another call of the same turn
+- "jeff-first-trace/5": Jeff-Code also logs a "record_step" line after each call of a turn that another call of the same turn
   follows (fields `turn`, `step`: the number of the turn's calls run, `calls_in_turn`, `command`), with the menu built
   right after that call ran and the turn's calls so far credited to the scout. Stints are followed (`follow_stints`
   True, as stage 1): when the turn's command at a point matches an option, the next point is before the turn's next
@@ -29,11 +29,11 @@ Checks (each raises ValueError naming the session and turn): every trace session
 tool calls equal the session's assistant message for that turn; the number of steps the record's state covers
 (recentSteps plus stepsLeftOut) equals the number of steps before that turn in the session file, and its last logged
 step is the session's last command (both logged step shapes are read, see `_check_last_step`); every tool call is
-bash (the imitation harness runs pi with bash only). A turn whose model call ended in "error" or "aborted" gets no
+bash (the imitation harness runs Jeff-Code with bash only). A turn whose model call ended in "error" or "aborted" gets no
 row (its menu is fine, but the coding model took no action to imitate), and so does a turn with no record line;
 the returned notes list each such turn.
 
-A bash call whose arguments hold no command text (Qwen sometimes sends `{}`; pi answers "Validation failed") ran
+A bash call whose arguments hold no command text (Qwen sometimes sends `{}`; Jeff-Code answers "Validation failed") ran
 nothing; state.ts shows it as the tool name and its arguments written as JSON (`bash {}`), and so does this module, so
 the turn is labelled from that text (it matches no option).
 
@@ -41,7 +41,7 @@ the turn is labelled from that text (it matches no option).
 trial). A trial is "cut" (`trial_cut`) when Harbor stopped the agent at its time limit (result.json's exception type
 "AgentTimeoutError"), when the agent process exited non-zero mid-turn ("NonZeroAgentExitCodeError", e.g. killed by
 a pkill in the coding model's own command) or when it has no result.json (the collection was stopped, or the trial is still running when
-its folder is copied). Then pi may have been killed in the middle of writing the trace's or the session file's last
+its folder is copied). Then Jeff-Code may have been killed in the middle of writing the trace's or the session file's last
 line, and the trace may already hold the record line of a turn the session file does not have yet: only in a cut
 trial is an unparsable last line dropped and such a record line dropped, each with a note. Otherwise both raise.
 """
@@ -151,8 +151,8 @@ def _text(content: str | list[dict]) -> str:
 
 @dataclass(frozen=True)
 class Session:
-    """One pi session file: its working folder, its assistant messages in order, tool results by call id, and for
-    each assistant message the number of steps (tool calls) before it that pi's context no longer holds because of
+    """One Jeff-Code session file: its working folder, its assistant messages in order, tool results by call id, and for
+    each assistant message the number of steps (tool calls) before it that Jeff-Code's context no longer holds because of
     a compaction (see `_read_session`)."""
 
     cwd: str
@@ -163,7 +163,7 @@ class Session:
 
 def _read_session(path: Path, cut: bool, notes: list[str]) -> tuple[str, Session]:
     """The session id and its contents. The entries must form one chain (each entry's parent is the entry before it),
-    so the file's order is the context's order. After a compaction entry pi's context holds the summary, the entries
+    so the file's order is the context's order. After a compaction entry Jeff-Code's context holds the summary, the entries
     from its firstKeptEntryId on and every later entry (session-manager.ts), so the steps before firstKeptEntryId are
     hidden from the scout's state from then on."""
     lines, cut_notes = _json_lines(path, "cut" if cut else None)
@@ -218,7 +218,7 @@ SCHEMA_STEPS = "jeff-first-trace/5"
 
 @dataclass(frozen=True)
 class RecordSession:
-    """One pi session of a trace, checked and ready to label: its rows' shared fields, the task text, its turns as
+    """One Jeff-Code session of a trace, checked and ready to label: its rows' shared fields, the task text, its turns as
     labels.py takes them, the record line of each logged turn (by 1-based turn number), the session file, the
     record_step lines by (turn, step) and whether its schema logs them (see the module docstring)."""
 
@@ -256,7 +256,7 @@ def record_sessions(
     prepared: list[RecordSession] = []
     for session_id, records in by_session.items():
         if session_id not in sessions:
-            raise ValueError(f"no pi session file holds the session {session_id} of the trace")
+            raise ValueError(f"no Jeff-Code session file holds the session {session_id} of the trace")
         if len(schemas[session_id]) != 1 or not schemas[session_id] <= {SCHEMA_TURNS, SCHEMA_STEPS}:
             raise ValueError(f"{session_id}: the trace's lines have the schemas {sorted(schemas[session_id])}; one of {SCHEMA_TURNS} or {SCHEMA_STEPS} is needed")
         step_records = steps_by_session.get(session_id, {})
@@ -289,7 +289,7 @@ def record_sessions(
                 if record["action"]["stop_reason"] in FAILED_STOPS:
                     notes.append(f"{session_id} turn {number}: the model call ended with {record['action']['stop_reason']}; no row")
                     record = None
-            # pi runs each bash call in a new shell in the session's folder; the user's home is not recorded.
+            # Jeff-Code runs each bash call in a new shell in the session's folder; the user's home is not recorded.
             folders = [part_folders(command.text, Shell(cwd, None))[0] for command in commands]
             turns.append(LabelTurn(commands, labelled=record is not None, folders=folders))
         missing = sorted(set(records) - set(range(1, len(assistants) + 1)))
@@ -307,7 +307,7 @@ def record_sessions(
 
 def check_logged_state(prepared: RecordSession, turn: int, history: list[ShellStep]) -> None:
     """The record line of `turn` must describe the session file's own steps before it (`history`: every step before
-    the turn as the coding model took it, compacted steps included): as many steps as pi's context held, and its last
+    the turn as the coding model took it, compacted steps included): as many steps as Jeff-Code's context held, and its last
     logged step is the session's last command (ValueError otherwise)."""
     record = prepared.records[turn]
     covered = len(record["state"]["recentSteps"]) + record["state"]["stepsLeftOut"]
@@ -315,7 +315,7 @@ def check_logged_state(prepared: RecordSession, turn: int, history: list[ShellSt
     if covered != len(kept):
         raise ValueError(
             f"{prepared.session_id} turn {turn}: the logged state covers {covered} steps, "
-            f"the session file has {len(kept)} steps in pi's context before this turn"
+            f"the session file has {len(kept)} steps in Jeff-Code's context before this turn"
         )
     if record["state"]["recentSteps"]:
         _check_last_step(record["state"]["recentSteps"][-1], kept[-1], f"{prepared.session_id} turn {turn}")
@@ -340,7 +340,7 @@ def own_steps(prepared: RecordSession) -> tuple[list[ShellStep], list[int]]:
 
 def check_step_line(prepared: RecordSession, line: dict, own_before: list[ShellStep]) -> None:
     """A record_step line must describe the session file's steps (ValueError otherwise): the steps before its turn
-    that pi's context held (`own_before`: every step before the turn, compacted ones included) plus the turn's first
+    that Jeff-Code's context held (`own_before`: every step before the turn, compacted ones included) plus the turn's first
     `step` calls, the last of which is `command`; `calls_in_turn` is the turn's number of calls."""
     turn, step = line["turn"], line["step"]
     where = f"{prepared.session_id} step {step} of turn {turn}"
@@ -352,7 +352,7 @@ def check_step_line(prepared: RecordSession, line: dict, own_before: list[ShellS
     kept = len(own_before) - prepared.session.hidden_steps[turn - 1] + step
     covered = len(line["state"]["recentSteps"]) + line["state"]["stepsLeftOut"]
     if covered != kept:
-        raise ValueError(f"{where}: the logged state covers {covered} steps, the session file has {kept} steps in pi's context then")
+        raise ValueError(f"{where}: the logged state covers {covered} steps, the session file has {kept} steps in Jeff-Code's context then")
     if line["state"]["recentSteps"]:
         last = commands[step - 1]
         _check_last_step(line["state"]["recentSteps"][-1], ShellStep(last.text, last.output, last.is_error, by_scout=True), where)

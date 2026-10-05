@@ -1,13 +1,13 @@
-import { type Context, defineFacet, type Facet, type MutableReplicatedState } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, getSupportedThinkingLevels, type ModelThinkingLevel } from "@jeffhub/jeff-code-ai";
+import { type Context, defineFacet, type Facet, type MutableReplicatedState } from "@jeffhub/jeff-code-chord";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	AgentDoc,
 	type AgentState,
 	type Conversation,
 	type DocumentState,
 	type Harness,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import type { ModelRuntime } from "../../core/model-runtime.ts";
 import type { SettingsManager } from "../../core/settings-manager.ts";
 import { Models, type Models as ModelsService, type ModelsState } from "./models.ts";

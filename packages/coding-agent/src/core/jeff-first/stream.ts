@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@jeffhub/jeff-code-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -7,7 +7,7 @@ import {
 	type AssistantMessageEventStream,
 	createAssistantMessageEventStream,
 	type Model,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { type CheckCommands, detectCheckCommands } from "./check-commands.ts";
 import { liveFacts } from "./facts.ts";
 import { buildMenu, type MenuOption, matchToolCall } from "./menu.ts";
@@ -54,7 +54,7 @@ function failedMessage(model: Model<Api>, errorMessage: string, usage?: Assistan
 	};
 }
 
-/** pi's stream functions must not throw; a failed turn is a stream ending in an error event. */
+/** Jeff-Code's stream functions must not throw; a failed turn is a stream ending in an error event. */
 export function errorStream(model: Model<Api>, errorMessage: string): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 	stream.push({ type: "error", reason: "error", error: failedMessage(model, errorMessage) });
@@ -139,7 +139,7 @@ export function createShadowStreamFn(options: ShadowOptions): StreamFn {
 			});
 			prepared = { state: trimState(task, steps), menu, checks, menuMs: performance.now() - started };
 		} catch (error) {
-			// Not a fallback: the turn ends here, as an error the agent loop shows and pi does not retry.
+			// Not a fallback: the turn ends here, as an error the agent loop shows and Jeff-Code does not retry.
 			return errorStream(
 				model,
 				`${JEFF_FIRST_ERROR_PREFIX} could not build the menu for turn ${thisTurn}: ${describeError(error)}`,

@@ -1,7 +1,7 @@
 /**
- * Rebuild the chat-completions request pi sent for one recorded Qwen turn with the newest tool output shortened in each
+ * Rebuild the chat-completions request Jeff-Code sent for one recorded Qwen turn with the newest tool output shortened in each
  * way JeffFirst can shorten it (last 200, last 40, first 40, first 20 and last 20 lines), for
- * the output-trimming labels (trim_labels.py). The request is built with pi's own code exactly as routing_requests.ts
+ * the output-trimming labels (trim_labels.py). The request is built with Jeff-Code's own code exactly as routing_requests.ts
  * builds it (session projection, message conversion, the openai-completions request builder); the newest output is
  * shortened by the same function JeffFirst uses at run time (packages/coding-agent/src/core/jeff-first/output-trim.ts),
  * so the shortened text is the bytes the coding model would see. A long-running filter: one job per input line, one
@@ -10,7 +10,7 @@
  * Usage (Node 24 strips the types; on the hosts the esbuild bundle trim_requests.mjs runs instead):
  *   node results/imitation/scripts/trim_requests.ts < jobs.jsonl > bodies.jsonl
  *
- * Each input line: {"id", "session": path of the pi session .jsonl, "entryId": the assistant message entry}.
+ * Each input line: {"id", "session": path of the Jeff-Code session .jsonl, "entryId": the assistant message entry}.
  * Each output line, when the entry's parent is a tool result whose text is longer than TRIM_MIN_LINES lines:
  *   {"id", "eligible": true, "shownLines", "totalLines", "toolCallId", "task", "kwargs": {level: chat_template_kwargs},
  *    "body": the recorded request (xhigh), "trimmed": {cut: body for each cut that shortens it (output-trim.ts
@@ -43,7 +43,7 @@ interface Job {
 	entryId: string;
 }
 
-// The model entry pi built from Harbor's models.json (as routing_requests.ts).
+// The model entry Jeff-Code built from Harbor's models.json (as routing_requests.ts).
 const model: Model<"openai-completions"> = {
 	id: "qwen3.8-27b",
 	name: "qwen3.8-27b",
@@ -116,7 +116,7 @@ type ChatMessage = { role: string; tool_call_id?: string; content?: unknown };
 
 /**
  * The shortened body must equal the recorded one except for the content of the one tool message, and the output cap:
- * pi sets max_completion_tokens to the context window left after the prompt it estimates, so it moves with the prompt.
+ * Jeff-Code sets max_completion_tokens to the context window left after the prompt it estimates, so it moves with the prompt.
  */
 function checkOnlyToolChanged(job: Job, recorded: Record<string, unknown>, trimmed: Record<string, unknown>, callId: string) {
 	const { messages: a, max_completion_tokens: capA, ...restA } = recorded;

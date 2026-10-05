@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-mcp",
+	"name": "@jeffhub/jeff-code-mcp",
 	"version": "0.99.2",
-	"description": "Standalone Model Context Protocol client for pi and other applications",
+	"description": "Standalone Model Context Protocol client for Jeff-Code and other applications",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -44,7 +44,7 @@
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
+		"url": "git+https://github.com/firelex/jeff-code.git",
 		"directory": "packages/mcp"
 	},
 	"engines": {

@@ -29,7 +29,7 @@ test("Linux ARM64 prebuild supports 64 KB system pages", () => {
 // Opt in on a Windows test desktop: this replaces the system clipboard contents.
 test(
 	"writes Windows clipboard text through the native helper without command fallbacks",
-	{ skip: process.platform !== "win32" || process.env.PI_TEST_NATIVE_CLIPBOARD !== "1" },
+	{ skip: process.platform !== "win32" || process.env.JEFF_TEST_NATIVE_CLIPBOARD !== "1" },
 	async () => {
 		const clipboard = getNativeClipboard();
 		assert.ok(clipboard?.setText);

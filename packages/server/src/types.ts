@@ -1,4 +1,4 @@
-import type { Context, JsonValue, ServiceCall, ServiceProviderUpdate } from "@earendil-works/chord";
+import type { Context, JsonValue, ServiceCall, ServiceProviderUpdate } from "@jeffhub/jeff-code-chord";
 import type { ServerListener } from "./listener.ts";
 
 export interface ServerOptions {

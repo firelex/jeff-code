@@ -1,7 +1,7 @@
 /**
  * AI Gateway transport over the Workers AI binding.
  *
- * pi's Cloudflare AI Gateway support speaks HTTPS
+ * Jeff-Code's Cloudflare AI Gateway support speaks HTTPS
  * (`gateway.ai.cloudflare.com/v1/{account}/{gateway}/{provider}/...`, see `api/cloudflare.ts`),
  * which needs a Cloudflare API token even when the caller is a Worker in the gateway's own
  * account.

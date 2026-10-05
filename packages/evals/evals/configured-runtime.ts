@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { type Api, type Context, contentText, type Model, type ModelsSimpleStreamOptions } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { type Api, type Context, contentText, type Model, type ModelsSimpleStreamOptions } from "@jeffhub/jeff-code-ai";
+import { ModelRuntime } from "@jeffhub/jeff-code";
 
 type ModelFields = {
 	id: string;

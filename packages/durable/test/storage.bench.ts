@@ -2,13 +2,13 @@ import { strictEqual } from "node:assert/strict";
 import { copyFile, cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	STORAGE_READ_BENCHMARKS,
 	STORAGE_WRITE_BENCHMARKS,
 	seedStorageBenchmark,
 	seedStorageWriteBenchmark,
-} from "@earendil-works/pi-durable/testing";
+} from "@jeffhub/jeff-code-durable/testing";
 import { afterAll, bench, describe } from "vitest";
 import { openNodeJsonlStorage } from "../src/storage/jsonl/node.ts";
 import { MemoryStorage } from "../src/storage/memory.ts";

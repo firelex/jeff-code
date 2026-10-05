@@ -1,4 +1,4 @@
-import { encodeCbor, encodeClientMessage, encodeFrame, PROTOCOL_VERSION } from "@earendil-works/pi-protocol";
+import { encodeCbor, encodeClientMessage, encodeFrame, PROTOCOL_VERSION } from "@jeffhub/jeff-code-protocol";
 import { afterEach, expect, test } from "vitest";
 import type { ByteConnection, ByteConnectionHandler } from "../src/connection.ts";
 import { Server } from "../src/server.ts";

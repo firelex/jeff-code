@@ -1,4 +1,4 @@
-import type { NativeClipboard } from "@earendil-works/pi-tui";
+import type { NativeClipboard } from "@jeffhub/jeff-code-tui";
 import { writeFileSync } from "fs";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { readClipboardImage } from "../src/utils/clipboard-image.ts";
@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/utils/clipboard-command.ts", () => ({ runClipboardCommand: mocks.command }));
-vi.mock("@earendil-works/pi-tui", () => ({ getNativeClipboard: mocks.getNativeClipboard }));
+vi.mock("@jeffhub/jeff-code-tui", () => ({ getNativeClipboard: mocks.getNativeClipboard }));
 
 function commandResult(stdout: Buffer, status = 0): Buffer | undefined {
 	return status === 0 ? stdout : undefined;
@@ -105,7 +105,7 @@ describe("readClipboardImage", () => {
 			}
 			if (command === "powershell.exe") {
 				const spawnOptions = options as { env?: NodeJS.ProcessEnv };
-				expect(spawnOptions.env?.PI_WSL_CLIPBOARD_IMAGE_PATH).toBeUndefined();
+				expect(spawnOptions.env?.JEFF_WSL_CLIPBOARD_IMAGE_PATH).toBeUndefined();
 				expect(args[2]).toContain("$path = 'C:\\Users\\O''Hare\\clip.png'");
 				if (!tmpFile) throw new Error("wslpath should be called before powershell.exe");
 				writeFileSync(tmpFile, png);

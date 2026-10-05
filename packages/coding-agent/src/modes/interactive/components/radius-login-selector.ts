@@ -3,7 +3,7 @@
  * is Radius-only and is not exposed to other selectors.
  */
 
-import { type Color, foregroundAnsi, mixColors, parseColor, Text, type TUI } from "@earendil-works/pi-tui";
+import { type Color, foregroundAnsi, mixColors, parseColor, Text, type TUI } from "@jeffhub/jeff-code-tui";
 import { theme } from "../theme/theme.ts";
 import { ExtensionSelectorComponent } from "./extension-selector.ts";
 

@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@jeffhub/jeff-code-agent-core";
+import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage } from "@jeffhub/jeff-code-ai";
 import {
 	JEFF_SERVICE_POLICY,
 	type JeffCannotFit,
@@ -159,7 +159,7 @@ export interface OutputTrimRecord {
 	tool_call_id: string;
 	tool_name: string;
 	trimmer: string;
-	/** Lines of the output as pi showed it, and of the command's whole output (more when pi had cut it). */
+	/** Lines of the output as Jeff-Code showed it, and of the command's whole output (more when Jeff-Code had cut it). */
 	shown_lines: number;
 	total_lines: number;
 	/** The cuts that would shorten this output. */
@@ -193,7 +193,7 @@ export interface ToolResultInput {
 const LLM_ROLES = new Set(["user", "assistant", "toolResult", "system"]);
 
 /**
- * The trimmer pi's session calls for each finished tool call before the result enters the session (agent-session.ts
+ * The trimmer Jeff-Code's session calls for each finished tool call before the result enters the session (agent-session.ts
  * toolResultTransform). It shortens only the coding model's own calls (not the scout's), and only text results of more
  * than TRIM_MIN_LINES shown lines; it returns the new content, or undefined to keep the result as it is.
  */

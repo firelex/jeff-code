@@ -44,7 +44,7 @@ const GOOGLE_SDK_THINKING_LEVEL_MAP: Record<GoogleApiThinkingLevel, GoogleSdkThi
 	HIGH: GoogleSdkThinkingLevel.HIGH,
 };
 
-/** Resolve a supported pi level or model-specific Google mapping to a standard Google level. */
+/** Resolve a supported Jeff-Code level or model-specific Google mapping to a standard Google level. */
 export function resolveGoogleThinkingLevel<T extends GoogleApiType>(
 	model: Model<T>,
 	level: ThinkingLevel,

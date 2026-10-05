@@ -1,5 +1,5 @@
-import type { Draft, JsonRepresentation, JsonValue } from "@earendil-works/chord";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@jeffhub/jeff-code-ai";
+import type { Draft, JsonRepresentation, JsonValue } from "@jeffhub/jeff-code-chord";
 import { defineDoc } from "../documents.ts";
 import type { Transaction } from "../session/transaction.ts";
 import type { EntryId, SubmissionId, SubmissionSettlement, TaskId, TaskRecord, Tx } from "../types.ts";

@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { JsonValue } from "@earendil-works/chord";
-import { applyImmutable, type Op } from "@earendil-works/chord/delta";
+import type { JsonValue } from "@jeffhub/jeff-code-chord";
+import { applyImmutable, type Op } from "@jeffhub/jeff-code-chord/delta";
 import {
 	type ConversationId,
 	defineTask,
@@ -10,7 +10,7 @@ import {
 	MemoryStorage,
 	type TaskGraph,
 	type TaskId,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { openNodeSqliteStorage } from "../src/storage/sqlite/node.ts";
 import { ControlledStorage, context, flush } from "./session-support.ts";

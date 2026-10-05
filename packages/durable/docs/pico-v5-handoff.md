@@ -106,7 +106,7 @@ never reclaimed and default no-fsync behavior matches the specification.
 
 ## 6–7. Tracker transaction core, definitions, and typed access
 
-**Prerequisite:** `@earendil-works/chord/delta` exports the canonical
+**Prerequisite:** `@jeffhub/jeff-code-chord/delta` exports the canonical
 Astra-immutable-optimized `track`, `Tracker`, `Change`, and `Prepared`, and its
 draft placements reject values that are not strict JSON.
 Experimental variants under other Delta directories are not Pico APIs.
@@ -277,7 +277,7 @@ Cross-cutting constraints for these milestones:
   Record that concrete protocol in the normative specification when the kind
   lands. Do not add temporary built-in kinds or later replace a fake schema.
 - Keep all visible progress durable. Tests may use faux models and fake effects,
-  but production code must use pi-ai's exported `Models` interface and the real
+  but production code must use jeff-code-ai's exported `Models` interface and the real
   task chain; do not add a Pico model adapter or production fake successor.
 - Prepare every loaded `ConversationView` revision from the complete candidate
   Session commit before Storage admission. Never rebuild a view by subscribing
@@ -420,7 +420,7 @@ request intent, durable throttled partials, attempts/retry classification,
 deferred handle polling/cancellation, assistant entry settlement, and input-
 submission completion.
 
-Call pi-ai only through its exported `Models` methods: `getModel()`,
+Call jeff-code-ai only through its exported `Models` methods: `getModel()`,
 `streamSimple()`, `fetchDeferred()`, and `cancelDeferred()`. The test double must
 implement that same interface; production code gets no adapter. A missing configured model produces
 the durable `no_model` failure. All progress exposed to observers is committed
@@ -472,7 +472,7 @@ Neither side uses a production fake successor.
   `ToolRegistration.executionMode`, the `toolExecution` configuration field with
   its getter/setter, `TaskRuntime.getTask()` and `entry()`, `HookApi`, and the
   exported `GenerationTask`, `ToolTask`, and `PostToolsTask` tokens.
-- `@earendil-works/pi-durable/tools`: copy `read`, `bash`, `edit`, and `write`
+- `@jeffhub/jeff-code-durable/tools`: copy `read`, `bash`, `edit`, and `write`
   with their helpers from `packages/agent/src/harness/tools` and adapt them to
   `ToolRegistration` (`api.env`, `api.output`, `api.details`). Image reading in
   `read` is deferred; note it where the tool rejects or skips images. The env
@@ -501,7 +501,7 @@ positional tool-history cases. Also test the ported tools against
 `NodeExecutionEnv`, and a wrapper supplying a different `api.env`.
 
 Document in the durable README that the package root loads TypeBox through the
-tool task's argument validation (pi-ai `validateToolArguments()`): about 23 MB of
+tool task's argument validation (jeff-code-ai `validateToolArguments()`): about 23 MB of
 peak RSS unbundled, about 4 MB in a tree-shaken bundle.
 
 Tool output benchmark (`test/*.bench.ts`, memory, SQLite, and JSONL): drive the
@@ -695,7 +695,7 @@ every other compaction places its summary through a write submission.
   contributions and `keepRecentTokens`, shared by the generation's checks and
   `select`; the summarized messages are the prefix contributions ordered by
   §2.1 rules 7–8. The generation's size estimate (§8.3) uses the newest
-  assistant appended after the head marker, not pi-ai's timestamp heuristic. Port the coding agent's serializer, summarization
+  assistant appended after the head marker, not jeff-code-ai's timestamp heuristic. Port the coding agent's serializer, summarization
   system prompt, and structured prompt (one prompt, with a line about carrying an
   earlier summary forward) into `src/harness/compaction.ts`; do not import from
   coding-agent.
@@ -727,7 +727,7 @@ every other compaction places its summary through a write submission.
   model context before and after).
 
 Not in v1 (note only): a cache-friendly summary request that resends the
-agent's exact last request plus one summarization user message with pi-ai
+agent's exact last request plus one summarization user message with jeff-code-ai
 `toolChoice: "none"`, so the prefix including tool declarations is a cache hit.
 It fits background compaction well below the window; overflow and a context
 without room for the prompt and summary keep the serialized request.

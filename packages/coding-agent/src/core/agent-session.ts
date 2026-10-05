@@ -30,8 +30,8 @@ import {
 	type PrepareNextTurnContext,
 	runToolCall,
 	type ThinkingLevel,
-} from "@earendil-works/pi-agent-core";
-import { contentText, getCurrentSystemMessage, retryDelayMs } from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-agent-core";
+import { contentText, getCurrentSystemMessage, retryDelayMs } from "@jeffhub/jeff-code-ai";
 import type {
 	AssistantMessage,
 	AuthResult,
@@ -42,7 +42,7 @@ import type {
 	TextContent,
 	ToolResultMessage,
 	Usage,
-} from "@earendil-works/pi-ai/compat";
+} from "@jeffhub/jeff-code-ai/compat";
 import {
 	clampThinkingLevel,
 	cleanupSessionResources,
@@ -54,7 +54,7 @@ import {
 	type RetryCallbacks,
 	resetApiProviders,
 	streamSimple,
-} from "@earendil-works/pi-ai/compat";
+} from "@jeffhub/jeff-code-ai/compat";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { processImage } from "../utils/image-process.ts";
@@ -2697,7 +2697,7 @@ export class AgentSession {
 	// Compaction
 	// =========================================================================
 
-	/** Generate Pi's built-in compaction summary for manual and automatic compaction. */
+	/** Generate Jeff-Code's built-in compaction summary for manual and automatic compaction. */
 	private async _runDefaultCompaction(
 		preparation: CompactionPreparation,
 		model: Model<any>,
@@ -2705,7 +2705,7 @@ export class AgentSession {
 		signal: AbortSignal,
 		reason: "manual" | "threshold" | "overflow",
 	): Promise<CompactionResult> {
-		// Resolve the request only when Pi summarizes itself: routing may call models or fail.
+		// Resolve the request only when Jeff-Code summarizes itself: routing may call models or fail.
 		const request = await this._getSummarizationRequestAuth(model, signal);
 		return compact(
 			preparation,

@@ -1,14 +1,14 @@
-# Contributing to pi
+# Contributing to Jeff-Code
 
 This guide exists to save both sides time.
 
 ## Philosophy
 
-First things first: **pi's core is minimal**.
+First things first: **Jeff-Code's core is minimal**.
 
 If your feature does not belong in the core, it should be an extension. PRs that bloat the core will likely be rejected.
 
-Pi's core exists to be minimal and to be extensible so that it can be influenced and manipulated by extensions.  Even hook points for extensions however should be well considered and discussed to avoid adding unmaintainable bloat and complex interactions.
+Jeff-Code's core exists to be minimal and to be extensible so that it can be influenced and manipulated by extensions.  Even hook points for extensions however should be well considered and discussed to avoid adding unmaintainable bloat and complex interactions.
 
 ## The One Rule
 
@@ -16,7 +16,7 @@ Pi's core exists to be minimal and to be extensible so that it can be influenced
 
 Using AI to write code is fine. Submitting AI-generated slop without understanding it is not.
 
-If you use an agent, run it from the `pi` root directory so it picks up `AGENTS.md` automatically. Your agent must follow the rules and guidelines in that file.
+If you use an agent, run it from the Jeff-Code repository root so it picks up `AGENTS.md` automatically. Your agent must follow the rules and guidelines in that file.
 
 ## Contribution Gate
 
@@ -78,7 +78,7 @@ Ask on [Discord](https://discord.com/invite/nKXTsAcmbT).
 
 ### Why are new issues and PRs auto-closed?
 
-pi receives more issues than the maintainers can responsibly review in real time. Many reports do not meet the quality bar in this guide or do not follow CONTRIBUTING.md. Some are slung at the repository mindlessly via an agent instead of being reviewed and shaped by the person submitting them. Auto-closing creates a buffer so maintainers can review the tracker on their own schedule and reopen the issues that meet the quality bar.
+Jeff-Code receives more issues than the maintainers can responsibly review in real time. Many reports do not meet the quality bar in this guide or do not follow CONTRIBUTING.md. Some are slung at the repository mindlessly via an agent instead of being reviewed and shaped by the person submitting them. Auto-closing creates a buffer so maintainers can review the tracker on their own schedule and reopen the issues that meet the quality bar.
 
 ### Why are weekend issues lower priority?
 
@@ -98,5 +98,5 @@ No. It is a guardrail against burnout and tracker spam. Short, concrete, reprodu
 
 ## Where can I learn about plans?
 
-Earendil uses RFCs to discuss larger changes.  Not all of them are public, but
-quite a few are.  They can be found at [rfc.earendil.com](https://rfc.earendil.com/keyword/pi/).
+Jeff-Code is a fork of pi. Earendil, the company behind pi, uses RFCs to discuss larger changes to pi.  Not all
+of them are public, but quite a few are.  They can be found at [rfc.earendil.com](https://rfc.earendil.com/keyword/pi/).

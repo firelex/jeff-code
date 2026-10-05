@@ -1,6 +1,6 @@
 import { closeSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonValue } from "@earendil-works/pi-ai";
+import type { JsonValue } from "@jeffhub/jeff-code-ai";
 import type { Step } from "./transcript.ts";
 
 /**

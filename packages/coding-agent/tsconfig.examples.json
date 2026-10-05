@@ -3,10 +3,10 @@
 	"compilerOptions": {
 		"noEmit": true,
 		"paths": {
-			"@earendil-works/pi-coding-agent": ["./src/index.ts"],
-			"@earendil-works/pi-coding-agent/hooks": ["./src/core/hooks/index.ts"],
-			"@earendil-works/pi-tui": ["../tui/src/index.ts"],
-			"@earendil-works/pi-ai": ["../ai/src/index.ts"],
+			"@jeffhub/jeff-code": ["./src/index.ts"],
+			"@jeffhub/jeff-code/hooks": ["./src/core/hooks/index.ts"],
+			"@jeffhub/jeff-code-tui": ["../tui/src/index.ts"],
+			"@jeffhub/jeff-code-ai": ["../ai/src/index.ts"],
 			"typebox": ["../../node_modules/typebox"]
 		},
 		"skipLibCheck": true

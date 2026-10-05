@@ -2,18 +2,18 @@
 
 # Command Line
 
-This page documents Pi's built-in command-line commands and options. Run `pi --help` or append `--help` to a command for the exact interface in your installed version. The top-level help also includes options registered by loaded extensions.
+This page documents Jeff-Code's built-in command-line commands and options. Run `jeff --help` or append `--help` to a command for the exact interface in your installed version. The top-level help also includes options registered by loaded extensions.
 
 ```sh
-pi [options] [--] [@files...] [messages...]
-pi install <source> [options]
-pi remove <source> [options]
-pi uninstall <source> [options]
-pi update [target] [options]
-pi list
-pi config [options]
-pi auth <check|print-api-key|print-bearer-token> [options]
-pi mcp <list|login|logout> [options]
+jeff [options] [--] [@files...] [messages...]
+jeff install <source> [options]
+jeff remove <source> [options]
+jeff uninstall <source> [options]
+jeff update [target] [options]
+jeff list
+jeff config [options]
+jeff auth <check|print-api-key|print-bearer-token> [options]
+jeff mcp <list|login|logout> [options]
 ```
 
 <a id="modes"></a>
@@ -21,13 +21,13 @@ pi mcp <list|login|logout> [options]
 ## Invocation and output
 
 ```sh
-pi
-pi --print "Summarize this repository"
-git diff | pi --print "Review this change"
-pi --mode json "Inspect this repository" > events.jsonl
+jeff
+jeff --print "Summarize this repository"
+git diff | jeff --print "Review this change"
+jeff --mode json "Inspect this repository" > events.jsonl
 ```
 
-With terminal stdin and stdout, Pi opens the terminal UI unless `--print`, `--mode json`, or `--mode rpc` selects another interface. When either stream is redirected and neither JSON nor RPC mode is selected, Pi uses print mode. See [CLI Integration](cli-integration.md) for choosing between interactive, print, JSON, RPC, and SDK integration.
+With terminal stdin and stdout, Jeff-Code opens the terminal UI unless `--print`, `--mode json`, or `--mode rpc` selects another interface. When either stream is redirected and neither JSON nor RPC mode is selected, Jeff-Code uses print mode. See [CLI Integration](cli-integration.md) for choosing between interactive, print, JSON, RPC, and SDK integration.
 
 | Input | Behavior |
 |---|---|
@@ -36,9 +36,9 @@ With terminal stdin and stdout, Pi opens the terminal UI unless `--print`, `--mo
 | Piped stdin | Prepend its contents to the first prompt |
 | `--` | Stop option parsing so a prompt can begin with `-` |
 
-Pi resolves `@path` from the current working directory. The working directory also controls project configuration, resource discovery, and session grouping.
+Jeff-Code resolves `@path` from the current working directory. The working directory also controls project configuration, resource discovery, and session grouping.
 
-`--print` controls whether Pi runs once and exits. `--mode` selects the output interface. `--mode text` does not force one-shot execution when stdin and stdout are terminals; use `--print` for that behavior.
+`--print` controls whether Jeff-Code runs once and exits. `--mode` selects the output interface. `--mode text` does not force one-shot execution when stdin and stdout are terminals; use `--print` for that behavior.
 
 | Option | Behavior |
 |---|---|
@@ -55,7 +55,7 @@ RPC mode rejects `@file` arguments. JSON and RPC modes reserve stdout for protoc
 ## Models
 
 ```sh
-pi --model sonnet:high
+jeff --model sonnet:high
 ```
 
 See [Choose a Model](models.md) for model selection and [Providers](providers.md) for credentials.
@@ -78,7 +78,7 @@ See [Choose a Model](models.md) for model selection and [Providers](providers.md
 ## Sessions
 
 ```sh
-pi --continue
+jeff --continue
 ```
 
 See [Sessions and Context](sessions.md) for resuming, forking, naming, and storing sessions.
@@ -88,13 +88,13 @@ See [Sessions and Context](sessions.md) for resuming, forking, naming, and stori
 - `-r`, `--resume`<br>
   Opens the session selector.
 - `--session <path|id>`<br>
-  Opens by file path, exact ID, or partial ID. Pi searches the current project first and offers to fork a cross-project match.
+  Opens by file path, exact ID, or partial ID. Jeff-Code searches the current project first and offers to fork a cross-project match.
 - `--session-id <id>`<br>
   Opens the exact project session ID or creates it if absent. IDs accept letters, numbers, `.`, `_`, and `-`.
 - `--fork <path|id>`<br>
   Forks an existing session into a new session for the current project.
 - `--session-dir <dir>`<br>
-  Overrides storage and lookup. It takes precedence over `PI_CODING_AGENT_SESSION_DIR` and the `sessionDir` setting.
+  Overrides storage and lookup. It takes precedence over `JEFF_CODING_AGENT_SESSION_DIR` and the `sessionDir` setting.
 - `--no-session`<br>
   Uses an in-memory session that is not persisted.
 - `-n`, `--name <name>`<br>
@@ -111,7 +111,7 @@ Constraints:
 ## Tools
 
 ```sh
-pi --tools read,grep,find,ls --print "Review this project"
+jeff --tools read,grep,find,ls --print "Review this project"
 ```
 
 See [Settings](settings.md#tools) for configuring the default tool selection.
@@ -147,7 +147,7 @@ Built-in extensions add two more tools. They are off by default; the MCP extensi
 
 ### Enable codemode
 
-To turn on `codemode` for every session, add it to the default tools in `~/.pi/agent/settings.json` or a project's `.pi/settings.json`:
+To turn on `codemode` for every session, add it to the default tools in `~/.jeff/agent/settings.json` or a project's `.jeff/settings.json`:
 
 ```json
 {
@@ -158,7 +158,7 @@ To turn on `codemode` for every session, add it to the default tools in `~/.pi/a
 This keeps `read`, `bash`, `edit`, and `write` and adds `codemode`. For one invocation, list every tool, since `--tools` replaces the selection:
 
 ```sh
-pi --tools read,bash,edit,write,codemode
+jeff --tools read,bash,edit,write,codemode
 ```
 
 Codemode is useful without MCP: scripts can run several tool calls in parallel, filter large output before it reaches the model, call classifier models such as TypeSafe's Jev through `models.classify()` (see [Classifier models](models.md#use-classifier-models)), and generate images through `models.generateImages()` (see [Image models](models.md#use-image-models)).
@@ -176,15 +176,15 @@ Scripts run in a QuickJS sandbox and reach the other tools through `tools.<name>
 ## Resources
 
 ```sh
-pi --extension ./review.ts
+jeff --extension ./review.ts
 ```
 
-See [Configuration](configuration.md) for conventional directories and project trust, [Settings](settings.md#resources) for configured paths, and [Pi Packages](packages.md) for package sources.
+See [Configuration](configuration.md) for conventional directories and project trust, [Settings](settings.md#resources) for configured paths, and [Jeff-Code Packages](packages.md) for package sources.
 
 - `-e`, `--extension <path>`<br>
   Loads an extension file or directory, or a built-in extension such as `builtin:mcp`, and is repeatable.
 - `-ne`, `--no-extensions`<br>
-  Disables discovered, configured, and built-in extensions. Explicit `-e` paths still load, so `pi -ne -e builtin:mcp` keeps only the built-in MCP support.
+  Disables discovered, configured, and built-in extensions. Explicit `-e` paths still load, so `jeff -ne -e builtin:mcp` keeps only the built-in MCP support.
 - `--skill <path>`<br>
   Loads a skill file or directory and is repeatable.
 - `-ns`, `--no-skills`<br>
@@ -209,7 +209,7 @@ Resource paths apply only to the current process. Relative paths resolve from th
 ## Prompts and process
 
 ```sh
-pi --append-system-prompt ./instructions.md
+jeff --append-system-prompt ./instructions.md
 ```
 
 See [Configuration](configuration.md) for saved configuration, [Security](security.md#understand-project-trust) for project trust, and [Environment Variables](environment-variables.md) for process controls.
@@ -227,68 +227,68 @@ See [Configuration](configuration.md) for saved configuration, [Security](securi
 - `-na`, `--no-approve`<br>
   Ignores trust-gated project-local configuration and resources for this process.
 - `--offline`<br>
-  Disables automatic network activity, including model catalog refreshes. Equivalent to `PI_OFFLINE=1`.
+  Disables automatic network activity, including model catalog refreshes. Equivalent to `JEFF_OFFLINE=1`.
 - `-h`, `--help`<br>
   Shows help, including flags registered by loaded extensions, then exits.
 - `-v`, `--version`<br>
-  Shows the Pi version, then exits.
+  Shows the Jeff-Code version, then exits.
 
 Extensions may register additional long-form options. Unknown short options are rejected.
 
 ## Package commands
 
 ```sh
-pi install npm:@scope/package
+jeff install npm:@scope/package
 ```
 
-See [Pi Packages](packages.md) for source formats, filtering, installation, and project scope.
+See [Jeff-Code Packages](packages.md) for source formats, filtering, installation, and project scope.
 
 ### Common tasks
 
 | Task | Command |
 |---|---|
-| Install a package | `pi install <source>` |
-| List configured packages | `pi list` |
-| Remove a package and its settings entry | `pi remove <source>` |
-| Configure which package resources load | `pi config` |
+| Install a package | `jeff install <source>` |
+| List configured packages | `jeff list` |
+| Remove a package and its settings entry | `jeff remove <source>` |
+| Configure which package resources load | `jeff config` |
 
 Add `--local` or `-l` to `install`, `remove`, `uninstall`, or `config` to use project settings instead of global settings.
 
-### Update Pi or packages
+### Update Jeff-Code or packages
 
-Running `pi update` without a target updates Pi itself.
+Running `jeff update` without a target updates Jeff-Code itself.
 
 | Task | Command |
 |---|---|
-| Update Pi | `pi update` |
-| Update all installed packages | `pi update --extensions` |
-| Update one installed package | `pi update <source>` |
-| Refresh model catalogs | `pi update --models` |
-| Update Pi and all installed packages | `pi update --all` |
+| Update Jeff-Code | `jeff update` |
+| Update all installed packages | `jeff update --extensions` |
+| Update one installed package | `jeff update <source>` |
+| Refresh model catalogs | `jeff update --models` |
+| Update Jeff-Code and all installed packages | `jeff update --all` |
 
-Add `--force` to reinstall Pi when the selected update includes Pi.
+Add `--force` to reinstall Jeff-Code when the selected update includes Jeff-Code.
 
 ### Aliases and command options
 
-- `pi uninstall <source>` is an alias for `pi remove <source>`.
-- `pi update --self`, `pi update self`, and `pi update pi` are aliases for `pi update`.
-- `pi update --extension <source>` is an alias for `pi update <source>`.
+- `jeff uninstall <source>` is an alias for `jeff remove <source>`.
+- `jeff update --self`, `jeff update self`, and `jeff update jeff` are aliases for `jeff update`.
+- `jeff update --extension <source>` is an alias for `jeff update <source>`.
 - `-a`, `--approve` trusts project-local files for one command. `-na`, `--no-approve` ignores trust-gated project-local files.
 - Append `-h` or `--help` to a command for its exact usage and option constraints.
 
 ## Credential commands
 
 ```sh
-pi auth check --provider openai --json
+jeff auth check --provider openai --json
 ```
 
 Authentication commands require `--provider <provider>` or `--model <model>`. See [Providers](providers.md) for supported methods.
 
 | Command | Description |
 |---|---|
-| `pi auth check` | Print `ready`, `not_ready`, or `invalid`; exit with status `0`, `1`, or `2`, respectively |
-| `pi auth print-api-key` | Print the resolved API key |
-| `pi auth print-bearer-token` | Print a resolved OAuth bearer token |
+| `jeff auth check` | Print `ready`, `not_ready`, or `invalid`; exit with status `0`, `1`, or `2`, respectively |
+| `jeff auth print-api-key` | Print the resolved API key |
+| `jeff auth print-bearer-token` | Print a resolved OAuth bearer token |
 
 | Option | Applies to | Description |
 |---|---|---|
@@ -307,13 +307,13 @@ These commands work outside a session, so agents can run them through `bash`. Se
 
 | Command | Description |
 |---|---|
-| `pi mcp add <server> [options] -- <command> [args...]` | Add or replace a stdio server in `mcp.json`; `--env KEY=VALUE` (repeatable) and `--cwd <dir>` set its environment and working directory. Arguments after the command are passed to it |
-| `pi mcp add <server> [options] --url <url>` | Add or replace a streamable HTTP server; `--header KEY=VALUE` (repeatable), `--bearer-token-env-var <NAME>` (sends `Authorization: Bearer ${NAME}`), `--oauth-client-id`, `--oauth-client-secret`, `--oauth-callback-port`, and `--oauth-client-name` configure authentication |
-| `pi mcp remove <server>` | Remove a server from `mcp.json`; stored OAuth credentials are kept |
-| `pi mcp list [--json]` | Connect to every enabled server and print its state, tools, and errors; exit with `1` when a config entry is invalid or an enabled server is not connected |
-| `pi mcp login <server> [--timeout <seconds>]` | Sign in to an OAuth server: open the authorization page and wait for the browser (default 300 seconds); a terminal also accepts the pasted redirect URL |
-| `pi mcp logout <server>` | Delete the stored OAuth credentials of a server |
+| `jeff mcp add <server> [options] -- <command> [args...]` | Add or replace a stdio server in `mcp.json`; `--env KEY=VALUE` (repeatable) and `--cwd <dir>` set its environment and working directory. Arguments after the command are passed to it |
+| `jeff mcp add <server> [options] --url <url>` | Add or replace a streamable HTTP server; `--header KEY=VALUE` (repeatable), `--bearer-token-env-var <NAME>` (sends `Authorization: Bearer ${NAME}`), `--oauth-client-id`, `--oauth-client-secret`, `--oauth-callback-port`, and `--oauth-client-name` configure authentication |
+| `jeff mcp remove <server>` | Remove a server from `mcp.json`; stored OAuth credentials are kept |
+| `jeff mcp list [--json]` | Connect to every enabled server and print its state, tools, and errors; exit with `1` when a config entry is invalid or an enabled server is not connected |
+| `jeff mcp login <server> [--timeout <seconds>]` | Sign in to an OAuth server: open the authorization page and wait for the browser (default 300 seconds); a terminal also accepts the pasted redirect URL |
+| `jeff mcp logout <server>` | Delete the stored OAuth credentials of a server |
 
-`add` and `remove` change `~/.pi/agent/mcp.json`, or `.pi/mcp.json` in the current directory with `--local` (`-l`). `add` also takes `--exposure <mode>` (see [Exposure](mcp.md#exposure)) and `--description <text>` and does not connect; run `pi mcp list` to check the server.
+`add` and `remove` change `~/.jeff/agent/mcp.json`, or `.jeff/mcp.json` in the current directory with `--local` (`-l`). `add` also takes `--exposure <mode>` (see [Exposure](mcp.md#exposure)) and `--description <text>` and does not connect; run `jeff mcp list` to check the server.
 
-Project `.pi/mcp.json` files are only read for projects that are already trusted.
+Project `.jeff/mcp.json` files are only read for projects that are already trusted.

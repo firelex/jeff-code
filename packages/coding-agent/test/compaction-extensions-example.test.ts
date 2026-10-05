@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, SessionBeforeCompactEvent, SessionCompactEvent } from "../src/core/extensions/index.ts";
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
+vi.mock("@jeffhub/jeff-code", () => ({
 	convertToLlm: (messages: unknown) => messages,
 	serializeConversation: () => "conversation",
 }));

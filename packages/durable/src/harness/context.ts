@@ -1,5 +1,5 @@
-import type { Context } from "@earendil-works/chord";
-import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from "@jeffhub/jeff-code-ai";
+import type { Context } from "@jeffhub/jeff-code-chord";
 import type { SessionImpl } from "../session/session.ts";
 import type { ContextEdit, ConversationId, Cursor, EntryId, EntryRecord, Storage } from "../types.ts";
 import type { ContextView } from "./types.ts";

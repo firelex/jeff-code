@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentEvent, StreamFn } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, StreamFn } from "@jeffhub/jeff-code-agent-core";
 import {
 	type Api,
 	type AssistantMessage,
@@ -11,7 +11,7 @@ import {
 	type Model,
 	normalizeContext,
 	type ToolResultMessage,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createRecorder } from "../src/core/jeff-first/record.ts";
 import { TraceWriter } from "../src/core/jeff-first/trace.ts";

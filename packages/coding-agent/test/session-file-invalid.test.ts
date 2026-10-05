@@ -31,7 +31,7 @@ async function runCli(args: string[], cwd: string, agentDir: string): Promise<{ 
 			env: {
 				...process.env,
 				[ENV_AGENT_DIR]: agentDir,
-				PI_OFFLINE: "1",
+				JEFF_OFFLINE: "1",
 			},
 			stdio: ["ignore", "ignore", "pipe"],
 		});
@@ -59,7 +59,7 @@ describe("--session invalid file handling", () => {
 		const result = await runCli(["--session", sessionFile, "-p", "hi"], projectDir, agentDir);
 
 		expect(result.code).toBe(1);
-		expect(result.stderr).toContain(`Error: Session file is not a valid pi session: ${sessionFile}`);
+		expect(result.stderr).toContain(`Error: Session file is not a valid jeff session: ${sessionFile}`);
 		expect(result.stderr).not.toContain("SessionManager.open");
 		expect(result.stderr).not.toContain("at ");
 		expect(readFileSync(sessionFile, "utf8")).toBe(originalContent);

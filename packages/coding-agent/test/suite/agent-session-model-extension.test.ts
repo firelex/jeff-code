@@ -1,4 +1,4 @@
-import type { AgentTool, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { AgentTool, ThinkingLevel } from "@jeffhub/jeff-code-agent-core";
 import {
 	fauxAssistantMessage,
 	fauxToolCall,
@@ -6,7 +6,7 @@ import {
 	type JsonObject,
 	type Model,
 	type Usage,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "../../src/index.ts";

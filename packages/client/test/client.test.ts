@@ -1,11 +1,11 @@
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	encodeCbor,
 	encodeFrame,
 	encodeServerMessage,
 	PROTOCOL_VERSION,
 	ProtocolValidationError,
-} from "@earendil-works/pi-protocol";
+} from "@jeffhub/jeff-code-protocol";
 import { describe, expect, test, vi } from "vitest";
 import {
 	type ByteTransportFactory,

@@ -291,7 +291,7 @@ function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEn
 	if (cacheRetention) {
 		return cacheRetention;
 	}
-	if (getProviderEnvValue("PI_CACHE_RETENTION", env) === "long") {
+	if (getProviderEnvValue("JEFF_CACHE_RETENTION", env) === "long") {
 		return "long";
 	}
 	return "short";
@@ -798,7 +798,7 @@ function createClient(
 /**
  * The effort a Qwen3.x chat template (thinkingFormat "qwen-chat-template") gets in
  * `chat_template_kwargs.reasoning_effort`. The template accepts only "low", "medium" and "xhigh", and uses "xhigh"
- * when thinking is on and no effort is passed, so pi always passes one:
+ * when thinking is on and no effort is passed, so Jeff-Code always passes one:
  *
  * - off (no effort requested) and "minimal": thinking off (`enable_thinking: false`, no effort)
  * - "low": "low"

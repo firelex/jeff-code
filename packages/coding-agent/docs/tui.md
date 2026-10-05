@@ -1,6 +1,6 @@
 # Terminal UI
 
-`@earendil-works/pi-tui` provides the terminal component system used by Pi. Extensions use it when built-in dialogs, notifications, status text, and widgets are not enough for the interaction they need.
+`@jeffhub/jeff-code-tui` provides the terminal component system used by Jeff-Code. Extensions use it when built-in dialogs, notifications, status text, and widgets are not enough for the interaction they need.
 
 Start with `ctx.ui` methods from an [extension](extensions.md#interact-with-the-user). Build a custom component only when the UI needs its own rendering, keyboard or mouse input, focus, layout, or lifecycle.
 
@@ -15,7 +15,7 @@ Start with `ctx.ui` methods from an [extension](extensions.md#interact-with-the-
 | Temporary interactive screen or overlay | `ctx.ui.custom()` |
 | Custom rendering for a tool or session entry | An extension renderer |
 
-These APIs receive Pi’s active theme and keybindings where needed. Do not create a second terminal renderer inside an extension.
+These APIs receive Jeff-Code’s active theme and keybindings where needed. Do not create a second terminal renderer inside an extension.
 
 ## Understand the component model
 
@@ -23,7 +23,7 @@ A component renders an array of terminal lines for an available width. It can op
 
 Every rendered line must fit within the supplied width. Measure visible terminal columns rather than string length because ANSI escapes, wide characters, emoji, and combining characters change display width.
 
-Use `visibleWidth()`, `truncateToWidth()`, `sliceByColumn()`, and `wrapTextWithAnsi()` instead of implementing terminal-width handling yourself. Pi resets styling and hyperlinks after every line, so reapply styles on each rendered line.
+Use `visibleWidth()`, `truncateToWidth()`, `sliceByColumn()`, and `wrapTextWithAnsi()` instead of implementing terminal-width handling yourself. Jeff-Code resets styling and hyperlinks after every line, so reapply styles on each rendered line.
 
 After changing component state, invalidate the affected component and call the injected `tui.requestRender()`. The TUI coalesces render requests and updates the terminal.
 
@@ -39,7 +39,7 @@ The package includes components for common layouts and controls:
 - `Loader` and `CancellableLoader` report ongoing work.
 - `MouseRegion` adds pointer behavior around another component.
 
-Prefer these components over rebuilding selection, scrolling, text editing, or width handling. The extension examples show how to combine them with Pi’s borders and themes.
+Prefer these components over rebuilding selection, scrolling, text editing, or width handling. The extension examples show how to combine them with Jeff-Code’s borders and themes.
 
 ## Handle keyboard input and focus
 
@@ -49,7 +49,7 @@ A component that displays a text cursor should implement `Focusable` and place `
 
 Containers that wrap an `Input` or `Editor` must propagate their `focused` state to that child. Without propagation, Chinese, Japanese, Korean, and other IME candidate windows can appear at the wrong screen position.
 
-Extend Pi’s `CustomEditor` when replacing the main editor. It preserves application shortcuts and agent controls.
+Extend Jeff-Code’s `CustomEditor` when replacing the main editor. It preserves application shortcuts and agent controls.
 
 Forward keys your editor does not own to the base implementation, and restore the default by clearing the custom editor factory.
 
@@ -93,7 +93,7 @@ return new Text(
 );
 ```
 
-A style color can be a semantic theme token or a concrete `Color`. Foreground tokens are accepted as `fg` and background tokens as `bg`; to use a token's color in the other position, pass its concrete color, for example `{ fg: theme.colors.userMessageBg }`. Access concrete colors through `theme.colors` and use utilities such as `mixColors()` from `@earendil-works/pi-tui` when color math is needed. Tokens that a theme sets to the terminal default render with the terminal's own color; `theme.colors` reports the color the terminal announced for them, or a guess when it did not. Use `theme.appearance` (`"dark"` or `"light"`) to decide, for example, whether to lighten or darken a color. Pi converts the result to truecolor or 256-color output based on terminal capabilities. Theme tokens are converted once per theme; compute concrete colors outside the render path when possible.
+A style color can be a semantic theme token or a concrete `Color`. Foreground tokens are accepted as `fg` and background tokens as `bg`; to use a token's color in the other position, pass its concrete color, for example `{ fg: theme.colors.userMessageBg }`. Access concrete colors through `theme.colors` and use utilities such as `mixColors()` from `@jeffhub/jeff-code-tui` when color math is needed. Tokens that a theme sets to the terminal default render with the terminal's own color; `theme.colors` reports the color the terminal announced for them, or a guess when it did not. Use `theme.appearance` (`"dark"` or `"light"`) to decide, for example, whether to lighten or darken a color. Jeff-Code converts the result to truecolor or 256-color output based on terminal capabilities. Theme tokens are converted once per theme; compute concrete colors outside the render path when possible.
 
 The existing `theme.fg()` and `theme.bg()` helpers remain available for applying one semantic color.
 
@@ -101,7 +101,7 @@ Do not permanently store strings with theme colors unless `invalidate()` rebuild
 
 Theme callbacks evaluated during rendering do not need special rebuilding. Stateless components can also calculate themed output on every render.
 
-Use [Themes](themes.md) to create terminal palettes. Use Pi’s `getMarkdownTheme()` when rendering Markdown that should match the active application theme.
+Use [Themes](themes.md) to create terminal palettes. Use Jeff-Code’s `getMarkdownTheme()` when rendering Markdown that should match the active application theme.
 
 ## Keep rendering responsive
 
@@ -109,7 +109,7 @@ Rendering runs on the interactive path. Cache expensive layout and highlighting 
 
 Keep the default view compact and reveal detail through expansion or a dedicated screen. For custom tool rendering, handle partial results and reuse the previous component when it can be updated safely.
 
-Use `PI_TUI_WRITE_LOG` to capture the raw ANSI stream when diagnosing rendering problems. Test narrow widths, wide characters, resize events, theme changes, focus transitions, and both regular and fullscreen modes.
+Use `JEFF_TUI_WRITE_LOG` to capture the raw ANSI stream when diagnosing rendering problems. Test narrow widths, wide characters, resize events, theme changes, focus transitions, and both regular and fullscreen modes.
 
 ## Examples and source
 
@@ -122,4 +122,4 @@ The checked extension examples cover the main patterns:
 - [`widget-placement.ts`](../examples/extensions/widget-placement.ts) places persistent content around the editor.
 - [`doom-overlay/`](../examples/extensions/doom-overlay/) demonstrates a continuously rendered overlay.
 
-The public exports are defined in [`packages/tui/src/index.ts`](https://github.com/earendil-works/pi/blob/main/packages/tui/src/index.ts). See [Extensions](extensions.md) for extension lifecycle, state, tools, events, and mode behavior.
+The public exports are defined in [`packages/tui/src/index.ts`](https://github.com/firelex/jeff-code/blob/main/packages/tui/src/index.ts). See [Extensions](extensions.md) for extension lifecycle, state, tools, events, and mode behavior.

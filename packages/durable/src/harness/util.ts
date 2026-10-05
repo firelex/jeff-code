@@ -1,4 +1,4 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@jeffhub/jeff-code-chord";
 import type { Cursor, Page } from "../types.ts";
 
 /** Pending waits by key. Each settles once: through `resolve`, `rejectAll`, or cancellation of its context. */

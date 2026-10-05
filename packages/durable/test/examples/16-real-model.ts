@@ -1,9 +1,10 @@
 // A real model: stream an answer from OpenAI.
 // Run from packages/durable (needs OPENAI_API_KEY):
 //   node --conditions=source --experimental-strip-types test/examples/16-real-model.ts
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { createModels } from "@earendil-works/pi-ai/models";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+
+import { createModels } from "@jeffhub/jeff-code-ai/models";
+import { openaiProvider } from "@jeffhub/jeff-code-ai/providers/openai";
+import { BACKGROUND_CONTEXT } from "@jeffhub/jeff-code-chord/context";
 import {
 	AssistantEntry,
 	createRegistry,

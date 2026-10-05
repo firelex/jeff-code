@@ -1,11 +1,11 @@
-import type { Draft, JsonValue } from "@earendil-works/chord";
+import type { Draft, JsonValue } from "@jeffhub/jeff-code-chord";
 import {
 	type ConversationId,
 	defineDoc,
 	defineDocFamily,
 	type JsonObject,
 	type TaskId,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { idFromNumber } from "../src/ids.ts";
 import { context, createConversation, documentChanges, flush, openTestSession } from "./session-support.ts";

@@ -56,7 +56,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      # Runs pi's MCP client from source against the pinned official conformance suite and fails on
+      # Runs Jeff-Code's MCP client from source against the pinned official conformance suite and fails on
       # regressions against packages/coding-agent/test/mcp-conformance/baseline.json.
       - name: MCP client conformance
         run: npm run test:mcp-conformance

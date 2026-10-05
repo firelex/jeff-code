@@ -259,7 +259,7 @@ def test_recorded_turns_use_the_kept_attempt(tmp_path):
 
 
 def test_a_trial_with_a_call_to_another_tool_is_left_out(tmp_path):
-    # Qwen on NVFP4 sometimes names a tool that does not exist (seen: "bbyte"); pi answers with an error. ceiling.py's
+    # Qwen on NVFP4 sometimes names a tool that does not exist (seen: "bbyte"); Jeff-Code answers with an error. ceiling.py's
     # turn classifier raises on such a session, so the whole trial is left out (counted).
     trial = _trial(tmp_path, [("toolUse", ["ls"], 100), ("toolUse", ["pwd"], 200)],
                    [_line(1, "toolUse", 100), _line(2, "toolUse", 200)])
@@ -273,7 +273,7 @@ def test_a_trial_with_a_call_to_another_tool_is_left_out(tmp_path):
 
 
 def _legacy(tmp_path, records):
-    """A build-4abde3ece trial: no router, pi's thinking level medium (sent as enable_thinking only, so the chat
+    """A build-4abde3ece trial: no router, Jeff-Code's thinking level medium (sent as enable_thinking only, so the chat
     template's default effort xhigh applied), schema-4 record lines."""
     trial = _trial(tmp_path, [("toolUse", ["ls"], 100), ("stop", [], 300)], records)
     config = json.loads((trial / "config.json").read_text())
@@ -317,7 +317,7 @@ def test_prompt_check_per_level():
 
 
 def test_a_crashed_agent_may_leave_one_traced_reply_unsaved(tmp_path):
-    # Seen 2026-10-04: pi exited (NonZeroAgentExitCodeError) after tracing turn 24 and before saving its reply.
+    # Seen 2026-10-04: Jeff-Code exited (NonZeroAgentExitCodeError) after tracing turn 24 and before saving its reply.
     trial = _trial(tmp_path, [("toolUse", ["ls"], 100)], [_line(1, "toolUse", 100), _line(2, "toolUse", 200)])
     (trial / "result.json").write_text(json.dumps({"exception_info": {"exception_type": "NonZeroAgentExitCodeError"}}))
     turns, _ = rl.recorded_turns(trial)

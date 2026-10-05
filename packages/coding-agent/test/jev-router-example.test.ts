@@ -1,4 +1,4 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@jeffhub/jeff-code-agent-core";
 import {
 	type AssistantMessage,
 	type ClassifierModel,
@@ -6,7 +6,7 @@ import {
 	fauxAssistantMessage,
 	fauxProvider,
 	fauxToolCall,
-} from "@earendil-works/pi-ai";
+} from "@jeffhub/jeff-code-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import jevRouter from "../examples/extensions/jev-router.ts";

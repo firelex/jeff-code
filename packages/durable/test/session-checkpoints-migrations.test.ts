@@ -1,11 +1,11 @@
-import type { Op } from "@earendil-works/chord/delta";
+import type { Op } from "@jeffhub/jeff-code-chord/delta";
 import {
 	defineDoc,
 	defineDocFamily,
 	type EntryId,
 	type JsonObject,
 	type StorageWrite,
-} from "@earendil-works/pi-durable";
+} from "@jeffhub/jeff-code-durable";
 import { describe, expect, it } from "vitest";
 import { context, createConversation, documentChanges, flush, openTestSession } from "./session-support.ts";
 

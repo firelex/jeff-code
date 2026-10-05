@@ -1,12 +1,12 @@
 # Keybindings Reference
 
-Pi exposes named actions, such as `app.session.new`, that can be assigned keybindings. You can change default assignments or bind unassigned actions in Pi's [user configuration](configuration.md#agent-directory).
+Jeff-Code exposes named actions, such as `app.session.new`, that can be assigned keybindings. You can change default assignments or bind unassigned actions in Jeff-Code's [user configuration](configuration.md#agent-directory).
 
 Run `/hotkeys` to see the active shortcuts for the main editor and application.
 
 ## Assign keybindings
 
-Create `<agent-dir>/keybindings.json`. The agent directory defaults to `~/.pi/agent` and is described in [Agent directory](configuration.md#agent-directory).
+Create `<agent-dir>/keybindings.json`. The agent directory defaults to `~/.jeff/agent` and is described in [Agent directory](configuration.md#agent-directory).
 
 Map each action identifier to one key or a list of keys:
 
@@ -127,7 +127,7 @@ In fullscreen mode, these actions control the transcript and take precedence ove
 | `app.editor.external` | `ctrl+g` | Open in external editor (`externalEditor`, `$VISUAL`, `$EDITOR`, Notepad on Windows, or `nano` elsewhere) |
 | `app.clipboard.pasteImage` | `ctrl+v` (`alt+v` on Windows and WSL) | Paste files on macOS, images, or text from clipboard |
 
-On native Windows, `app.suspend` has no default because Windows terminals do not support Unix job control. If you assign it manually, Pi shows a status message instead of suspending. WSL uses the normal `ctrl+z` and `fg` behavior.
+On native Windows, `app.suspend` has no default because Windows terminals do not support Unix job control. If you assign it manually, Jeff-Code shows a status message instead of suspending. WSL uses the normal `ctrl+z` and `fg` behavior.
 
 ### Sessions
 

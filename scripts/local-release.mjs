@@ -7,18 +7,18 @@ import { spawnSync } from "node:child_process";
 import { installCodingAgentConsumer, packReleasePackages, smokeTestCodingAgentConsumer } from "./coding-agent-consumer.mjs";
 
 const packages = [
-	{ directory: "packages/chord", name: "@earendil-works/chord" },
-	{ directory: "packages/telemetry", name: "@earendil-works/pi-telemetry" },
-	{ directory: "packages/codemode", name: "@earendil-works/pi-codemode" },
-	{ directory: "packages/mcp", name: "@earendil-works/pi-mcp" },
-	{ directory: "packages/ai", name: "@earendil-works/pi-ai" },
-	{ directory: "packages/durable", name: "@earendil-works/pi-durable" },
-	{ directory: "packages/tui", name: "@earendil-works/pi-tui" },
-	{ directory: "packages/agent", name: "@earendil-works/pi-agent-core" },
-	{ directory: "packages/protocol", name: "@earendil-works/pi-protocol" },
-	{ directory: "packages/client", name: "@earendil-works/pi-client" },
-	{ directory: "packages/server", name: "@earendil-works/pi-server" },
-	{ directory: "packages/coding-agent", name: "@earendil-works/pi-coding-agent" },
+	{ directory: "packages/chord", name: "@jeffhub/jeff-code-chord" },
+	{ directory: "packages/telemetry", name: "@jeffhub/jeff-code-telemetry" },
+	{ directory: "packages/codemode", name: "@jeffhub/jeff-code-codemode" },
+	{ directory: "packages/mcp", name: "@jeffhub/jeff-code-mcp" },
+	{ directory: "packages/ai", name: "@jeffhub/jeff-code-ai" },
+	{ directory: "packages/durable", name: "@jeffhub/jeff-code-durable" },
+	{ directory: "packages/tui", name: "@jeffhub/jeff-code-tui" },
+	{ directory: "packages/agent", name: "@jeffhub/jeff-code-agent-core" },
+	{ directory: "packages/protocol", name: "@jeffhub/jeff-code-protocol" },
+	{ directory: "packages/client", name: "@jeffhub/jeff-code-client" },
+	{ directory: "packages/server", name: "@jeffhub/jeff-code-server" },
+	{ directory: "packages/coding-agent", name: "@jeffhub/jeff-code" },
 ];
 
 function printUsage() {
@@ -120,7 +120,7 @@ function isInsidePath(child, parent) {
 
 function prepareOutputDirectory(options, repoRoot) {
 	if (!options.outDir) {
-		return mkdtempSync(join(tmpdir(), "pi-local-release-"));
+		return mkdtempSync(join(tmpdir(), "jeff-local-release-"));
 	}
 
 	const outDir = resolve(options.outDir);
@@ -163,7 +163,7 @@ function buildBunBinaryRelease(targetDirectory, archiveDirectory) {
 	]);
 	rmSync(targetDirectory, { force: true, recursive: true });
 	cpSync(join(binaryBuildDirectory, platform), targetDirectory, { recursive: true });
-	const archiveName = platform.startsWith("windows-") ? `pi-${platform}.zip` : `pi-${platform}.tar.gz`;
+	const archiveName = platform.startsWith("windows-") ? `jeff-${platform}.zip` : `jeff-${platform}.tar.gz`;
 	cpSync(join(binaryBuildDirectory, archiveName), join(archiveDirectory, archiveName));
 	return platform;
 }
@@ -171,23 +171,23 @@ function buildBunBinaryRelease(targetDirectory, archiveDirectory) {
 function createPiShim(installDirectory) {
 	const binDirectory = join(installDirectory, "node_modules", ".bin");
 	if (process.platform === "win32") {
-		if (existsSync(join(binDirectory, "pi.cmd"))) {
-			writeFileSync(join(installDirectory, "pi.cmd"), '@ECHO off\r\n"%~dp0node_modules\\.bin\\pi.cmd" %*\r\n');
-			writeFileSync(join(installDirectory, "pi.ps1"), '& "$PSScriptRoot/node_modules/.bin/pi.ps1" @args\n');
+		if (existsSync(join(binDirectory, "jeff.cmd"))) {
+			writeFileSync(join(installDirectory, "jeff.cmd"), '@ECHO off\r\n"%~dp0node_modules\\.bin\\jeff.cmd" %*\r\n');
+			writeFileSync(join(installDirectory, "jeff.ps1"), '& "$PSScriptRoot/node_modules/.bin/jeff.ps1" @args\n');
 			return;
 		}
-		writeFileSync(join(installDirectory, "pi.cmd"), '@ECHO off\r\n"%~dp0node_modules\\.bin\\pi.exe" %*\r\n');
-		writeFileSync(join(installDirectory, "pi.ps1"), '& "$PSScriptRoot/node_modules/.bin/pi.exe" @args\n');
+		writeFileSync(join(installDirectory, "jeff.cmd"), '@ECHO off\r\n"%~dp0node_modules\\.bin\\jeff.exe" %*\r\n');
+		writeFileSync(join(installDirectory, "jeff.ps1"), '& "$PSScriptRoot/node_modules/.bin/jeff.exe" @args\n');
 		return;
 	}
-	symlinkSync(join("node_modules", ".bin", "pi"), join(installDirectory, "pi"));
+	symlinkSync(join("node_modules", ".bin", "jeff"), join(installDirectory, "jeff"));
 }
 
 const options = parseArgs();
 const repoRoot = process.cwd();
 const rootPackageJson = readPackageJson(repoRoot);
 
-if (rootPackageJson.name !== "pi-monorepo") {
+if (rootPackageJson.name !== "jeff-code-monorepo") {
 	throw new Error("Run this script from the repository root");
 }
 
@@ -245,19 +245,19 @@ for (const tarball of tarballs.values()) {
 if (!options.skipInstall) {
 	console.log("\nLocal Bun binary release:");
 	console.log(`  ${binaryDirectory}`);
-	console.log(`  ${join(outDir, `pi-${binaryPlatform}.${String(binaryPlatform).startsWith("windows-") ? "zip" : "tar.gz"}`)}`);
+	console.log(`  ${join(outDir, `jeff-${binaryPlatform}.${String(binaryPlatform).startsWith("windows-") ? "zip" : "tar.gz"}`)}`);
 	console.log("\nRun the local Bun binary release from outside the repository:");
-	console.log(`  ${join(binaryDirectory, String(binaryPlatform).startsWith("windows-") ? "pi.exe" : "pi")} --help`);
+	console.log(`  ${join(binaryDirectory, String(binaryPlatform).startsWith("windows-") ? "jeff.exe" : "jeff")} --help`);
 
 	console.log("\nIsolated npm install:");
 	console.log(`  ${nodeInstallDirectory}`);
 	console.log("\nRun the locally packed npm CLI from outside the repository:");
-	console.log(`  ${join(nodeInstallDirectory, process.platform === "win32" ? "pi.cmd" : "pi")} --help`);
+	console.log(`  ${join(nodeInstallDirectory, process.platform === "win32" ? "jeff.cmd" : "jeff")} --help`);
 
 	if (!options.skipBunInstall) {
 		console.log("\nIsolated Bun package install:");
 		console.log(`  ${bunInstallDirectory}`);
 		console.log("\nRun the locally packed Bun package CLI from outside the repository:");
-		console.log(`  ${join(bunInstallDirectory, process.platform === "win32" ? "pi.cmd" : "pi")} --help`);
+		console.log(`  ${join(bunInstallDirectory, process.platform === "win32" ? "jeff.cmd" : "jeff")} --help`);
 	}
 }
