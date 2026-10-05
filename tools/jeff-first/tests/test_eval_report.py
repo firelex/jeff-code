@@ -6,6 +6,7 @@ from eval_report import (
     bootstrap_interval,
     error_kind,
     geomean,
+    largest_differences,
     mcnemar_p,
     nearest_rank,
     pair_up,
@@ -138,6 +139,26 @@ def test_time_on_tasks_the_baseline_solved_counts_the_arm_whatever_its_outcome()
     assert s["total_wall"] == pytest.approx(430 / 300)
     # per-session medians: baseline 100, arm median of 50, 300, 80 = 80
     assert s["session_median"] == pytest.approx(0.8)
+    # per-block ratios on all paired blocks: 0.5, 3.0, 0.8
+    assert s["all_geo"] == pytest.approx((0.5 * 3.0 * 0.8) ** (1 / 3))
+    assert s["all_median"] == pytest.approx(0.8)
+
+
+def test_largest_differences_lists_the_pairs_with_the_biggest_time_gap_either_way():
+    rows = [
+        row("a1-baseline", "b1", 1.0, 100.0),
+        row("a2-off-guard", "b1", 1.0, 50.0),
+        row("a1-baseline", "b2", 1.0, 100.0, task="t2"),
+        row("a2-off-guard", "b2", 0.0, 900.0, task="t2"),
+        row("a1-baseline", "b3", 0.0, 400.0, task="t3"),
+        row("a2-off-guard", "b3", 1.0, 80.0, task="t3"),
+    ]
+    rows[3].update({"turns": 10, "turns_off": 7, "guard_loop": 2, "guard_runaway": 0, "forced_xhigh": 1})
+    pairs, _ = pair_up(rows, "a2-off-guard")
+    top = largest_differences(pairs, 2)
+    assert [p.block for p in top] == ["b2", "b3"]
+    assert (top[0].arm_turns_off, top[0].arm_turns, top[0].arm_guard, top[0].arm_forced) == (7, 10, 2, 1)
+    assert (top[0].base_pass, top[0].arm_pass) == (True, False)
 
 
 def test_a_paired_session_with_zero_qwen_time_is_counted_apart_from_the_qwen_ratios():
