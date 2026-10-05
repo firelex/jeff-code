@@ -37,7 +37,7 @@ def main() -> None:
     # A follow-on benchmark's attempt 2 is its own section (key BENCHMARK#2); TB2 keeps its 3 attempts in one section,
     # as planned. Reruns ("1r") belong to their attempt.
     for r in rows:
-        attempt = str(r["attempt"]).rstrip("rkt")  # reruns (r), killed-block (k) and cut-block (t) replacements
+        attempt = str(r["attempt"]).rstrip("rkte")  # reruns (r), killed-block (k) and cut-block (t) replacements
         r["section"] = r["benchmark"] if r["benchmark"] == "terminal-bench-2" or attempt == "1" else f"{r['benchmark']}#{attempt}"
     unknown = {r["section"] for r in rows} - set(planned)
     if unknown:

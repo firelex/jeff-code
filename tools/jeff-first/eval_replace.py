@@ -1,6 +1,6 @@
 """Replacement blocks for tonight's evaluation: a block whose run is unusable (a session killed by the system, recorded
 as "Command failed (exit 137)"; or a block cut or left incomplete when the B200 stopped) is run again whole, as a new
-block with the same task and arms, its id and attempt suffixed (k = killed, t = cut by time), side by side on one
+block with the same task and arms, its id and attempt suffixed (k = killed, t = cut by time, e = a session without a result for another reason), side by side on one
 casdgx01 Qwen server. The replaced block's sessions (and those of its Jeff-arm rerun block "<id>r") are left out of
 the summary through superseded.txt, which names the replacement.
 
@@ -24,7 +24,7 @@ def base_id(block: str) -> str:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("mode", choices=("killed", "blocks"))
-    p.add_argument("suffix", choices=("k", "t"))
+    p.add_argument("suffix", choices=("k", "t", "e"))
     p.add_argument("out_queue")
     p.add_argument("out_marks")
     p.add_argument("--queues", nargs="+", required=True)
@@ -69,7 +69,11 @@ def main() -> None:
                 "units": {},
             }
         )
-        why = "killed by the system (exit 137)" if a.suffix == "k" else "cut or left incomplete when the B200 stopped at 15:30"
+        why = {
+            "k": "killed by the system (exit 137)",
+            "t": "cut or left incomplete when the B200 stopped at 15:30",
+            "e": "a session ended without a result (harness or environment error)",
+        }[a.suffix]
         for r in rows:
             if r.get("block") in (t, t + "r") or (r.get("block") is None and r["folder"].endswith(f"/attempt{o['attempt']}") and r["task"] == o["task"].replace("/", ".").replace(":", ".")):
                 marks.append(f"{r['_host']}\t{r['folder']}\tblock {t}: {why}; replaced by block {t + a.suffix}")
