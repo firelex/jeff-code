@@ -53,7 +53,14 @@ def trace_counts(trace: Path) -> dict:
         "trim_ms": [],
         "step_ms_per_question": [],
     }
-    for text in trace.read_text(encoding="utf-8").splitlines():
+    content = trace.read_text(encoding="utf-8")
+    lines = content.split("\n")
+    # A session killed while writing (e.g. at the time limit) leaves a last line without its newline: that one partial
+    # line is left out and counted; any other unreadable line still raises.
+    c["trace_cut_last_line"] = not content.endswith("\n") and bool(lines[-1].strip())
+    if c["trace_cut_last_line"]:
+        lines = lines[:-1]
+    for text in lines:
         if not text.strip():
             continue
         line = json.loads(text)
