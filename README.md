@@ -21,10 +21,12 @@ Jeff-Code is a fork of [Pi](https://pi.dev), the coding agent by Mario Zechner a
 [Jeff](https://github.com/firelex/jeff), a 0.8B decision model, inside Pi's agent loop. Around every Qwen turn, Jeff
 makes two quick decisions (about 0.2 s each):
 
-1. **Can I take the next step myself?** If the next step only gathers information (read a file, list a folder,
-   search the code, check which tools are installed) and Jeff is confident, Jeff picks the tool and its argument and
-   runs it. It can take several steps in a row. Qwen then starts its turn with the results already in front of it.
-   Whenever Jeff is unsure, or the step would change something (write, edit, run, install), it hands over to Qwen.
+1. **Can I take the next step myself?** When Jeff is confident, it picks the tool and its argument and runs it. It
+   takes information steps (read a file, list a folder, search the code, check which tools are installed), and it can
+   also run the tests or a build, repeat Qwen's last command and, with the run-approval setting the evaluation used,
+   run a script Qwen wrote or install a missing package. Writing and editing files always stay with Qwen. Jeff can
+   take several steps in a row, and Qwen then starts its turn with the results already in front of it. Whenever Jeff
+   is unsure, it hands over to Qwen.
 2. **Does Qwen need to think hard on this turn?** Thinking stays off unless Jeff's probability that the turn needs
    full thinking reaches 0.6. In the evaluation, about three quarters of Qwen's turns ran with thinking off.
 
@@ -49,13 +51,15 @@ switched off, thinking at full on every turn and no thinking limit, which is how
   than Qwen alone, because it keeps going where Qwen alone gives up after a few minutes. The good news is, sometimes that pays off: in
   those tasks Jeff-Code solved 26 to Qwen's 24.
 - **Only tasks Jeff never saw in training.** SWE-bench Verified ran in full (500 tasks; none of its repositories were
-  used for training). For the benchmarks we also trained on, the tasks were split and every held-out task was run:
-  Terminal-Bench 2.0 (40 tasks, 3 attempts each), SWE-rebench (189, two rounds), Terminal-Bench Pro (100, two rounds),
-  SkillsBench (44) and Harbor Index (41). Terminal-Bench (original) and Terminal-Bench Science also ran, but Qwen
+  used for training). For the benchmarks we also trained on, the tasks were split and every held-out task was run
+  (a few pairs hit by repeated infrastructure failures are left out, see Exclusions): Terminal-Bench 2.0 (40 tasks,
+  3 attempts each), SWE-rebench (189, two rounds), Terminal-Bench Pro (100, two rounds), SkillsBench (44) and Harbor
+  Index (41). Terminal-Bench (original) and Terminal-Bench Science also ran, but Qwen
   solves almost none of their tasks in any setting, so they are left out of the pooled numbers.
 - **Exclusions:** task pairs hit by an infrastructure failure (out of memory, a stalled session, a test environment
   that would not start) were run once more; 27 pairs that failed again are left out for both sides. About 10 long
-  re-runs were still running when these numbers were taken.
+  re-runs were still running when these numbers were taken. One Terminal-Bench 2.0 task, pytorch-model-recovery, is
+  left out of every comparison: a harness bug stopped the baseline sessions before they began.
 - **Thinking-off comparison:** it had the same safeguards and thinking limit as Jeff-Code (below); the only difference
   is Jeff's decisions.
 
@@ -146,7 +150,7 @@ export JEFF_FIRST_JEFF_STEP_THRESHOLD=0.40               # Jeff's top option nee
 export JEFF_FIRST_THINKING_ROUTER=jeff-off-unless:jeff-router:0.6
 export JEFF_FIRST_THINKING_LIMIT=8000
 export JEFF_FIRST_OUTPUT_TRIM=off                      # required; leave off
-export JEFF_FIRST_RUN_APPROVAL=all                       # all, seen or never: may Jeff run scripts Qwen wrote
+export JEFF_FIRST_RUN_APPROVAL=all                       # all, seen or never: may Jeff run scripts Qwen wrote and install packages
 export JEFF_FIRST_DRIVER_BUILD=qwen3.8-27b               # the exact Qwen build, written to the trace
 export JEFF_FIRST_TRACE_FILE=$HOME/jeff-code/trace.jsonl # its folder must exist
 export JEFF_FIRST_TASK_ID=my-project
