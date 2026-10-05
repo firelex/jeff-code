@@ -16,37 +16,37 @@ Chosen on cross-validation tasks (lowest pooled time ratio with the pass loss ca
 
 | model | loss budget | policy | CV: ratio / a4-a1 / lost | held out: ratio / a4-a1 / lost | a4 stopped (CV / held out) | both stopped, CV: ratio / a4-a1 | both stopped, held out: ratio / a4-a1 | a1 alone, CV: time / lost | a1 alone, held out: time / lost |
 |---|---|---|---|---|---|---|---|---|---|
-| turn table | <= 0 pts | check once at 20 min, stop if P(pass) < 0.29 | 0.84x / -0.2 / -0.0 | 0.80x / -5.8 / -0.0 | 3 / 0 | 0.86x / +0.8 | 0.80x / -5.8 | 0.98x / -1.0 | 1.00x / -0.0 |
-| turn table | <= 2 pts | check at 30, 45, 60 min, stop if P(pass) < 0.32 | 0.73x / -1.9 / -1.8 | 0.76x / -8.4 / -2.6 | 30 / 5 | 0.83x / +0.0 | 0.81x / -7.7 | 0.89x / -1.9 | 0.93x / -0.6 |
-| decision tree | <= 0 pts | check once at 10 min, stop if P(pass) < 0.03 | 0.82x / -0.2 / -0.0 | 0.78x / -5.8 / -0.0 | 10 / 1 | 0.87x / +0.0 | 0.82x / -5.2 | 0.95x / -0.2 | 0.96x / -0.6 |
-| decision tree | <= 2 pts | check once at 30 min, stop if P(pass) < 0.47 | 0.76x / -1.8 / -1.6 | 0.77x / -6.5 / -0.6 | 22 / 3 | 0.83x / +0.2 | 0.80x / -5.8 | 0.92x / -1.9 | 0.96x / -0.6 |
-| logistic regression | <= 0 pts | check at 20, 30, 45, 60 min, stop if P(pass) < 0.19 | 0.78x / -0.2 / -0.0 | 0.75x / -6.5 / -0.6 | 19 / 4 | 0.83x / +0.3 | 0.79x / -5.8 | 0.94x / -0.5 | 0.95x / -0.6 |
-| logistic regression | <= 2 pts | check once at 30 min, stop if P(pass) < 0.56 | 0.69x / -1.9 / -1.8 | 0.65x / -9.7 / -3.9 | 47 / 13 | 0.83x / +1.0 | 0.83x / -6.5 | 0.84x / -2.9 | 0.79x / -3.2 |
+| turn table | <= 0 pts | check once at 10 min, stop if P(pass) < 0.01 | 0.88x / -0.2 / -0.0 | 0.84x / -2.0 / -0.0 | 0 / 0 | 0.88x / -0.2 | 0.84x / -2.0 | 1.00x / -0.0 | 1.00x / -0.0 |
+| turn table | <= 2 pts | check once at 20 min, stop if P(pass) < 0.41 | 0.76x / -1.8 / -1.6 | 0.59x / -7.5 / -5.5 | 45 / 26 | 0.87x / +1.0 | 0.82x / -1.6 | 0.87x / -2.8 | 0.72x / -5.9 |
+| decision tree | <= 0 pts | check once at 45 min, stop if P(pass) < 0.14 | 0.86x / -0.2 / -0.0 | 0.83x / -2.0 / -0.0 | 9 / 2 | 0.87x / +0.0 | 0.84x / -2.0 | 0.98x / -0.2 | 0.99x / -0.0 |
+| decision tree | <= 2 pts | check at 20, 30, 45, 60 min, stop if P(pass) < 0.38 | 0.75x / -1.8 / -1.6 | 0.57x / -8.2 / -6.3 | 54 / 38 | 0.87x / +0.5 | 0.87x / -2.4 | 0.87x / -2.3 | 0.66x / -5.9 |
+| logistic regression | <= 0 pts | check once at 60 min, stop if P(pass) < 0.12 | 0.85x / -0.2 / -0.0 | 0.83x / -2.0 / -0.0 | 13 / 3 | 0.87x / -0.1 | 0.84x / -2.0 | 0.98x / -0.1 | 0.99x / -0.0 |
+| logistic regression | <= 2 pts | check at 10, 15, 20, 30, 45, 60 min, stop if P(pass) < 0.31 | 0.70x / -2.1 / -1.9 | 0.59x / -7.5 / -5.5 | 75 / 28 | 0.80x / -1.0 | 0.77x / -5.1 | 0.87x / -1.2 | 0.76x / -2.4 |
 
-- Logistic regression features (forward selection on cross-validation tasks): elapsed_min, benchmark, approach_phrases, thinking_chars, repeat_share, test_frac_trend, limit_min, tests_recent. The arm was a candidate feature: not chosen (it did not lower cross-validated log-loss enough).
-- Reference: never stopping gives a4 a time ratio of 0.85x on cross-validation tasks and 0.80x on held-out tasks; the held-out tasks happen to be harder for a4 than for a1 even without any stopping (see the reference table).
+- Logistic regression features (forward selection on cross-validation tasks): elapsed_min, benchmark, tests_recent, off_share, approach_recent, forced_xhigh, approach_phrases, file_changes. The arm was a candidate feature: not chosen (it did not lower cross-validated log-loss enough).
+- Reference: never stopping gives a4 a time ratio of 0.88x on cross-validation tasks and 0.84x on held-out tasks; the held-out tasks happen to be harder for a4 than for a1 even without any stopping (see the reference table).
 
 ## Data used
 
-- Inputs: /private/tmp/claude-501/-Users-mattsinalco-mathias-apps-jeff-pi/b2bd8110-052c-4c7e-978e-9bb4e5bf1c23/scratchpad/units/b200.jsonl, /private/tmp/claude-501/-Users-mattsinalco-mathias-apps-jeff-pi/b2bd8110-052c-4c7e-978e-9bb4e5bf1c23/scratchpad/feat_b200.jsonl.
-- B200 sessions only. casdgx01 (Tailscale) was unreachable from 13:45 to at least 14:21, so its sessions could not be read: at 13:04 it held 1164 usable-looking sessions of the pooled benchmarks (a1 327, a2 254, a3 254, a4 329). Rerun with its units and features lines when it is back.
-- Units collected 13:45 to 13:55 BST (eval_summary.sh); features read 14:00 (cutoff_features.py over ssh, read-only); 63 B200 sessions were still running and are not in.
-- Sessions used by evaluation folder: /raid/work/jeff-first/eval-tonight 2634.
-- Sessions used: 2634 (a1-baseline 793, a2-off-guard 521, a3-jeff07 519, a4-jeff06 801); tasks 638, of which 128 held out.
-- Paired a1/a4 blocks: 778 (623 on cross-validation tasks, 155 on held-out tasks).
-- Not considered: benchmark terminal-bench (not pooled) 84, benchmark terminal-bench-science (not pooled) 88, excluded task 12, state running 63, superseded 93.
-- Left out (finished but unusable): 25, listed at the end. a1/a4 blocks without both sessions usable: 38.
+- Inputs: /private/tmp/claude-501/-Users-mattsinalco-mathias-apps-jeff-pi/b2bd8110-052c-4c7e-978e-9bb4e5bf1c23/scratchpad/units/b200-2.jsonl, /private/tmp/claude-501/-Users-mattsinalco-mathias-apps-jeff-pi/b2bd8110-052c-4c7e-978e-9bb4e5bf1c23/scratchpad/units/casdgx01.jsonl, /private/tmp/claude-501/-Users-mattsinalco-mathias-apps-jeff-pi/b2bd8110-052c-4c7e-978e-9bb4e5bf1c23/scratchpad/feat_b200-2.jsonl, /private/tmp/claude-501/-Users-mattsinalco-mathias-apps-jeff-pi/b2bd8110-052c-4c7e-978e-9bb4e5bf1c23/scratchpad/feat_casdgx01.jsonl.
+- Both hosts (B200 and casdgx01). Units and features read 14:55 to 15:11 BST (eval_units.py and cutoff_features.py over ssh, read-only); 13 sessions were still running and are not in.
+- The task set grew when casdgx01 was added, so the 20% held-out tasks were re-drawn with the same seeded procedure (seed 20261005).
+- Sessions used by evaluation folder: /home/mstrasser/jeff-first/eval-tonight 1305, /raid/work/jeff-first/eval-tonight 2610.
+- Sessions used: 3915 (a1-baseline 1205, a2-off-guard 749, a3-jeff07 753, a4-jeff06 1208); tasks 866, of which 173 held out.
+- Paired a1/a4 blocks: 1196 (941 on cross-validation tasks, 255 on held-out tasks).
+- Not considered: benchmark terminal-bench (not pooled) 120, benchmark terminal-bench-science (not pooled) 136, block with a session killed by the system (exit 137) 166, excluded task 12, state running 13, superseded 152.
+- Left out (finished but unusable): 42, listed at the end. a1/a4 blocks without both sessions usable: 21.
 
 Rows (sessions still running) per checkpoint, cross-validation tasks / held-out tasks:
 
 | checkpoint | all arms (CV) | a4 (CV) | a1 (CV) | all arms (held out) | a4 (held out) |
 |---|---|---|---|---|---|
-| 10 min | 868 (424 pass) | 244 (125 pass) | 310 (170 pass) | 211 (108 pass) | 59 (33 pass) |
-| 15 min | 608 (281 pass) | 168 (76 pass) | 203 (111 pass) | 143 (65 pass) | 39 (21 pass) |
-| 20 min | 474 (205 pass) | 127 (56 pass) | 150 (74 pass) | 110 (44 pass) | 27 (11 pass) |
-| 30 min | 319 (122 pass) | 76 (29 pass) | 99 (44 pass) | 70 (26 pass) | 16 (8 pass) |
-| 45 min | 203 (67 pass) | 51 (17 pass) | 57 (24 pass) | 42 (17 pass) | 10 (5 pass) |
-| 60 min | 151 (54 pass) | 36 (13 pass) | 42 (20 pass) | 34 (13 pass) | 8 (4 pass) |
+| 10 min | 1262 (614 pass) | 371 (189 pass) | 481 (263 pass) | 403 (196 pass) | 115 (63 pass) |
+| 15 min | 906 (413 pass) | 262 (122 pass) | 325 (175 pass) | 293 (139 pass) | 85 (46 pass) |
+| 20 min | 717 (302 pass) | 203 (91 pass) | 247 (121 pass) | 222 (102 pass) | 60 (32 pass) |
+| 30 min | 487 (178 pass) | 137 (51 pass) | 165 (74 pass) | 161 (73 pass) | 37 (21 pass) |
+| 45 min | 318 (92 pass) | 94 (32 pass) | 93 (33 pass) | 115 (55 pass) | 29 (16 pass) |
+| 60 min | 244 (67 pass) | 68 (22 pass) | 62 (22 pass) | 87 (46 pass) | 22 (15 pass) |
 
 ## Reference points (no model)
 
@@ -54,113 +54,113 @@ Cross-validation tasks / held-out tasks, pooled:
 
 | policy | time ratio (CV tasks) | a4 - a1 (CV) | lost (CV) | time ratio (held out) | a4 - a1 (held out) | lost (held out) |
 |---|---|---|---|---|---|---|
-| never stop | 0.85x | -0.2 | -0.0 | 0.80x | -5.8 | -0.0 |
-| stop every session at 20 min | 0.54x | -9.1 | -9.0 | 0.53x | -12.9 | -7.1 |
-| stop every session at 30 min | 0.62x | -4.8 | -4.7 | 0.61x | -11.0 | -5.2 |
-| stop every session at 45 min | 0.70x | -2.9 | -2.7 | 0.67x | -9.0 | -3.2 |
-| stop every session at 60 min | 0.76x | -2.2 | -2.1 | 0.72x | -8.4 | -2.6 |
-| perfect rule at 20 min (stops only sessions that fail anyway) | 0.66x | -0.2 | -0.0 | 0.66x | -5.8 | -0.0 |
-| perfect rule at 30 min (stops only sessions that fail anyway) | 0.71x | -0.2 | -0.0 | 0.71x | -5.8 | -0.0 |
-| perfect rule at 45 min (stops only sessions that fail anyway) | 0.76x | -0.2 | -0.0 | 0.74x | -5.8 | -0.0 |
-| perfect rule at 60 min (stops only sessions that fail anyway) | 0.79x | -0.2 | -0.0 | 0.76x | -5.8 | -0.0 |
+| never stop | 0.88x | -0.2 | -0.0 | 0.84x | -2.0 | -0.0 |
+| stop every session at 20 min | 0.52x | -9.7 | -9.5 | 0.46x | -14.5 | -12.5 |
+| stop every session at 30 min | 0.61x | -5.5 | -5.3 | 0.54x | -10.2 | -8.2 |
+| stop every session at 45 min | 0.70x | -3.5 | -3.3 | 0.62x | -8.2 | -6.3 |
+| stop every session at 60 min | 0.77x | -2.4 | -2.2 | 0.68x | -7.8 | -5.9 |
+| perfect rule at 20 min (stops only sessions that fail anyway) | 0.64x | -0.2 | -0.0 | 0.72x | -2.0 | -0.0 |
+| perfect rule at 30 min (stops only sessions that fail anyway) | 0.70x | -0.2 | -0.0 | 0.76x | -2.0 | -0.0 |
+| perfect rule at 45 min (stops only sessions that fail anyway) | 0.75x | -0.2 | -0.0 | 0.79x | -2.0 | -0.0 |
+| perfect rule at 60 min (stops only sessions that fail anyway) | 0.79x | -0.2 | -0.0 | 0.81x | -2.0 | -0.0 |
 
 ## Which signals predict a pass
 
-Each feature added alone to elapsed time, logistic regression, cross-validated by task on all arms' rows. Gain = drop in log-loss (higher is better); AUC = how well P(pass) ranks passing above failing rows (elapsed time alone: 0.500). Counts enter as log(1 + count).
+Each feature added alone to elapsed time, logistic regression, cross-validated by task on all arms' rows. Gain = drop in log-loss (higher is better); AUC = how well P(pass) ranks passing above failing rows (elapsed time alone: 0.570). Counts enter as log(1 + count).
 
 | feature | log-loss gain | AUC with elapsed | direction |
 |---|---|---|---|
-| benchmark | 0.0227 | 0.591 | by level |
-| tests_recent | 0.0127 | 0.593 | more = more likely to pass |
-| tests | 0.0084 | 0.570 | more = more likely to pass |
-| last_test_pass_frac | 0.0078 | 0.572 | more = more likely to pass |
-| test_counts_seen | 0.0067 | 0.567 | more = more likely to pass |
-| thinking_chars | 0.0065 | 0.536 | more = more likely to pass |
-| compile_errors | 0.0057 | 0.551 | more = more likely to pass |
-| arm | 0.0046 | 0.556 | by level |
-| commands | 0.0033 | 0.533 | more = more likely to pass |
-| turns | 0.0031 | 0.533 | more = more likely to pass |
-| off_share | 0.0021 | 0.537 | more = more likely to fail |
-| test_frac_trend | 0.0020 | 0.516 | more = more likely to pass |
-| failed_cmds | 0.0020 | 0.530 | more = more likely to pass |
-| turns_last5min | 0.0017 | 0.534 | more = more likely to pass |
-| file_changes_recent | 0.0015 | 0.534 | more = more likely to fail |
-| since_change_min | 0.0014 | 0.509 | more = more likely to fail |
-| approach_recent | 0.0013 | 0.521 | more = more likely to fail |
-| done_phrases | 0.0012 | 0.517 | more = more likely to pass |
-| compactions | 0.0010 | 0.516 | more = more likely to fail |
-| approach_phrases | 0.0005 | 0.517 | more = more likely to fail |
-| tracebacks | 0.0004 | 0.522 | more = more likely to pass |
-| repeat_share | 0.0004 | 0.509 | more = more likely to fail |
-| guard_hits | 0.0002 | 0.514 | more = more likely to pass |
-| forced_xhigh | -0.0000 | 0.519 | more = more likely to pass |
-| last_test_failed | -0.0001 | 0.504 | more = more likely to pass |
-| last_output_chars | -0.0006 | 0.512 | more = more likely to fail |
-| fail_share_recent | -0.0007 | 0.504 | more = more likely to fail |
-| file_changes | -0.0007 | 0.498 | more = more likely to pass |
-| context_tokens | -0.0008 | 0.509 | more = more likely to pass |
-| turns_per_min | -0.0010 | 0.521 | more = more likely to pass |
-| jeff_steps | -0.0010 | 0.497 | more = more likely to fail |
-| error_share_recent | -0.0010 | 0.498 | more = more likely to fail |
-| output_tokens | -0.0014 | 0.504 | more = more likely to pass |
-| written_paths | -0.0018 | 0.500 | more = more likely to fail |
-| write_chars | -0.0022 | 0.490 | more = more likely to fail |
-| near_repeat_share | -0.0029 | 0.485 | more = more likely to fail |
-| not_found | -0.0029 | 0.486 | more = more likely to fail |
-| timeouts | -0.0037 | 0.487 | more = more likely to pass |
-| share_of_limit | -0.0045 | 0.482 | more = more likely to pass |
-| limit_cuts | -0.0078 | 0.494 | more = more likely to fail |
-| limit_min | -0.0104 | 0.471 | more = more likely to pass |
+| benchmark | 0.0383 | 0.662 | by level |
+| tests_recent | 0.0212 | 0.640 | more = more likely to pass |
+| test_counts_seen | 0.0136 | 0.617 | more = more likely to pass |
+| last_test_pass_frac | 0.0130 | 0.618 | more = more likely to pass |
+| tests | 0.0115 | 0.613 | more = more likely to pass |
+| arm | 0.0066 | 0.598 | by level |
+| thinking_chars | 0.0061 | 0.600 | more = more likely to pass |
+| compile_errors | 0.0040 | 0.588 | more = more likely to pass |
+| off_share | 0.0035 | 0.590 | more = more likely to fail |
+| file_changes_recent | 0.0023 | 0.585 | more = more likely to fail |
+| compactions | 0.0015 | 0.580 | more = more likely to fail |
+| approach_recent | 0.0015 | 0.577 | more = more likely to fail |
+| forced_xhigh | 0.0014 | 0.583 | more = more likely to pass |
+| tracebacks | 0.0013 | 0.584 | more = more likely to pass |
+| last_output_chars | 0.0012 | 0.586 | more = more likely to fail |
+| written_paths | 0.0012 | 0.580 | more = more likely to fail |
+| failed_cmds | 0.0008 | 0.581 | more = more likely to pass |
+| output_tokens | 0.0006 | 0.578 | more = more likely to pass |
+| fail_share_recent | 0.0001 | 0.574 | more = more likely to fail |
+| commands | 0.0000 | 0.577 | more = more likely to pass |
+| file_changes | -0.0002 | 0.571 | more = more likely to fail |
+| error_share_recent | -0.0003 | 0.568 | more = more likely to fail |
+| near_repeat_share | -0.0003 | 0.568 | more = more likely to fail |
+| test_frac_trend | -0.0003 | 0.567 | more = more likely to pass |
+| repeat_share | -0.0004 | 0.566 | more = more likely to fail |
+| timeouts | -0.0004 | 0.565 | more = more likely to fail |
+| turns | -0.0005 | 0.575 | more = more likely to pass |
+| limit_cuts | -0.0006 | 0.575 | more = more likely to fail |
+| done_phrases | -0.0006 | 0.575 | more = more likely to pass |
+| context_tokens | -0.0007 | 0.567 | more = more likely to pass |
+| guard_hits | -0.0007 | 0.565 | more = more likely to pass |
+| approach_phrases | -0.0008 | 0.568 | more = more likely to pass |
+| not_found | -0.0008 | 0.568 | more = more likely to fail |
+| turns_last5min | -0.0009 | 0.577 | more = more likely to pass |
+| since_change_min | -0.0012 | 0.570 | more = more likely to fail |
+| jeff_steps | -0.0014 | 0.567 | more = more likely to fail |
+| last_test_failed | -0.0014 | 0.567 | more = more likely to pass |
+| write_chars | -0.0014 | 0.562 | more = more likely to pass |
+| share_of_limit | -0.0018 | 0.565 | more = more likely to pass |
+| turns_per_min | -0.0020 | 0.564 | more = more likely to pass |
+| limit_min | -0.0232 | 0.546 | more = more likely to fail |
 
 Forward selection (cross-validated log-loss, at most 8 features, held-out tasks never used):
 
 | step | feature added | CV log-loss | CV AUC |
 |---|---|---|---|
-| 1 | elapsed_min | 0.6887 | 0.500 |
-| 2 | benchmark | 0.6660 | 0.591 |
-| 3 | approach_phrases | 0.6610 | 0.624 |
-| 4 | thinking_chars | 0.6494 | 0.670 |
-| 5 | repeat_share | 0.6460 | 0.679 |
-| 6 | test_frac_trend | 0.6436 | 0.684 |
-| 7 | limit_min | 0.6410 | 0.684 |
-| 8 | tests_recent | 0.6388 | 0.689 |
+| 1 | elapsed_min | 0.6725 | 0.570 |
+| 2 | benchmark | 0.6342 | 0.662 |
+| 3 | tests_recent | 0.6276 | 0.683 |
+| 4 | off_share | 0.6261 | 0.684 |
+| 5 | approach_recent | 0.6236 | 0.689 |
+| 6 | forced_xhigh | 0.6228 | 0.692 |
+| 7 | approach_phrases | 0.6217 | 0.698 |
+| 8 | file_changes | 0.6208 | 0.698 |
 
 Final logistic regression (fitted on all cross-validation tasks; weights on standardised features, positive = more likely to pass):
 
 | column | weight |
 |---|---|
-| intercept | -0.407 |
-| elapsed_min | -0.089 |
-| benchmark=harbor-index-1.0 | -0.623 |
-| benchmark=skillsbench | -0.035 |
-| benchmark=swe-bench-verified | +0.448 |
-| benchmark=swe-rebench-leaderboard | +0.199 |
-| benchmark=terminal-bench-2 | -0.525 |
-| benchmark=terminal-bench-pro | +0.283 |
-| log(1+approach_phrases) | -0.467 |
-| log(1+thinking_chars) | +0.548 |
-| repeat_share | -0.157 |
-| test_frac_trend | +0.149 |
-| limit_min | +0.706 |
-| log(1+tests_recent) | +0.220 |
+| intercept | -0.403 |
+| elapsed_min | -0.252 |
+| benchmark=harbor-index-1.0 | -0.402 |
+| benchmark=skillsbench | -0.381 |
+| benchmark=swe-bench-verified | +0.396 |
+| benchmark=swe-rebench-leaderboard | +0.044 |
+| benchmark=terminal-bench-2 | -0.061 |
+| benchmark=terminal-bench-pro | +0.105 |
+| log(1+tests_recent) | +0.257 |
+| off_share | -0.310 |
+| log(1+approach_recent) | -0.101 |
+| log(1+forced_xhigh) | +0.142 |
+| log(1+approach_phrases) | -0.240 |
+| log(1+file_changes) | +0.103 |
 
 Decision tree (fitted on all cross-validation tasks; rows of all arms and checkpoints):
 
-- benchmark is harbor-index-1.0 and turns_per_min >= 2.75: pass rate 10/77
-- benchmark is harbor-index-1.0 and turns_per_min < 2.75: pass rate 0/139
-- benchmark is not harbor-index-1.0 and thinking_chars >= 2.37e+03: pass rate 1093/2167
-- benchmark is not harbor-index-1.0 and thinking_chars < 2.37e+03: pass rate 50/240
+- tests_recent >= 1 and benchmark is swe-bench-verified: pass rate 348/532
+- tests_recent >= 1 and benchmark is not swe-bench-verified: pass rate 508/1038
+- tests_recent < 1 and benchmark is harbor-index-1.0: pass rate 29/270
+- tests_recent < 1 and benchmark is not harbor-index-1.0: pass rate 781/2094
 
 Turn table: pass rate of sessions still running, by checkpoint and Qwen turns so far (cross-validation tasks, all arms; a4 in brackets):
 
 | checkpoint | 0-4 turns | 5-9 turns | 10-19 turns | 20-29 turns | 30-44 turns | 45-69 turns | 70-99 turns | 100-149 turns | 150+ turns |
 |---|---|---|---|---|---|---|---|---|---|
-| 10 min | 1/4 (0/0) | 14/38 (3/12) | 26/67 (5/14) | 41/96 (13/25) | 76/150 (16/35) | 105/216 (34/63) | 91/155 (34/59) | 49/106 (16/31) | 21/36 (4/5) |
-| 15 min | 1/3 (0/0) | 9/21 (2/6) | 12/38 (0/7) | 14/42 (4/12) | 37/75 (10/21) | 66/151 (15/36) | 63/117 (23/45) | 44/95 (16/30) | 35/66 (6/11) |
-| 20 min | 1/3 (0/0) | 6/16 (1/4) | 10/29 (1/6) | 9/33 (3/11) | 19/41 (5/14) | 33/92 (7/17) | 45/92 (13/26) | 44/83 (20/35) | 38/85 (6/14) |
-| 30 min | 0/2 (0/0) | 0/8 (0/2) | 8/20 (0/1) | 11/26 (4/9) | 10/28 (2/9) | 12/49 (3/10) | 26/50 (6/8) | 24/59 (9/22) | 31/77 (5/15) |
-| 45 min | 0/2 (0/0) | 0/6 (0/1) | 3/9 (0/2) | 3/14 (2/5) | 10/19 (1/3) | 11/41 (5/14) | 7/26 (1/5) | 11/34 (3/7) | 22/52 (5/14) |
-| 60 min | 0/2 (0/0) | 0/5 (0/1) | 3/10 (0/2) | 2/10 (2/4) | 8/16 (0/1) | 11/30 (4/8) | 7/21 (3/8) | 8/24 (2/5) | 15/33 (2/7) |
+| 10 min | 3/9 (0/0) | 18/51 (5/13) | 49/116 (10/25) | 70/165 (15/37) | 133/255 (32/65) | 153/286 (55/97) | 109/209 (47/87) | 60/134 (22/43) | 19/37 (3/4) |
+| 15 min | 2/4 (0/0) | 12/28 (3/6) | 18/58 (3/15) | 28/76 (6/17) | 68/146 (18/38) | 101/214 (24/59) | 85/157 (36/64) | 62/141 (26/50) | 37/82 (6/13) |
+| 20 min | 1/3 (0/0) | 9/20 (2/5) | 13/42 (2/9) | 12/45 (3/13) | 38/97 (8/24) | 62/143 (15/32) | 62/125 (21/44) | 64/139 (33/57) | 41/103 (7/19) |
+| 30 min | 0/2 (0/0) | 3/13 (1/3) | 9/24 (1/4) | 11/34 (4/12) | 18/55 (4/15) | 33/89 (8/22) | 34/72 (12/20) | 33/90 (13/35) | 37/108 (8/26) |
+| 45 min | 0/2 (0/0) | 2/9 (1/2) | 3/13 (0/4) | 5/22 (3/8) | 13/37 (2/7) | 14/59 (7/20) | 16/50 (7/14) | 14/47 (4/15) | 25/79 (8/24) |
+| 60 min | 0/2 (0/0) | 1/7 (1/2) | 3/13 (0/4) | 4/16 (2/6) | 9/31 (2/5) | 15/39 (7/12) | 8/41 (3/12) | 10/36 (4/12) | 17/59 (3/15) |
 
 ## How well each model ranks sessions (AUC)
 
@@ -168,213 +168,213 @@ AUC per checkpoint: cross-validated on CV tasks / on held-out tasks (model fitte
 
 | model | checkpoint | CV all arms | held out all arms | CV a4 | held out a4 |
 |---|---|---|---|---|---|
-| turn table | 10 min | 0.487 | 0.495 | 0.502 | 0.451 |
-| turn table | 15 min | 0.494 | 0.632 | 0.503 | 0.591 |
-| turn table | 20 min | 0.477 | 0.496 | 0.528 | 0.418 |
-| turn table | 30 min | 0.483 | 0.384 | 0.437 | 0.500 |
-| turn table | 45 min | 0.525 | 0.574 | 0.418 | 0.360 |
-| turn table | 60 min | 0.488 | 0.553 | 0.326 | 0.500 |
-| turn table | all | 0.518 | 0.556 | 0.532 | 0.510 |
-| decision tree | 10 min | 0.491 | 0.562 | 0.467 | 0.530 |
-| decision tree | 15 min | 0.514 | 0.587 | 0.487 | 0.562 |
-| decision tree | 20 min | 0.520 | 0.596 | 0.462 | 0.554 |
-| decision tree | 30 min | 0.555 | 0.601 | 0.417 | 0.562 |
-| decision tree | 45 min | 0.561 | 0.691 | 0.438 | 0.700 |
-| decision tree | 60 min | 0.619 | 0.714 | 0.490 | 0.625 |
-| decision tree | all | 0.525 | 0.599 | 0.468 | 0.564 |
-| logistic regression | 10 min | 0.637 | 0.651 | 0.643 | 0.635 |
-| logistic regression | 15 min | 0.681 | 0.684 | 0.685 | 0.677 |
-| logistic regression | 20 min | 0.684 | 0.647 | 0.696 | 0.659 |
-| logistic regression | 30 min | 0.720 | 0.684 | 0.753 | 0.719 |
-| logistic regression | 45 min | 0.769 | 0.708 | 0.780 | 0.800 |
-| logistic regression | 60 min | 0.794 | 0.799 | 0.759 | 0.750 |
-| logistic regression | all | 0.689 | 0.669 | 0.695 | 0.653 |
+| turn table | 10 min | 0.505 | 0.494 | 0.514 | 0.532 |
+| turn table | 15 min | 0.516 | 0.471 | 0.510 | 0.479 |
+| turn table | 20 min | 0.523 | 0.509 | 0.553 | 0.535 |
+| turn table | 30 min | 0.436 | 0.394 | 0.495 | 0.409 |
+| turn table | 45 min | 0.429 | 0.580 | 0.352 | 0.553 |
+| turn table | 60 min | 0.473 | 0.533 | 0.464 | 0.124 |
+| turn table | all | 0.565 | 0.498 | 0.569 | 0.483 |
+| decision tree | 10 min | 0.554 | 0.585 | 0.509 | 0.562 |
+| decision tree | 15 min | 0.581 | 0.607 | 0.570 | 0.579 |
+| decision tree | 20 min | 0.590 | 0.647 | 0.598 | 0.677 |
+| decision tree | 30 min | 0.611 | 0.611 | 0.555 | 0.567 |
+| decision tree | 45 min | 0.607 | 0.706 | 0.566 | 0.625 |
+| decision tree | 60 min | 0.645 | 0.746 | 0.643 | 0.681 |
+| decision tree | all | 0.592 | 0.625 | 0.565 | 0.598 |
+| logistic regression | 10 min | 0.655 | 0.623 | 0.633 | 0.601 |
+| logistic regression | 15 min | 0.690 | 0.627 | 0.660 | 0.587 |
+| logistic regression | 20 min | 0.679 | 0.639 | 0.678 | 0.654 |
+| logistic regression | 30 min | 0.702 | 0.686 | 0.695 | 0.690 |
+| logistic regression | 45 min | 0.730 | 0.787 | 0.702 | 0.745 |
+| logistic regression | 60 min | 0.754 | 0.786 | 0.737 | 0.705 |
+| logistic regression | all | 0.698 | 0.639 | 0.676 | 0.607 |
 
 ## Each chosen policy per benchmark
 
-### turn table, loss budget 0 points: check once at 20 min, stop if P(pass) < 0.29
+### turn table, loss budget 0 points: check once at 10 min, stop if P(pass) < 0.01
 
 Cross-validation tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 19 | 5.3% | 0.0% | -5.3 | -0.0 | 0.80x | 0.78x | 0 |
-| skillsbench | 24 | 33.3% | 37.5% | +4.2 | -0.0 | 1.35x | 1.36x | 0 |
-| swe-bench-verified | 212 | 69.8% | 73.1% | +3.3 | -0.0 | 0.73x | 0.71x | 0 |
-| swe-rebench-leaderboard | 117 | 56.4% | 56.4% | +0.0 | -0.0 | 0.76x | 0.75x | 0 |
-| swe-rebench-leaderboard#2 | 89 | 56.2% | 53.9% | -2.2 | -0.0 | 0.84x | 0.83x | 1 |
-| terminal-bench-2 | 56 | 73.2% | 64.3% | -8.9 | -0.0 | 0.99x | 0.99x | 1 |
-| terminal-bench-pro | 52 | 67.3% | 63.5% | -3.8 | -0.0 | 0.76x | 0.72x | 0 |
-| terminal-bench-pro#2 | 54 | 66.7% | 68.5% | +1.9 | -0.0 | 1.27x | 1.31x | 1 |
-| pooled | 623 | 61.8% | 61.6% | -0.2 | -0.0 | 0.84x | 0.83x | 3 |
+| harbor-index-1.0 | 32 | 12.5% | 9.4% | -3.1 | -0.0 | 0.80x | 0.78x | 0 |
+| skillsbench | 33 | 27.3% | 24.2% | -3.0 | -0.0 | 1.12x | 1.12x | 0 |
+| swe-bench-verified | 373 | 70.0% | 70.8% | +0.8 | -0.0 | 0.82x | 0.81x | 0 |
+| swe-rebench-leaderboard | 130 | 58.5% | 57.7% | -0.8 | -0.0 | 0.75x | 0.74x | 0 |
+| swe-rebench-leaderboard#2 | 134 | 61.2% | 58.2% | -3.0 | -0.0 | 0.90x | 0.89x | 0 |
+| terminal-bench-2 | 77 | 74.0% | 70.1% | -3.9 | -0.0 | 0.99x | 0.99x | 0 |
+| terminal-bench-pro | 81 | 58.0% | 59.3% | +1.2 | -0.0 | 0.91x | 0.90x | 0 |
+| terminal-bench-pro#2 | 81 | 60.5% | 65.4% | +4.9 | -0.0 | 1.28x | 1.31x | 0 |
+| pooled | 941 | 62.2% | 62.0% | -0.2 | -0.0 | 0.88x | 0.87x | 0 |
 
 Held-out tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 6 | 50.0% | 33.3% | -16.7 | -0.0 | 0.94x | 0.92x | 0 |
-| skillsbench | 3 | 66.7% | 33.3% | -33.3 | -0.0 | 0.60x | 0.62x | 0 |
-| swe-bench-verified | 51 | 78.4% | 66.7% | -11.8 | -0.0 | 0.74x | 0.72x | 0 |
-| swe-rebench-leaderboard | 37 | 62.2% | 67.6% | +5.4 | -0.0 | 0.75x | 0.73x | 0 |
-| swe-rebench-leaderboard#2 | 29 | 69.0% | 55.2% | -13.8 | -0.0 | 0.68x | 0.65x | 0 |
-| terminal-bench-2 | 13 | 100.0% | 100.0% | +0.0 | -0.0 | 1.05x | 1.30x | 0 |
-| terminal-bench-pro | 9 | 44.4% | 44.4% | +0.0 | -0.0 | 1.18x | 1.19x | 0 |
-| terminal-bench-pro#2 | 7 | 42.9% | 57.1% | +14.3 | -0.0 | 3.17x | 3.98x | 0 |
-| pooled | 155 | 69.7% | 63.9% | -5.8 | -0.0 | 0.80x | 0.78x | 0 |
+| harbor-index-1.0 | 9 | 11.1% | 11.1% | +0.0 | -0.0 | 0.94x | 0.93x | 0 |
+| skillsbench | 8 | 25.0% | 50.0% | +25.0 | -0.0 | 1.09x | 1.11x | 0 |
+| swe-bench-verified | 80 | 80.0% | 72.5% | -7.5 | -0.0 | 0.89x | 0.88x | 0 |
+| swe-rebench-leaderboard | 51 | 54.9% | 60.8% | +5.9 | -0.0 | 0.78x | 0.78x | 0 |
+| swe-rebench-leaderboard#2 | 52 | 59.6% | 53.8% | -5.8 | -0.0 | 0.75x | 0.74x | 0 |
+| terminal-bench-2 | 27 | 81.5% | 81.5% | +0.0 | -0.0 | 0.72x | 0.71x | 0 |
+| terminal-bench-pro | 14 | 64.3% | 64.3% | +0.0 | -0.0 | 1.90x | 2.03x | 0 |
+| terminal-bench-pro#2 | 14 | 78.6% | 71.4% | -7.1 | -0.0 | 0.98x | 0.99x | 0 |
+| pooled | 255 | 65.9% | 63.9% | -2.0 | -0.0 | 0.84x | 0.83x | 0 |
 
-### turn table, loss budget 2 points: check at 30, 45, 60 min, stop if P(pass) < 0.32
+### turn table, loss budget 2 points: check once at 20 min, stop if P(pass) < 0.41
 
 Cross-validation tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 19 | 5.3% | 0.0% | -5.3 | -0.0 | 0.63x | 0.61x | 5 |
-| skillsbench | 24 | 33.3% | 37.5% | +4.2 | -0.0 | 1.05x | 1.05x | 2 |
-| swe-bench-verified | 212 | 69.8% | 72.6% | +2.8 | -0.5 | 0.72x | 0.69x | 2 |
-| swe-rebench-leaderboard | 117 | 56.4% | 55.6% | -0.9 | -0.9 | 0.72x | 0.71x | 2 |
-| swe-rebench-leaderboard#2 | 89 | 56.2% | 50.6% | -5.6 | -3.4 | 0.81x | 0.80x | 4 |
-| terminal-bench-2 | 56 | 73.2% | 58.9% | -14.3 | -5.4 | 0.64x | 0.63x | 10 |
-| terminal-bench-pro | 52 | 67.3% | 61.5% | -5.8 | -1.9 | 0.68x | 0.64x | 1 |
-| terminal-bench-pro#2 | 54 | 66.7% | 64.8% | -1.9 | -3.7 | 0.89x | 0.87x | 4 |
-| pooled | 623 | 61.8% | 59.9% | -1.9 | -1.8 | 0.73x | 0.72x | 30 |
+| harbor-index-1.0 | 32 | 12.5% | 9.4% | -3.1 | -0.0 | 0.57x | 0.55x | 5 |
+| skillsbench | 33 | 27.3% | 24.2% | -3.0 | -0.0 | 0.93x | 0.92x | 4 |
+| swe-bench-verified | 373 | 70.0% | 69.4% | -0.5 | -1.3 | 0.77x | 0.76x | 10 |
+| swe-rebench-leaderboard | 130 | 58.5% | 56.2% | -2.3 | -1.5 | 0.73x | 0.72x | 2 |
+| swe-rebench-leaderboard#2 | 134 | 61.2% | 56.7% | -4.5 | -1.5 | 0.83x | 0.83x | 5 |
+| terminal-bench-2 | 77 | 74.0% | 67.5% | -6.5 | -2.6 | 0.63x | 0.61x | 8 |
+| terminal-bench-pro | 81 | 58.0% | 56.8% | -1.2 | -2.5 | 0.70x | 0.67x | 5 |
+| terminal-bench-pro#2 | 81 | 60.5% | 63.0% | +2.5 | -2.5 | 0.85x | 0.84x | 6 |
+| pooled | 941 | 62.2% | 60.4% | -1.8 | -1.6 | 0.76x | 0.74x | 45 |
 
 Held-out tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 6 | 50.0% | 16.7% | -33.3 | -16.7 | 0.91x | 0.89x | 1 |
-| skillsbench | 3 | 66.7% | 33.3% | -33.3 | -0.0 | 0.60x | 0.62x | 0 |
-| swe-bench-verified | 51 | 78.4% | 66.7% | -11.8 | -0.0 | 0.74x | 0.72x | 0 |
-| swe-rebench-leaderboard | 37 | 62.2% | 64.9% | +2.7 | -2.7 | 0.66x | 0.64x | 2 |
-| swe-rebench-leaderboard#2 | 29 | 69.0% | 51.7% | -17.2 | -3.4 | 0.67x | 0.64x | 1 |
-| terminal-bench-2 | 13 | 100.0% | 100.0% | +0.0 | -0.0 | 1.05x | 1.30x | 0 |
-| terminal-bench-pro | 9 | 44.4% | 33.3% | -11.1 | -11.1 | 1.01x | 1.03x | 1 |
-| terminal-bench-pro#2 | 7 | 42.9% | 57.1% | +14.3 | -0.0 | 3.17x | 3.98x | 0 |
-| pooled | 155 | 69.7% | 61.3% | -8.4 | -2.6 | 0.76x | 0.74x | 5 |
+| harbor-index-1.0 | 9 | 11.1% | 11.1% | +0.0 | -0.0 | 0.53x | 0.52x | 3 |
+| skillsbench | 8 | 25.0% | 50.0% | +25.0 | -0.0 | 0.59x | 0.59x | 2 |
+| swe-bench-verified | 80 | 80.0% | 70.0% | -10.0 | -2.5 | 0.78x | 0.77x | 3 |
+| swe-rebench-leaderboard | 51 | 54.9% | 56.9% | +2.0 | -3.9 | 0.70x | 0.70x | 4 |
+| swe-rebench-leaderboard#2 | 52 | 59.6% | 50.0% | -9.6 | -3.8 | 0.61x | 0.61x | 2 |
+| terminal-bench-2 | 27 | 81.5% | 66.7% | -14.8 | -14.8 | 0.30x | 0.27x | 5 |
+| terminal-bench-pro | 14 | 64.3% | 50.0% | -14.3 | -14.3 | 0.89x | 0.91x | 4 |
+| terminal-bench-pro#2 | 14 | 78.6% | 57.1% | -21.4 | -14.3 | 0.59x | 0.57x | 3 |
+| pooled | 255 | 65.9% | 58.4% | -7.5 | -5.5 | 0.59x | 0.57x | 26 |
 
-### decision tree, loss budget 0 points: check once at 10 min, stop if P(pass) < 0.03
+### decision tree, loss budget 0 points: check once at 45 min, stop if P(pass) < 0.14
 
 Cross-validation tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 19 | 5.3% | 0.0% | -5.3 | -0.0 | 0.32x | 0.31x | 10 |
-| skillsbench | 24 | 33.3% | 37.5% | +4.2 | -0.0 | 1.35x | 1.36x | 0 |
-| swe-bench-verified | 212 | 69.8% | 73.1% | +3.3 | -0.0 | 0.73x | 0.71x | 0 |
-| swe-rebench-leaderboard | 117 | 56.4% | 56.4% | +0.0 | -0.0 | 0.76x | 0.75x | 0 |
-| swe-rebench-leaderboard#2 | 89 | 56.2% | 53.9% | -2.2 | -0.0 | 0.88x | 0.87x | 0 |
-| terminal-bench-2 | 56 | 73.2% | 64.3% | -8.9 | -0.0 | 1.07x | 1.07x | 0 |
-| terminal-bench-pro | 52 | 67.3% | 63.5% | -3.8 | -0.0 | 0.76x | 0.72x | 0 |
-| terminal-bench-pro#2 | 54 | 66.7% | 68.5% | +1.9 | -0.0 | 1.29x | 1.32x | 0 |
-| pooled | 623 | 61.8% | 61.6% | -0.2 | -0.0 | 0.82x | 0.81x | 10 |
+| harbor-index-1.0 | 32 | 12.5% | 9.4% | -3.1 | -0.0 | 0.61x | 0.59x | 6 |
+| skillsbench | 33 | 27.3% | 24.2% | -3.0 | -0.0 | 0.97x | 0.96x | 3 |
+| swe-bench-verified | 373 | 70.0% | 70.8% | +0.8 | -0.0 | 0.82x | 0.81x | 0 |
+| swe-rebench-leaderboard | 130 | 58.5% | 57.7% | -0.8 | -0.0 | 0.75x | 0.74x | 0 |
+| swe-rebench-leaderboard#2 | 134 | 61.2% | 58.2% | -3.0 | -0.0 | 0.90x | 0.89x | 0 |
+| terminal-bench-2 | 77 | 74.0% | 70.1% | -3.9 | -0.0 | 0.99x | 0.99x | 0 |
+| terminal-bench-pro | 81 | 58.0% | 59.3% | +1.2 | -0.0 | 0.91x | 0.90x | 0 |
+| terminal-bench-pro#2 | 81 | 60.5% | 65.4% | +4.9 | -0.0 | 1.28x | 1.31x | 0 |
+| pooled | 941 | 62.2% | 62.0% | -0.2 | -0.0 | 0.86x | 0.85x | 9 |
 
 Held-out tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 6 | 50.0% | 33.3% | -16.7 | -0.0 | 0.78x | 0.76x | 1 |
-| skillsbench | 3 | 66.7% | 33.3% | -33.3 | -0.0 | 0.60x | 0.62x | 0 |
-| swe-bench-verified | 51 | 78.4% | 66.7% | -11.8 | -0.0 | 0.74x | 0.72x | 0 |
-| swe-rebench-leaderboard | 37 | 62.2% | 67.6% | +5.4 | -0.0 | 0.75x | 0.73x | 0 |
-| swe-rebench-leaderboard#2 | 29 | 69.0% | 55.2% | -13.8 | -0.0 | 0.68x | 0.65x | 0 |
-| terminal-bench-2 | 13 | 100.0% | 100.0% | +0.0 | -0.0 | 1.05x | 1.30x | 0 |
-| terminal-bench-pro | 9 | 44.4% | 44.4% | +0.0 | -0.0 | 1.18x | 1.19x | 0 |
-| terminal-bench-pro#2 | 7 | 42.9% | 57.1% | +14.3 | -0.0 | 3.17x | 3.98x | 0 |
-| pooled | 155 | 69.7% | 63.9% | -5.8 | -0.0 | 0.78x | 0.77x | 1 |
+| harbor-index-1.0 | 9 | 11.1% | 11.1% | +0.0 | -0.0 | 0.80x | 0.80x | 2 |
+| skillsbench | 8 | 25.0% | 50.0% | +25.0 | -0.0 | 1.09x | 1.11x | 0 |
+| swe-bench-verified | 80 | 80.0% | 72.5% | -7.5 | -0.0 | 0.89x | 0.88x | 0 |
+| swe-rebench-leaderboard | 51 | 54.9% | 60.8% | +5.9 | -0.0 | 0.78x | 0.78x | 0 |
+| swe-rebench-leaderboard#2 | 52 | 59.6% | 53.8% | -5.8 | -0.0 | 0.75x | 0.74x | 0 |
+| terminal-bench-2 | 27 | 81.5% | 81.5% | +0.0 | -0.0 | 0.72x | 0.71x | 0 |
+| terminal-bench-pro | 14 | 64.3% | 64.3% | +0.0 | -0.0 | 1.90x | 2.03x | 0 |
+| terminal-bench-pro#2 | 14 | 78.6% | 71.4% | -7.1 | -0.0 | 0.98x | 0.99x | 0 |
+| pooled | 255 | 65.9% | 63.9% | -2.0 | -0.0 | 0.83x | 0.82x | 2 |
 
-### decision tree, loss budget 2 points: check once at 30 min, stop if P(pass) < 0.47
+### decision tree, loss budget 2 points: check at 20, 30, 45, 60 min, stop if P(pass) < 0.38
 
 Cross-validation tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 19 | 5.3% | 0.0% | -5.3 | -0.0 | 0.47x | 0.44x | 7 |
-| skillsbench | 24 | 33.3% | 37.5% | +4.2 | -0.0 | 1.20x | 1.21x | 1 |
-| swe-bench-verified | 212 | 69.8% | 72.6% | +2.8 | -0.5 | 0.73x | 0.71x | 1 |
-| swe-rebench-leaderboard | 117 | 56.4% | 54.7% | -1.7 | -1.7 | 0.75x | 0.73x | 2 |
-| swe-rebench-leaderboard#2 | 89 | 56.2% | 51.7% | -4.5 | -2.2 | 0.78x | 0.77x | 3 |
-| terminal-bench-2 | 56 | 73.2% | 58.9% | -14.3 | -5.4 | 0.79x | 0.78x | 6 |
-| terminal-bench-pro | 52 | 67.3% | 61.5% | -5.8 | -1.9 | 0.68x | 0.64x | 1 |
-| terminal-bench-pro#2 | 54 | 66.7% | 66.7% | +0.0 | -1.9 | 1.17x | 1.19x | 1 |
-| pooled | 623 | 61.8% | 60.0% | -1.8 | -1.6 | 0.76x | 0.75x | 22 |
+| harbor-index-1.0 | 32 | 12.5% | 6.2% | -6.2 | -3.1 | 0.38x | 0.35x | 11 |
+| skillsbench | 33 | 27.3% | 18.2% | -9.1 | -6.1 | 0.67x | 0.65x | 10 |
+| swe-bench-verified | 373 | 70.0% | 69.2% | -0.8 | -1.6 | 0.77x | 0.76x | 10 |
+| swe-rebench-leaderboard | 130 | 58.5% | 56.9% | -1.5 | -0.8 | 0.68x | 0.67x | 5 |
+| swe-rebench-leaderboard#2 | 134 | 61.2% | 56.7% | -4.5 | -1.5 | 0.86x | 0.85x | 4 |
+| terminal-bench-2 | 77 | 74.0% | 70.1% | -3.9 | -0.0 | 0.85x | 0.85x | 5 |
+| terminal-bench-pro | 81 | 58.0% | 58.0% | +0.0 | -1.2 | 0.66x | 0.63x | 5 |
+| terminal-bench-pro#2 | 81 | 60.5% | 63.0% | +2.5 | -2.5 | 1.01x | 1.02x | 4 |
+| pooled | 941 | 62.2% | 60.4% | -1.8 | -1.6 | 0.75x | 0.73x | 54 |
 
 Held-out tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 6 | 50.0% | 16.7% | -33.3 | -16.7 | 0.56x | 0.56x | 3 |
-| skillsbench | 3 | 66.7% | 33.3% | -33.3 | -0.0 | 0.60x | 0.62x | 0 |
-| swe-bench-verified | 51 | 78.4% | 66.7% | -11.8 | -0.0 | 0.74x | 0.72x | 0 |
-| swe-rebench-leaderboard | 37 | 62.2% | 67.6% | +5.4 | -0.0 | 0.75x | 0.73x | 0 |
-| swe-rebench-leaderboard#2 | 29 | 69.0% | 55.2% | -13.8 | -0.0 | 0.68x | 0.65x | 0 |
-| terminal-bench-2 | 13 | 100.0% | 100.0% | +0.0 | -0.0 | 1.05x | 1.30x | 0 |
-| terminal-bench-pro | 9 | 44.4% | 44.4% | +0.0 | -0.0 | 1.18x | 1.19x | 0 |
-| terminal-bench-pro#2 | 7 | 42.9% | 57.1% | +14.3 | -0.0 | 3.17x | 3.98x | 0 |
-| pooled | 155 | 69.7% | 63.2% | -6.5 | -0.6 | 0.77x | 0.75x | 3 |
+| harbor-index-1.0 | 9 | 11.1% | 11.1% | +0.0 | -0.0 | 0.47x | 0.46x | 6 |
+| skillsbench | 8 | 25.0% | 50.0% | +25.0 | -0.0 | 0.59x | 0.59x | 2 |
+| swe-bench-verified | 80 | 80.0% | 68.8% | -11.2 | -3.8 | 0.77x | 0.75x | 6 |
+| swe-rebench-leaderboard | 51 | 54.9% | 52.9% | -2.0 | -7.8 | 0.59x | 0.60x | 7 |
+| swe-rebench-leaderboard#2 | 52 | 59.6% | 51.9% | -7.7 | -1.9 | 0.67x | 0.66x | 3 |
+| terminal-bench-2 | 27 | 81.5% | 63.0% | -18.5 | -18.5 | 0.23x | 0.21x | 8 |
+| terminal-bench-pro | 14 | 64.3% | 50.0% | -14.3 | -14.3 | 0.89x | 0.91x | 4 |
+| terminal-bench-pro#2 | 14 | 78.6% | 64.3% | -14.3 | -7.1 | 0.92x | 0.93x | 2 |
+| pooled | 255 | 65.9% | 57.6% | -8.2 | -6.3 | 0.57x | 0.55x | 38 |
 
-### logistic regression, loss budget 0 points: check at 20, 30, 45, 60 min, stop if P(pass) < 0.19
+### logistic regression, loss budget 0 points: check once at 60 min, stop if P(pass) < 0.12
 
 Cross-validation tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 19 | 5.3% | 0.0% | -5.3 | -0.0 | 0.37x | 0.34x | 8 |
-| skillsbench | 24 | 33.3% | 37.5% | +4.2 | -0.0 | 1.01x | 1.01x | 3 |
-| swe-bench-verified | 212 | 69.8% | 73.1% | +3.3 | -0.0 | 0.73x | 0.71x | 0 |
-| swe-rebench-leaderboard | 117 | 56.4% | 56.4% | +0.0 | -0.0 | 0.76x | 0.75x | 0 |
-| swe-rebench-leaderboard#2 | 89 | 56.2% | 53.9% | -2.2 | -0.0 | 0.84x | 0.83x | 1 |
-| terminal-bench-2 | 56 | 73.2% | 64.3% | -8.9 | -0.0 | 0.85x | 0.85x | 6 |
-| terminal-bench-pro | 52 | 67.3% | 63.5% | -3.8 | -0.0 | 0.76x | 0.72x | 0 |
-| terminal-bench-pro#2 | 54 | 66.7% | 68.5% | +1.9 | -0.0 | 1.23x | 1.26x | 1 |
-| pooled | 623 | 61.8% | 61.6% | -0.2 | -0.0 | 0.78x | 0.76x | 19 |
+| harbor-index-1.0 | 32 | 12.5% | 9.4% | -3.1 | -0.0 | 0.68x | 0.66x | 5 |
+| skillsbench | 33 | 27.3% | 24.2% | -3.0 | -0.0 | 0.91x | 0.89x | 7 |
+| swe-bench-verified | 373 | 70.0% | 70.8% | +0.8 | -0.0 | 0.82x | 0.81x | 0 |
+| swe-rebench-leaderboard | 130 | 58.5% | 57.7% | -0.8 | -0.0 | 0.75x | 0.74x | 0 |
+| swe-rebench-leaderboard#2 | 134 | 61.2% | 58.2% | -3.0 | -0.0 | 0.90x | 0.89x | 0 |
+| terminal-bench-2 | 77 | 74.0% | 70.1% | -3.9 | -0.0 | 0.95x | 0.96x | 1 |
+| terminal-bench-pro | 81 | 58.0% | 59.3% | +1.2 | -0.0 | 0.91x | 0.90x | 0 |
+| terminal-bench-pro#2 | 81 | 60.5% | 65.4% | +4.9 | -0.0 | 1.28x | 1.31x | 0 |
+| pooled | 941 | 62.2% | 62.0% | -0.2 | -0.0 | 0.85x | 0.84x | 13 |
 
 Held-out tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 6 | 50.0% | 16.7% | -33.3 | -16.7 | 0.40x | 0.39x | 4 |
-| skillsbench | 3 | 66.7% | 33.3% | -33.3 | -0.0 | 0.60x | 0.62x | 0 |
-| swe-bench-verified | 51 | 78.4% | 66.7% | -11.8 | -0.0 | 0.74x | 0.72x | 0 |
-| swe-rebench-leaderboard | 37 | 62.2% | 67.6% | +5.4 | -0.0 | 0.75x | 0.73x | 0 |
-| swe-rebench-leaderboard#2 | 29 | 69.0% | 55.2% | -13.8 | -0.0 | 0.68x | 0.65x | 0 |
-| terminal-bench-2 | 13 | 100.0% | 100.0% | +0.0 | -0.0 | 1.05x | 1.30x | 0 |
-| terminal-bench-pro | 9 | 44.4% | 44.4% | +0.0 | -0.0 | 1.18x | 1.19x | 0 |
-| terminal-bench-pro#2 | 7 | 42.9% | 57.1% | +14.3 | -0.0 | 3.17x | 3.98x | 0 |
-| pooled | 155 | 69.7% | 63.2% | -6.5 | -0.6 | 0.75x | 0.73x | 4 |
+| harbor-index-1.0 | 9 | 11.1% | 11.1% | +0.0 | -0.0 | 0.84x | 0.84x | 2 |
+| skillsbench | 8 | 25.0% | 50.0% | +25.0 | -0.0 | 0.89x | 0.90x | 1 |
+| swe-bench-verified | 80 | 80.0% | 72.5% | -7.5 | -0.0 | 0.89x | 0.88x | 0 |
+| swe-rebench-leaderboard | 51 | 54.9% | 60.8% | +5.9 | -0.0 | 0.78x | 0.78x | 0 |
+| swe-rebench-leaderboard#2 | 52 | 59.6% | 53.8% | -5.8 | -0.0 | 0.75x | 0.74x | 0 |
+| terminal-bench-2 | 27 | 81.5% | 81.5% | +0.0 | -0.0 | 0.72x | 0.71x | 0 |
+| terminal-bench-pro | 14 | 64.3% | 64.3% | +0.0 | -0.0 | 1.90x | 2.03x | 0 |
+| terminal-bench-pro#2 | 14 | 78.6% | 71.4% | -7.1 | -0.0 | 0.98x | 0.99x | 0 |
+| pooled | 255 | 65.9% | 63.9% | -2.0 | -0.0 | 0.83x | 0.82x | 3 |
 
-### logistic regression, loss budget 2 points: check once at 30 min, stop if P(pass) < 0.56
+### logistic regression, loss budget 2 points: check at 10, 15, 20, 30, 45, 60 min, stop if P(pass) < 0.31
 
 Cross-validation tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 19 | 5.3% | 0.0% | -5.3 | -0.0 | 0.47x | 0.44x | 7 |
-| skillsbench | 24 | 33.3% | 37.5% | +4.2 | -0.0 | 0.75x | 0.74x | 4 |
-| swe-bench-verified | 212 | 69.8% | 72.2% | +2.4 | -0.9 | 0.69x | 0.67x | 7 |
-| swe-rebench-leaderboard | 117 | 56.4% | 54.7% | -1.7 | -1.7 | 0.65x | 0.63x | 10 |
-| swe-rebench-leaderboard#2 | 89 | 56.2% | 50.6% | -5.6 | -3.4 | 0.73x | 0.72x | 7 |
-| terminal-bench-2 | 56 | 73.2% | 57.1% | -16.1 | -7.1 | 0.63x | 0.62x | 10 |
-| terminal-bench-pro | 52 | 67.3% | 63.5% | -3.8 | -0.0 | 0.73x | 0.69x | 1 |
-| terminal-bench-pro#2 | 54 | 66.7% | 68.5% | +1.9 | -0.0 | 1.17x | 1.19x | 1 |
-| pooled | 623 | 61.8% | 59.9% | -1.9 | -1.8 | 0.69x | 0.67x | 47 |
+| harbor-index-1.0 | 32 | 12.5% | 6.2% | -6.2 | -3.1 | 0.23x | 0.21x | 18 |
+| skillsbench | 33 | 27.3% | 15.2% | -12.1 | -9.1 | 0.30x | 0.27x | 18 |
+| swe-bench-verified | 373 | 70.0% | 70.0% | +0.0 | -0.8 | 0.80x | 0.79x | 4 |
+| swe-rebench-leaderboard | 130 | 58.5% | 56.9% | -1.5 | -0.8 | 0.65x | 0.63x | 6 |
+| swe-rebench-leaderboard#2 | 134 | 61.2% | 55.2% | -6.0 | -3.0 | 0.78x | 0.77x | 9 |
+| terminal-bench-2 | 77 | 74.0% | 64.9% | -9.1 | -5.2 | 0.44x | 0.42x | 15 |
+| terminal-bench-pro | 81 | 58.0% | 58.0% | +0.0 | -1.2 | 0.87x | 0.85x | 2 |
+| terminal-bench-pro#2 | 81 | 60.5% | 64.2% | +3.7 | -1.2 | 1.10x | 1.12x | 3 |
+| pooled | 941 | 62.2% | 60.0% | -2.1 | -1.9 | 0.70x | 0.68x | 75 |
 
 Held-out tasks:
 
 | benchmark | pairs | a1 pass | a4 pass (rule) | a4 - a1 (pts) | lost by rule (pts) | time ratio | agent-time ratio | a4 stopped |
 |---|---|---|---|---|---|---|---|---|
-| harbor-index-1.0 | 6 | 50.0% | 16.7% | -33.3 | -16.7 | 0.56x | 0.56x | 3 |
-| skillsbench | 3 | 66.7% | 33.3% | -33.3 | -0.0 | 0.60x | 0.62x | 0 |
-| swe-bench-verified | 51 | 78.4% | 66.7% | -11.8 | -0.0 | 0.69x | 0.66x | 1 |
-| swe-rebench-leaderboard | 37 | 62.2% | 62.2% | +0.0 | -5.4 | 0.59x | 0.57x | 4 |
-| swe-rebench-leaderboard#2 | 29 | 69.0% | 48.3% | -20.7 | -6.9 | 0.55x | 0.54x | 4 |
-| terminal-bench-2 | 13 | 100.0% | 100.0% | +0.0 | -0.0 | 1.05x | 1.30x | 0 |
-| terminal-bench-pro | 9 | 44.4% | 33.3% | -11.1 | -11.1 | 0.75x | 0.73x | 1 |
-| terminal-bench-pro#2 | 7 | 42.9% | 57.1% | +14.3 | -0.0 | 3.17x | 3.98x | 0 |
-| pooled | 155 | 69.7% | 60.0% | -9.7 | -3.9 | 0.65x | 0.64x | 13 |
+| harbor-index-1.0 | 9 | 11.1% | 11.1% | +0.0 | -0.0 | 0.22x | 0.21x | 6 |
+| skillsbench | 8 | 25.0% | 25.0% | +0.0 | -25.0 | 0.43x | 0.41x | 4 |
+| swe-bench-verified | 80 | 80.0% | 71.2% | -8.8 | -1.2 | 0.84x | 0.82x | 1 |
+| swe-rebench-leaderboard | 51 | 54.9% | 56.9% | +2.0 | -3.9 | 0.67x | 0.68x | 3 |
+| swe-rebench-leaderboard#2 | 52 | 59.6% | 48.1% | -11.5 | -5.8 | 0.60x | 0.58x | 3 |
+| terminal-bench-2 | 27 | 81.5% | 63.0% | -18.5 | -18.5 | 0.23x | 0.21x | 9 |
+| terminal-bench-pro | 14 | 64.3% | 57.1% | -7.1 | -7.1 | 1.66x | 1.77x | 2 |
+| terminal-bench-pro#2 | 14 | 78.6% | 71.4% | -7.1 | -0.0 | 0.98x | 0.99x | 0 |
+| pooled | 255 | 65.9% | 58.4% | -7.5 | -5.5 | 0.59x | 0.57x | 28 |
 
 ## Caveats
 
-- One night of sessions; a task's attempts and arms are correlated, which is why splits are by task. The held-out check is on about a fifth of the tasks, so its numbers are noisy (one pass is 0.65 points there).
+- One night of sessions; a task's attempts and arms are correlated, which is why splits are by task. The held-out check is on about a fifth of the tasks, so its numbers are noisy (one pass is 0.39 points there).
 - Policies are chosen among many (6 single checkpoints, 5 every-checkpoint starts, 60 thresholds, per model) on the cross-validated numbers; the held-out row is the honest check of that choice.
 - Tests, file changes and error types are read from command text and output with simple patterns (cutoff_features.py); they are approximate.
 - Stopping a session also frees its Qwen server earlier; this estimate counts only the session's own time.
@@ -382,7 +382,6 @@ Held-out tasks:
 ## Sessions left out
 
 - /raid/work/jeff-first/eval-tonight/runs/a1-baseline/benchflow.skillsbench.bike-rebalance/attempt1: no reward (pi output unreadable: bike-rebalance__3wnzDn7 has no agent/pi.txt, so its JeffFirst errors cannot be checked)
-- /raid/work/jeff-first/eval-tonight/runs/a1-baseline/extract-moves-from-video/attempt1: no reward (NonZeroAgentExitCodeError: Command failed (exit 137): . ~/.nvm/nvm.sh; PI_CODING_AGENT_DIR=/tmp/harbor-pi-agent pi --print --mode json --session-dir /logs/agent/pi/sessions --provider harbo
 - /raid/work/jeff-first/eval-tonight/runs/a1-baseline/swe-rebench.swe-rebench-leaderboard.ipython__ipython-14693/attempt1: no reward (pi output unreadable: ipython__ipython-14693__jdJP44r has no agent/pi.txt, so its JeffFirst errors cannot be checked)
 - /raid/work/jeff-first/eval-tonight/runs/a1-baseline/swe-rebench.swe-rebench-leaderboard.sympy__sympy-28660/attempt1: no reward (pi output unreadable: 'utf-8' codec can't decode bytes in position 1462270-1462271: unexpected end of data)
 - /raid/work/jeff-first/eval-tonight/runs/a1-baseline/terminal-bench-pro.terminal-bench-pro.implement-portfolio-optimization-engine/attempt1: no reward (AgentTimeoutError)
@@ -402,45 +401,46 @@ Held-out tasks:
 - /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/benchflow.skillsbench.bike-rebalance/attempt1: no reward (pi output unreadable: bike-rebalance__LAw22BC has no agent/pi.txt, so its JeffFirst errors cannot be checked)
 - /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/swe-bench.swe-bench-verified.django__django-16569/attempt1: no reward (pi output unreadable: django__django-16569__VnREVrr has no agent/pi.txt, so its JeffFirst errors cannot be checked)
 - /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/swe-bench.swe-bench-verified.pylint-dev__pylint-4604/attempt1: no reward (0 result.json files)
+- /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/swe-bench.swe-bench-verified.sphinx-doc__sphinx-9602/attempt1: no reward (AgentTimeoutError)
 - /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/swe-rebench.swe-rebench-leaderboard.astropy__astropy-17822/attempt1: no reward (pi output unreadable: astropy__astropy-17822__QKS8Zva has no agent/pi.txt, so its JeffFirst errors cannot be checked)
 - /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/terminal-bench-pro.terminal-bench-pro.implement-portfolio-optimization-engine/attempt2: no reward (AgentTimeoutError)
 - /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/terminal-bench-pro.terminal-bench-pro.optimize-triton-rope-kernel/attempt2: no reward (pi output unreadable: optimize-triton-rope-kernel__TWeBRwm has no agent/pi.txt, so its JeffFirst errors cannot be checked)
 - /raid/work/jeff-first/eval-tonight/runs/a4-jeff06/torch-pipeline-parallelism/attempt2r: no reward (VerifierTimeoutError: Verifier execution timed out after 900.0 seconds)
-- block b039: no usable a1-baseline session
+- /home/mstrasser/jeff-first/eval-tonight/runs/a1-baseline/benchflow.skillsbench.seismic-phase-picking/attempt1: no reward (pi output unreadable: seismic-phase-picking__S3Vjmrr has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a1-baseline/compile-compcert/attempt3: no reward (AgentTimeoutError)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a1-baseline/llm-inference-batching-scheduler/attempt2: no reward (pi output unreadable: llm-inference-batching-scheduler__NNP9RNG has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a1-baseline/swe-bench.swe-bench-verified.scikit-learn__scikit-learn-14710/attempt1: no reward (VerifierTimeoutError: Verifier execution timed out after 3000.0 seconds)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a1-baseline/terminal-bench-pro.terminal-bench-pro.benchmark-gcc-opt-levels/attempt1: no reward (0 result.json files)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a1-baseline/terminal-bench-pro.terminal-bench-pro.optimize-portfolio-allocation/attempt2: no reward (pi output unreadable: optimize-portfolio-allocation__uVCJ5rV has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a2-off-guard/benchflow.skillsbench.seismic-phase-picking/attempt1: no reward (pi output unreadable: seismic-phase-picking__B4LZBdg has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a2-off-guard/constraints-scheduling/attempt2: no reward (pi output unreadable: constraints-scheduling__SjyZAXC has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a2-off-guard/hf-model-inference/attempt2: no reward (0 result.json files)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a2-off-guard/swe-rebench.swe-rebench-leaderboard.stanfordnlp__dspy-8890/attempt2: no reward (AgentTimeoutError)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a2-off-guard/terminal-bench-pro.terminal-bench-pro.implement-depgraph-dependency-resolver/attempt2: no reward (AgentTimeoutError)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a2-off-guard/terminal-bench-pro.terminal-bench-pro.mcts-solver-for-15-puzzle/attempt1: no reward (pi output unreadable: mcts-solver-for-15-puzzle__jGheqF6 has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a3-jeff07/benchflow.skillsbench.seismic-phase-picking/attempt1: no reward (pi output unreadable: seismic-phase-picking__Kd5xg5Q has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a4-jeff06/benchflow.skillsbench.seismic-phase-picking/attempt1: no reward (pi output unreadable: seismic-phase-picking__3UwL28D has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a4-jeff06/terminal-bench-pro.terminal-bench-pro.fix-numpy-einsum-optimize-compatibility/attempt1: no reward (pi output unreadable: fix-numpy-einsum-optimize-compat__4755US4 has no agent/pi.txt, so its JeffFirst errors cannot be checked)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a4-jeff06/terminal-bench-pro.terminal-bench-pro.implement-depgraph-dependency-resolver/attempt2: no reward (AgentTimeoutError)
+- /home/mstrasser/jeff-first/eval-tonight/runs/a4-jeff06/terminal-bench-pro.terminal-bench-pro.train-fasttext-style-subword-embeddings/attempt1: no reward (AgentTimeoutError)
+- block b075: no usable a1-baseline session
 - block b086: no usable a1-baseline session
+- block b110: no usable a1-baseline session
+- block h5-006: no usable a1-baseline session
+- block h5-008: no usable a4-jeff06 session
 - block h5-084: no usable a1-baseline session
+- block h5-086: no usable a4-jeff06 session
 - block s0-083: no usable a1-baseline session
 - block s0-101: no usable a4-jeff06 session
 - block s0-108: no usable a1-baseline session
+- block t2-007: no usable a1-baseline session
+- block t2-039: no usable a4-jeff06 session
 - block t2-077: no usable a4-jeff06 session
 - block v-027: no usable a4-jeff06 session
 - block v-046: no usable a4-jeff06 session
-- block v-195: no usable a4-jeff06 session
-- block v-214: no usable a4-jeff06 session
-- block v-220: no usable a1-baseline session
-- block v-241: no usable a4-jeff06 session
-- block v-278: no usable a1-baseline session
-- block v-291: no usable a1-baseline session
 - block v-295: no usable a4-jeff06 session
-- block v-316: no usable a1-baseline session
-- block v-348: no usable a4-jeff06 session
 - block v-356: no usable a1-baseline session
-- block v-358: no usable a4-jeff06 session
-- block v-387: no usable a1-baseline session
-- block v-390: no usable a4-jeff06 session
-- block v-391: no usable a1-baseline session
-- block v-414: no usable a1-baseline session
-- block v-415: no usable a1-baseline session
-- block v-420: no usable a4-jeff06 session
-- block v-428: no usable a4-jeff06 session
-- block v-431: no usable a4-jeff06 session
+- block v-411: no usable a1-baseline session
+- block v-426: no usable a4-jeff06 session
 - block v-441: no usable a1-baseline session
-- block v-449: no usable a1-baseline session
-- block v-454: no usable a1-baseline session
-- block v-457: no usable a1-baseline session
-- block v-465: no usable a4-jeff06 session
-- block v-467: no usable a1-baseline session
-- block v-473: no usable a1-baseline session
-- block v-476: no usable a1-baseline session
-- block v-484: no usable a1-baseline session
-- block v-487: no usable a1-baseline session
+- block v-456: no usable a1-baseline session

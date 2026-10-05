@@ -7,7 +7,8 @@ a4-jeff06 against a1-baseline, and how many passes does it lose?
 Inputs: per-session lines of eval_units.py (eval_summary.sh) and per-session checkpoint features of
 cutoff_features.py, both from every host; results/imitation/task-sets-inventory.json for each task's agent time limit.
 
-Sessions used: finished, not superseded, not cut, with a reward, in the pooled benchmarks (all but terminal-bench and
+Sessions used: finished, not superseded, not cut, not in a block where any session was killed by the system (error
+"Command failed (exit 137)"), with a reward, in the pooled benchmarks (all but terminal-bench and
 terminal-bench-science; the task excluded by eval_report.py stays excluded). Models train on sessions of all four
 arms. A row is one session at one checkpoint it was still running at; the label is whether the session finally
 passed (reward 1).
@@ -54,6 +55,7 @@ L2 = 1.0
 THRESHOLDS = tuple(round(0.01 * i, 2) for i in range(1, 61))
 BUDGETS = (0.0, 2.0)  # pass loss in points
 TURN_BINS = (0, 5, 10, 20, 30, 45, 70, 100, 150)
+KILLED = "Command failed (exit 137)"
 INVENTORY = Path(__file__).resolve().parent.parent / "task-sets-inventory.json"
 
 LOG_FEATURES = (
@@ -118,6 +120,9 @@ def load(unit_paths: list[str], feature_paths: list[str]) -> tuple[list[dict], l
     left_out: list[tuple[str, str]] = []
     sessions = []
     seen = set()
+    # Blocks where any session was killed by the system (exit 137, out of memory): every session of the block is left
+    # out, so the arms of a block stay comparable.
+    killed = {u["pair_block"] for u in units if u.get("pair_block") and KILLED in (u.get("error") or "")}
     for u in units:
         if u["folder"] in seen:
             raise ValueError(f"session listed twice: {u['folder']}")
@@ -132,6 +137,9 @@ def load(unit_paths: list[str], feature_paths: list[str]) -> tuple[list[dict], l
             continue
         if u["state"] != "finished":
             skipped[f"state {u['state']}"] += 1
+            continue
+        if u["pair_block"] in killed:
+            skipped["block with a session killed by the system (exit 137)"] += 1
             continue
         if u["benchmark"] in NOT_POOLED:
             skipped[f"benchmark {u['benchmark']} (not pooled)"] += 1
