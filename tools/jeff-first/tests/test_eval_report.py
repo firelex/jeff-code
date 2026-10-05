@@ -4,6 +4,10 @@ import math
 import pytest
 
 from eval_report import (
+    Comparison,
+    Interval,
+    headline_summary,
+    verdict,
     bootstrap_interval,
     error_kind,
     exit_code,
@@ -243,3 +247,35 @@ def test_load_takes_every_session_of_a_block_with_a_killed_session_out(tmp_path)
     data = load([str(path)])
     assert [r["folder"] for r in data.active] == ["f3"]
     assert sorted(r["folder"] for r in data.killed_blocks) == ["f1", "f2"]
+
+
+def comparison(all_geo, all_hi, total, total_lo, diff_lo):
+    names = ["diff", "all_geo", "all_median", "total_wall", "bs_total", "bs_geo"]
+    point = dict.fromkeys(names, 0.9)
+    point.update({"diff": 0.0, "all_geo": all_geo, "all_median": all_geo, "total_wall": total})
+    intervals = {n: Interval(0.8, 1.0, 0) for n in names}
+    intervals.update(
+        {"diff": Interval(diff_lo, 0.03, 0), "all_geo": Interval(all_geo - 0.05, all_hi, 0), "total_wall": Interval(total_lo, total + 0.2, 0)}
+    )
+    totals = {"n": 200, "base_only": 5, "arm_only": 5, "bs_n": 100}
+    return Comparison(arm="a4-jeff06", pairs=[], totals=totals, point=point, intervals=intervals)
+
+
+def test_verdict_speed_half_uses_the_per_task_geometric_mean_not_the_total():
+    assert "MEETS the target" in verdict(comparison(0.62, 0.70, 1.10, 0.9, -0.03), "a4-jeff06")
+    assert "does NOT meet" in verdict(comparison(0.90, 0.95, 0.60, 0.5, -0.03), "a4-jeff06")
+    assert "does NOT meet" in verdict(comparison(0.62, 0.70, 0.60, 0.5, -0.08), "a4-jeff06")
+
+
+def test_headline_summary_explains_a_total_above_the_per_task_mean():
+    rows = [
+        row("a1-baseline", "b1", 1.0, 100.0),
+        row("a4-jeff06", "b1", 1.0, 50.0),
+        row("a1-baseline", "b2", 0.0, 100.0, task="t2"),
+        row("a4-jeff06", "b2", 0.0, 1000.0, task="t2"),
+    ]
+    pairs, _ = pair_up(rows, "a4-jeff06")
+    c = comparison(0.62, 0.70, 1.10, 0.9, -0.03)
+    c.pairs = pairs
+    text = headline_summary(c)
+    assert "geometric mean" in text and "a few long sessions" in text and "t2" in text
