@@ -57,13 +57,14 @@ def pct(values: list[int], q: float) -> int:
 
 def section(planned: int, all_rows: list[dict]) -> None:
     superseded = [r for r in all_rows if r.get("superseded")]
-    rows = [r for r in all_rows if not r.get("superseded")]
+    cut = [r for r in all_rows if r.get("cut")]
+    rows = [r for r in all_rows if not r.get("superseded") and not r.get("cut")]
     by_arm = defaultdict(list)
     for r in rows:
         by_arm[r["arm"]].append(r)
     print(
         f"planned sessions: {planned} ({planned // 4} per arm); started {len(all_rows)}; "
-        f"left out as before the Jeff capacity fix (rerun): {len(superseded)}"
+        f"left out as before the Jeff capacity fix (rerun): {len(superseded)}; left out as cut when the B200 stopped: {len(cut)}"
     )
     header = (
         "arm | finished | running | passed | pass rate | wall s median/mean | Qwen gen s/session | turns/session | "

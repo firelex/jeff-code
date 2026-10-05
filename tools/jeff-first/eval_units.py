@@ -106,6 +106,11 @@ def unit(folder: Path) -> dict:
     row: dict = {"arm": arm, "task": task, "attempt": attempt, "folder": str(folder), "benchmark": benchmark_of(folder)}
     superseded = folder / "superseded.txt"
     row["superseded"] = superseded.read_text().strip() if superseded.exists() else None
+    cut_note = folder / "cut.txt"
+    row["cut"] = cut_note.read_text().strip() if cut_note.exists() else None
+    if row["cut"]:
+        row["state"] = "cut"
+        return row
     meta_path = folder / "meta.json"
     if not meta_path.exists():
         row["state"] = "running"

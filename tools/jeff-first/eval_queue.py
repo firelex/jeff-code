@@ -18,6 +18,8 @@ followon writes follow-on queues (QUEUE_NAME-HOST.json): for each benchmark in t
         the benchmark named by --first-block-of into a one-block queue (queue-check-HOST.json) for a check run.
 finish  records a session's end (its run_phase0.sh exit status); prints "complete" when it was the block's last session.
 rerun   (see eval_rerun.py) blocks may hold fewer arms and carry server_pin: such a block opens only on that server.
+close   no session of the queue starts at or after TIME (claims then exit 4).
+cut     marks the queue's still-running sessions as cut (status LABEL, cut.txt in the folder) and prints their folders.
 upcoming prints the tasks of the next N blocks not yet started, one per line (for image prefetching).
 take-unfit removes the unstarted blocks whose longest possible session no longer ends by --deadline and prints them as
         JSON (to append them to the other host's queue).
@@ -185,6 +187,33 @@ def followon(args: argparse.Namespace) -> None:
         print(f"{path}: {len(qblocks)} blocks {counts}")
 
 
+def close(args: argparse.Namespace) -> None:
+    queue = Locked(args.queue)
+    with queue as state:
+        dt.datetime.fromisoformat(args.time)  # must parse
+        state["no_starts_after"] = args.time
+        queue.save()
+        print(f"{args.queue}: no session starts at or after {args.time}")
+
+
+def cut(args: argparse.Namespace) -> None:
+    """Marks every session of the queue that is still running (no finish recorded) as cut: status LABEL in the queue
+    and cut.txt in its folder (EVAL_DIR/runs/ARM/TASK/attemptK), so the summary leaves it out. Prints the folders."""
+    queue = Locked(args.queue)
+    with queue as state:
+        for b in state["blocks"]:
+            for arm, unit in b["units"].items():
+                if unit["finished"] is not None:
+                    continue
+                folder = Path(args.eval_dir) / "runs" / arm / b["task"].replace("/", ".").replace(":", ".") / f"attempt{b['attempt']}"
+                if not folder.is_dir():
+                    raise SystemExit(f"{folder} missing for running {b['block']} {arm}")
+                (folder / "cut.txt").write_text(f"{args.label}: still running when the B200 runs were stopped\n")
+                unit.update(finished=now().isoformat(), status=args.label)
+                print(folder)
+        queue.save()
+
+
 def upcoming(args: argparse.Namespace) -> None:
     state = json.loads(Path(args.queue).read_text())
     for b in [b for b in state["blocks"] if b["server"] is None][: args.n]:
@@ -228,6 +257,8 @@ def claim(args: argparse.Namespace) -> int:
     with queue as state:
         deadline = dt.datetime.fromisoformat(args.deadline) if args.deadline else None
         t = now()
+        if state.get("no_starts_after") and t >= dt.datetime.fromisoformat(state["no_starts_after"]):
+            return 4  # the queue is closed for new sessions (eval_queue.py close)
 
         def fits(task: str) -> bool:
             if deadline is None:
@@ -336,6 +367,13 @@ def main() -> None:
     o.add_argument("--queue-name", required=True, help="output files QUEUE_NAME-HOST.json, e.g. queue2")
     o.add_argument("--first-block-to")
     o.add_argument("--first-block-of")
+    cl = sub.add_parser("close")
+    cl.add_argument("queue")
+    cl.add_argument("time")
+    cu = sub.add_parser("cut")
+    cu.add_argument("queue")
+    cu.add_argument("eval_dir")
+    cu.add_argument("label")
     u = sub.add_parser("upcoming")
     u.add_argument("queue")
     u.add_argument("n", type=int)
@@ -361,6 +399,10 @@ def main() -> None:
         sys.exit(claim(args))
     elif args.command == "followon":
         followon(args)
+    elif args.command == "close":
+        close(args)
+    elif args.command == "cut":
+        cut(args)
     elif args.command == "upcoming":
         upcoming(args)
     elif args.command == "take-unfit":
