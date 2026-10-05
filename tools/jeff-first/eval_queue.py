@@ -259,6 +259,13 @@ def claim(args: argparse.Namespace) -> int:
         t = now()
         if state.get("no_starts_after") and t >= dt.datetime.fromisoformat(state["no_starts_after"]):
             return 4  # the queue is closed for new sessions (eval_queue.py close)
+        cap_file = Path(args.queue).parent / "streams-per-server"
+        if cap_file.exists():
+            # A cap on concurrent sessions per Qwen server: stream ...-sK with K above it takes nothing (it ends after
+            # its current session), so the host runs at most cap x servers sessions.
+            k = int(args.stream.rsplit("-s", 1)[1])
+            if k > int(cap_file.read_text().strip()):
+                return 4
 
         def fits(task: str) -> bool:
             if deadline is None:
