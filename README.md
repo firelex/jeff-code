@@ -43,7 +43,7 @@ switched off, thinking at full on every turn and no thinking limit, which is how
 | **Pass rate** | 62.4% vs 62.8%; paired difference −0.2 points (95% interval −2.6 to +2.1), 1,242 paired tasks |
 | **Time per task, on average** | **0.68×** (0.64-0.72; geometric mean of per-task time ratios), median 0.70× |
 | **Total time, all tasks combined** | 0.86× (0.80-0.93) |
-| **Per benchmark** | SWE-bench Verified 0.63×, SWE-rebench 0.63× and 0.70× (two rounds), Terminal-Bench Pro 0.63× and 0.66×, Harbor Index 0.71×; no clear speed-up on Terminal-Bench 2.0 (0.96×) or SkillsBench (0.91×) |
+| **Per benchmark** | SWE-bench Verified 0.63×, SWE-rebench 0.66×, Terminal-Bench Pro 0.64×, Harbor Index 0.71×; no clear speed-up on Terminal-Bench 2.0 (0.96×) or SkillsBench (0.91×) |
 | **Thinking off on every turn instead** | faster still, but −7.6 points (−10.6 to −4.5); −13.5 on Terminal-Bench 2.0 |
 | **A less cautious Jeff (threshold 0.7)** | −4.5 points |
 
@@ -68,16 +68,14 @@ switched off, thinking at full on every turn and no thinking limit, which is how
 | Benchmark | Paired tasks | Qwen alone | Jeff-Code | Difference, points (95% interval) | Time per task |
 |---|---:|---:|---:|---|---:|
 | SWE-bench Verified | 486 | 70.6% | 70.8% | +0.4 (−3.5 to +4.3) | 0.63× (0.57-0.69) |
-| SWE-rebench, round 1 | 184 | 57.1% | 59.8% | +2.7 (−3.8 to +8.7) | 0.63× (0.55-0.71) |
-| SWE-rebench, round 2 | 186 | 60.8% | 56.5% | −4.3 (−10.2 to +2.2) | 0.70× (0.62-0.80) |
-| Terminal-Bench Pro, round 1 | 98 | 60.6% | 60.2% | 0.0 (−9.2 to +9.2) | 0.63× (0.52-0.77) |
-| Terminal-Bench Pro, round 2 | 97 | 61.9% | 65.3% | +3.1 (−3.1 to +10.3) | 0.66× (0.52-0.83) |
+| SWE-rebench (2 rounds) | 370 | 58.9% | 58.1% | −0.8 (−5.7 to +3.5) | 0.66× (0.61-0.73) |
+| Terminal-Bench Pro (2 rounds) | 195 | 61.2% | 62.8% | +1.5 (−4.6 to +7.7) | 0.64× (0.55-0.76) |
 | Terminal-Bench 2.0 (40 tasks, 3 attempts each) | 108 | 75.9% | 70.0% | −4.6 (−12.1 to +3.7) | 0.96× (0.78-1.16) |
 | SkillsBench | 42 | 28.6% | 31.0% | +2.4 (−11.9 to +16.7) | 0.91× (0.68-1.20) |
 | Harbor Index | 41 | 12.2% | 9.8% | −2.4 (−12.2 to +7.3) | 0.71× (0.51-0.99) |
 | **All six, pooled** | **1,242** | **62.8%** | **62.4%** | **−0.2 (−2.6 to +2.1)** | **0.68× (0.64-0.72)** |
 
-No benchmark shows a clear pass-rate difference: every interval includes zero. Time per task is the geometric mean of
+No benchmark shows a clear pass-rate difference: every interval includes zero. SWE-rebench and Terminal-Bench Pro ran twice; their two rounds are combined, with intervals computed over both. Time per task is the geometric mean of
 the per-task time ratios (Jeff-Code's time divided by Qwen alone's), below 1 is faster. The pass rates count every
 finished session; the difference counts only tasks finished in both settings, so it is not exactly the gap between the
 two pass rates. Terminal-Bench (original) and Terminal-Bench Science also ran, but Qwen alone and Jeff-Code both solve
