@@ -50,8 +50,13 @@ const BARE_FILE_NAME = /^[\w.-]+\.[A-Za-z][A-Za-z0-9]{0,9}$/;
 /** A control character (U+0000-U+001F or U+007F): never part of a real file name, only junk from binary output. */
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 
+/** A URL with a scheme (https://..., git+ssh://...): never a local path, and splitting at its ":" would leave a
+ * "//host/..." token that looks like one (on Windows, a network share path). */
+const SCHEME_URL = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g;
+
 export function candidates(text: string): string[] {
 	return text
+		.replace(SCHEME_URL, " ")
 		.split(TOKEN_SPLIT)
 		.map((token) => token.replace(/\.$/, ""))
 		.filter((token) => !CONTROL_CHAR.test(token))

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { JsonObject } from "@jeffhub/jeff-code-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { liveFacts } from "../src/core/jeff-first/facts.ts";
-import { buildMenu, type MenuInput, type MenuOption, matchToolCall } from "../src/core/jeff-first/menu.ts";
+import { buildMenu, candidates, type MenuInput, type MenuOption, matchToolCall } from "../src/core/jeff-first/menu.ts";
 import type { Step } from "../src/core/jeff-first/transcript.ts";
 
 function step(name: string, args: JsonObject, output: string): Step {
@@ -247,5 +247,16 @@ describe("matchToolCall with folder listings through bash", () => {
 		expect(matchToolCall(options, { name: "bash", arguments: { command: "ls -la | head" } }, cwd)).toEqual({
 			kind: "none",
 		});
+	});
+});
+
+describe("candidates", () => {
+	// Splitting on ":" turned https://github.com/xxx/yyy.git into "https" and "//github.com/xxx/yyy.git", which was
+	// then taken for a path (firelex/jeff-code#1).
+	it("never takes part of a URL for a path", () => {
+		const found = candidates(
+			"remote: https://github.com/xxx/yyy.git (fetch) and git+ssh://host/repo.git, see src/main.ts",
+		);
+		expect(found).toEqual(["src/main.ts"]);
 	});
 });

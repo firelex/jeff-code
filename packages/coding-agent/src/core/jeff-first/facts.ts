@@ -30,12 +30,17 @@ const PATH_SEGMENT_MAX_BYTES = 255;
  * EIO, writing some of them changes the system), never project files. */
 const PSEUDO_FILE_SYSTEMS = ["/proc", "/sys", "/dev"];
 
+/** A path that starts with two slashes or two backslashes: on Windows a network share (\\server\share), which
+ * statSync would try to reach over the network. Never a project file. */
+const NETWORK_PATH = /^(\/\/|\\\\)/;
+
 /** "missing" when nothing exists at the path; undefined for something that exists but is neither a file nor a
- * folder (a socket, a device, anything under /proc, /sys or /dev). */
+ * folder (a socket, a device, anything under /proc, /sys or /dev), and for a network share path. */
 function pathKind(path: string): "file" | "folder" | "missing" | undefined {
 	// No file can be named with a null byte, so such a path is missing, not a fallback.
 	if (path.includes("\u0000")) return "missing";
 	if (PSEUDO_FILE_SYSTEMS.some((root) => path === root || path.startsWith(`${root}/`))) return undefined;
+	if (NETWORK_PATH.test(path)) return undefined;
 	// No file can have a path over 4095 bytes, or a segment (the text between two "/") over 255 bytes: statSync
 	// would throw ENAMETOOLONG for one, so such a path is missing, not a fallback, by the same reasoning as above.
 	if (
